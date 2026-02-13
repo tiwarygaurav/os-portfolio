@@ -4,7 +4,7 @@ import { Send, Paperclip, X, Minimize2, Maximize2 } from 'lucide-react';
 import { useState } from 'react';
 
 export default function ContactApp() {
-    const [form, setForm] = useState({ to: 'alex@example.com', subject: '', message: '' });
+    const [form, setForm] = useState({ to: 'gauravt.nic@gmail.com', subject: '', message: '' });
     const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -13,7 +13,7 @@ export default function ContactApp() {
         setTimeout(() => {
             setStatus('sent');
             setTimeout(() => {
-                setForm({ to: 'alex@example.com', subject: '', message: '' });
+                setForm({ to: 'gauravt.nic@gmail.com', subject: '', message: '' });
                 setStatus('idle');
             }, 2000);
         }, 1500);

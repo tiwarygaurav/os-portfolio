@@ -12,65 +12,69 @@ let audioCtx: AudioContext | null = null;
 
 export const playSound = (type: 'startup' | 'shutdown' | 'click' | 'error' | 'open') => {
     if (!AudioContext) return;
-    if (!audioCtx) audioCtx = new AudioContext();
 
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
+    try {
+        if (!audioCtx) audioCtx = new AudioContext();
 
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
+        // Resume context if suspended (browser policy)
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
 
-    const now = audioCtx.currentTime;
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
 
-    switch (type) {
-        case 'startup':
-            // startup chord
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(220, now);
-            oscillator.frequency.exponentialRampToValueAtTime(440, now + 0.4);
-            oscillator.frequency.exponentialRampToValueAtTime(880, now + 0.8);
-            gainNode.gain.setValueAtTime(0.1, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 2);
-            oscillator.start(now);
-            oscillator.stop(now + 2);
-            break;
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
 
-        case 'shutdown':
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(440, now);
-            oscillator.frequency.exponentialRampToValueAtTime(110, now + 1);
-            gainNode.gain.setValueAtTime(0.1, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1);
-            oscillator.start(now);
-            oscillator.stop(now + 1);
-            break;
+        const now = audioCtx.currentTime;
 
-        case 'click':
-            oscillator.type = 'triangle';
-            oscillator.frequency.setValueAtTime(800, now);
-            gainNode.gain.setValueAtTime(0.05, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-            oscillator.start(now);
-            oscillator.stop(now + 0.1);
-            break;
+        switch (type) {
+            case 'startup':
+                const audio = new Audio('/sounds/startup.mp3');
+                audio.volume = 0.5;
+                audio.play().catch(e => console.error("Audio play failed", e));
+                break;
 
-        case 'error':
-            oscillator.type = 'sawtooth';
-            oscillator.frequency.setValueAtTime(150, now);
-            gainNode.gain.setValueAtTime(0.1, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-            oscillator.start(now);
-            oscillator.stop(now + 0.3);
-            break;
+            case 'shutdown':
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(440, now);
+                oscillator.frequency.exponentialRampToValueAtTime(110, now + 1);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1);
+                oscillator.start(now);
+                oscillator.stop(now + 1);
+                break;
 
-        case 'open':
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(600, now);
-            oscillator.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
-            gainNode.gain.setValueAtTime(0.05, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-            oscillator.start(now);
-            oscillator.stop(now + 0.2);
-            break;
+            case 'click':
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(800, now);
+                gainNode.gain.setValueAtTime(0.05, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+                break;
+
+            case 'error':
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(150, now);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+                break;
+
+            case 'open':
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(600, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+                gainNode.gain.setValueAtTime(0.05, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+                break;
+        }
+    } catch (e) {
+        console.error("Sound error:", e);
     }
 };

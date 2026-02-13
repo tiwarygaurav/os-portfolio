@@ -6,7 +6,9 @@ import {
     Mail,
     TerminalSquare,
     Trash2,
-    Gamepad2
+    Gamepad2,
+    Headphones,
+    PenTool
 } from 'lucide-react';
 
 export interface AppConfig {
@@ -17,6 +19,7 @@ export interface AppConfig {
     width?: number;
     height?: number;
     canMaximize?: boolean;
+    iconAsset?: string; // Path to image file (e.g. '/icons/mycomputer.png')
 }
 
 export const APPS: Record<string, AppConfig> = {
@@ -76,6 +79,22 @@ export const APPS: Record<string, AppConfig> = {
         height: 400,
         canMaximize: false,
     },
+    music: {
+        id: 'music',
+        title: 'Music Player',
+        icon: Headphones,
+        width: 350,
+        height: 450,
+        canMaximize: false,
+    },
+    paint: {
+        id: 'paint',
+        title: 'Paint',
+        icon: PenTool,
+        width: 800,
+        height: 600,
+        canMaximize: true,
+    },
 };
 
 export const DESKTOP_ICONS = [
@@ -84,6 +103,8 @@ export const DESKTOP_ICONS = [
     'skills',
     'resume',
     'contact',
+    'music',
+    'paint',
     'terminal',
     'trash',
 ];

@@ -13,6 +13,8 @@ import SkillsApp from '@/components/apps/SkillsApp';
 import ContactApp from '@/components/apps/ContactApp';
 import TerminalApp from '@/components/apps/TerminalApp';
 import ResumeApp from '@/components/apps/ResumeApp';
+import MusicPlayerApp from '@/components/apps/MusicPlayerApp';
+import PaintApp from '@/components/apps/PaintApp';
 
 // Mapping for dynamic rendering
 const APP_COMPONENTS: Record<string, any> = {
@@ -22,6 +24,8 @@ const APP_COMPONENTS: Record<string, any> = {
     contact: ContactApp,
     terminal: TerminalApp,
     resume: ResumeApp,
+    music: MusicPlayerApp,
+    paint: PaintApp,
 };
 
 interface WindowProps {
@@ -50,26 +54,27 @@ export default function Window({ window }: WindowProps) {
             dragMomentum={false}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{
-                scale: window.isMaximized ? 1 : 1,
-                opacity: 1,
                 width: window.isMaximized ? '100%' : window.size.width,
                 height: window.isMaximized ? 'calc(100% - 40px)' : window.size.height,
                 x: window.isMaximized ? 0 : window.position.x,
                 y: window.isMaximized ? 0 : window.position.y,
                 top: window.isMaximized ? 0 : undefined,
-                left: window.isMaximized ? 0 : undefined
+                left: window.isMaximized ? 0 : undefined,
+                opacity: 1,
+                scale: 1,
             }}
             style={{
                 position: 'absolute',
                 zIndex: window.zIndex
             }}
             className={`
-        flex flex-col bg-win-gray shadow-2xl rounded-t-lg overflow-hidden border border-blue-800
-        ${isActive ? 'ring-1 ring-blue-400/50' : 'opacity-95'}
+        flex flex-col shadow-2xl overflow-hidden
+        ${window.isMaximized ? '' : 'rounded-t-xl rounded-b-md'}
+        ${isActive ? 'z-50' : 'z-0 opacity-95'}
       `}
             onPointerDown={handlePointerDown}
         >
-            {/* Title Bar */}
+            {/* XP Title Bar */}
             <div
                 onPointerDown={(e) => {
                     controls.start(e);
@@ -77,23 +82,28 @@ export default function Window({ window }: WindowProps) {
                 }}
                 onDoubleClick={() => appConfig.canMaximize && actions.maximizeWindow(window.id)}
                 className={`
-          flex items-center justify-between px-2 h-8 select-none cursor-default
-          ${isActive
-                        ? 'bg-gradient-to-r from-blue-700 via-blue-600 to-blue-500 text-white'
-                        : 'bg-gradient-to-r from-gray-400 to-gray-500 text-gray-200'}
+          flex items-center justify-between px-3 h-8 select-none cursor-default
+          bg-gradient-to-b from-[#0058ee] via-[#0073e6] to-[#0058ee]
+          text-white text-shadow-md border-b border-[#003da8]
+          ${window.isMaximized ? '' : 'rounded-t-lg'}
         `}
             >
                 <div className="flex items-center gap-2">
-                    <appConfig.icon size={16} className="drop-shadow-md" />
-                    <span className="text-xs font-bold tracking-wide drop-shadow-md">{window.title}</span>
+                    {appConfig.iconAsset ? (
+                        <img src={appConfig.iconAsset} alt={window.title} className="w-4 h-4 drop-shadow-md" />
+                    ) : (
+                        appConfig.icon && <appConfig.icon size={16} className="filter drop-shadow-md" />
+                    )}
+                    <span className="text-xs font-bold tracking-wide drop-shadow-md font-sans">{window.title}</span>
                 </div>
 
                 <div className="flex items-center gap-1">
                     <button
                         onClick={(e) => { e.stopPropagation(); actions.minimizeWindow(window.id); }}
-                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/20 active:bg-white/30 transition-colors"
+                        className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-[#0058ee] hover:bg-[#2f7bf2] active:bg-[#004dc2] border border-white/30 shadow-inner transition-colors"
+                        title="Minimize"
                     >
-                        <Minus size={14} />
+                        <Minus size={12} strokeWidth={3} className="mb-1" />
                     </button>
 
                     {appConfig.canMaximize && (
@@ -103,38 +113,36 @@ export default function Window({ window }: WindowProps) {
                                 if (window.isMaximized) actions.restoreWindow(window.id);
                                 else actions.maximizeWindow(window.id);
                             }}
-                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/20 active:bg-white/30 transition-colors"
+                            className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-[#0058ee] hover:bg-[#2f7bf2] active:bg-[#004dc2] border border-white/30 shadow-inner transition-colors"
+                            title={window.isMaximized ? "Restore" : "Maximize"}
                         >
-                            {window.isMaximized ? <Square size={10} /> : <Maximize2 size={12} />}
+                            {window.isMaximized ? <Square size={10} strokeWidth={3} /> : <Maximize2 size={12} strokeWidth={3} />}
                         </button>
                     )}
 
                     <button
                         onClick={(e) => { e.stopPropagation(); actions.closeWindow(window.id); }}
-                        className="w-5 h-5 flex items-center justify-center rounded bg-red-500 hover:bg-red-400 active:bg-red-600 transition-colors ml-1"
+                        className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-[#e81123] hover:bg-[#f44a56] active:bg-[#bf0e1d] border border-white/30 shadow-inner transition-colors ml-1"
                         title="Close"
                     >
-                        <X size={14} />
+                        <X size={14} strokeWidth={3} />
                     </button>
                 </div>
             </div>
 
-            {/* Toolbar / Menu Bar (Optional) */}
-            <div className="bg-[#ece9d8] border-b border-gray-300 flex text-xs px-2 py-1 gap-4 text-gray-700 cursor-default">
-                <span className="hover:underline hover:text-black">File</span>
-                <span className="hover:underline hover:text-black">Edit</span>
-                <span className="hover:underline hover:text-black">View</span>
-                <span className="hover:underline hover:text-black">Help</span>
+            {/* Menu Bar (Standard XP Gray) */}
+            <div className="bg-[#ece9d8] border-l-4 border-r-4 border-[#0055ea] flex text-xs px-2 py-0.5 gap-4 text-black cursor-default font-sans">
+                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">File</span>
+                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Edit</span>
+                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">View</span>
+                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Favorites</span>
+                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Tools</span>
+                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Help</span>
             </div>
 
-            {/* Content Area */}
-            <div className="flex-1 bg-white overflow-auto relative">
+            {/* Content Area - Thick Blue Borders */}
+            <div className="flex-1 bg-white overflow-hidden relative border-l-4 border-r-4 border-b-4 border-[#0055ea]">
                 <AppBody windowId={window.id} />
-            </div>
-
-            {/* Status Bar (Optional) */}
-            <div className="bg-[#ece9d8] border-t border-gray-300 h-6 flex items-center px-2 text-xs text-gray-600 cursor-default">
-                {window.appId === 'terminal' ? 'Ready' : `${window.title} ready.`}
             </div>
 
         </motion.div>

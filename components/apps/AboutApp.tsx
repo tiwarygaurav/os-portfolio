@@ -16,10 +16,10 @@ export default function AboutApp() {
                     <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600 mb-2">
                         Alex Developer
                     </h1>
-                    <h2 className="text-xl text-gray-600 mb-4">Frontend Architect & Creative Designer</h2>
+                    <h2 className="text-xl text-gray-600 mb-4">Software Developer</h2>
 
                     <div className="flex flex-wrap gap-4 justify-center md:justify-start text-sm text-gray-500">
-                        <span className="flex items-center gap-1"><MapPin size={16} /> San Francisco, CA</span>
+                        <span className="flex items-center gap-1"><MapPin size={16} /> Mumbai, Maharashtra, India</span>
                         <span className="flex items-center gap-1"><Briefcase size={16} /> Open for Opportunities</span>
                     </div>
 
@@ -43,16 +43,16 @@ export default function AboutApp() {
 
                         <div className="relative">
                             <div className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-white" />
-                            <h4 className="font-bold">Senior Frontend Engineer</h4>
-                            <p className="text-sm text-gray-500">Tech Corp • 2021 - Present</p>
-                            <p className="text-sm text-gray-600 mt-1">Leading the core product team, migrating legacy systems to Next.js, and establishing a new design system.</p>
+                            <h4 className="font-bold">Software Engineer</h4>
+                            <p className="text-sm text-gray-500">VXO Digital • Aug, 2025 - Present</p>
+                            <p className="text-sm text-gray-600 mt-1">Developing and Enhancing Platform Architecture, Developing mobile application, Implementing AI Use cases.</p>
                         </div>
 
                         <div className="relative">
                             <div className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-gray-400 border-2 border-white" />
-                            <h4 className="font-bold">Web Developer</h4>
-                            <p className="text-sm text-gray-500">Creative Agency • 2018 - 2021</p>
-                            <p className="text-sm text-gray-600 mt-1">Built award-winning promotional sites for major brands using WebGL and GSAP.</p>
+                            <h4 className="font-bold">Data Engineering Intern</h4>
+                            <p className="text-sm text-gray-500">Here Technologies • Jan, 2025 - July, 2025</p>
+                            <p className="text-sm text-gray-600 mt-1">Explored GIS domain, ADAS systems , crafting solution based on ML Algo for Ongoing issues</p>
                         </div>
 
                     </div>
@@ -68,8 +68,8 @@ export default function AboutApp() {
                         <div className="flex items-start gap-3">
                             <GraduationCap className="text-blue-500 mt-1" />
                             <div>
-                                <h4 className="font-bold">BS Computer Science</h4>
-                                <p className="text-sm text-gray-500">University of Technology • 2018</p>
+                                <h4 className="font-bold">Bachelor of Technology - Computer Science</h4>
+                                <p className="text-sm text-gray-500">Birla Institute of Technology Mesra • 2021 - 2025</p>
                             </div>
                         </div>
                     </div>
@@ -77,9 +77,9 @@ export default function AboutApp() {
                     <div className="bg-blue-50 p-4 rounded border border-blue-100">
                         <h4 className="font-bold text-blue-700 mb-2 text-sm">SUMMARY.TXT</h4>
                         <p className="font-mono text-xs text-blue-900">
-                            &gt; 5+ years of experience<br />
-                            &gt; 50+ projects delivered<br />
-                            &gt; TypeScript enthusiast<br />
+                            &gt; 1+ years of experience<br />
+                            &gt; 10+ projects delivered<br />
+                            &gt; Java enthusiast<br />
                             &gt; Pixel perfectionist
                         </p>
                     </div>

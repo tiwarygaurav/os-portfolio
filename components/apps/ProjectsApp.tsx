@@ -5,33 +5,34 @@ import { useState } from 'react';
 
 const PROJECTS = [
     {
-        id: 'portfolio-os',
-        title: 'Portfolio OS',
-        desc: 'This very website! A React-based OS simulation.',
-        stack: ['Next.js', 'Tailwind', 'Zustand'],
-        github: 'https://github.com/alex/portfolio-os',
-        demo: 'https://portfolio-os.vercel.app',
+        id: 'os-portfolio',
+        title: 'OS Portfolio',
+        desc: 'An interactive desktop OS simulation built with Next.js. Features draggable windows, terminal emulator, boot screen, sound effects, and state-managed window system.',
+        stack: ['Next.js', 'React', 'Tailwind CSS', 'Zustand', 'Framer Motion'],
+        github: 'https://github.com/tiwarygaurav/os-portfolio',
+        demo: 'https://os-portfolio.vercel.app', // update if different
         type: 'web'
     },
     {
-        id: 'ecommerce-engine',
-        title: 'E-commerce Engine',
-        desc: 'Headless e-commerce solution with high performance.',
-        stack: ['Node.js', 'GraphQL', 'PostgreSQL'],
-        github: 'https://github.com/alex/ecommerce',
+        id: 'enterprise-dashboard',
+        title: 'Enterprise Workforce Dashboard',
+        desc: 'Full-stack enterprise-grade workforce and claim management system with REST APIs, pagination, filtering, infinite scroll, and secure role-based access.',
+        stack: ['Angular', 'Spring Boot', 'Java', 'SQL', 'REST APIs'],
+        github: 'https://github.com/tiwarygaurav', // replace with exact repo if public
         demo: '#',
         type: 'backend'
     },
     {
-        id: 'ai-chat',
-        title: 'AI Chat Interface',
-        desc: 'Real-time chat interface for LLMs with streaming.',
-        stack: ['React', 'WebSocket', 'OpenAI'],
-        github: 'https://github.com/alex/ai-chat',
+        id: 'bypass-lane-gnn',
+        title: 'Bypass Lane GNN Model',
+        desc: 'Graph-based traffic modeling system using heterogeneous graphs. Built custom node/edge features including distance & bearing for lane-level intelligence.',
+        stack: ['Python', 'PyTorch Geometric', 'Graph Neural Networks', 'GeoJSON'],
+        github: 'https://github.com/tiwarygaurav', // replace if repo exists
         demo: '#',
         type: 'ai'
-    },
+    }
 ];
+
 
 export default function ProjectsApp() {
     const [selectedProject, setSelectedProject] = useState<any>(null);
@@ -65,6 +66,13 @@ export default function ProjectsApp() {
                 >
                     <Folder size={16} className="text-gray-500" /> Backend
                 </button>
+                <button
+                    onClick={() => { setFilter('ai'); setSelectedProject(null); }}
+                    className={`flex items-center gap-2 px-2 py-1 rounded ${filter === 'ai' ? 'bg-blue-200 text-blue-800' : 'hover:bg-gray-200'}`}
+                >
+                    <Folder size={16} className="text-purple-500" /> AI / ML
+                </button>
+
             </div>
 
             {/* Main Content */}
@@ -132,7 +140,10 @@ export default function ProjectsApp() {
                                     className="flex flex-col items-center gap-2 p-4 hover:bg-blue-50 rounded group focus:bg-blue-100 focus:outline-none focus:ring-1 focus:ring-blue-300 transition-colors"
                                 >
                                     <div className="w-12 h-12 bg-white border border-gray-200 rounded shadow-sm flex items-center justify-center group-hover:scale-105 transition-transform">
-                                        {project.type === 'web' ? <Globe className="text-blue-500" /> : <FileCode className="text-purple-500" />}
+                                        {project.type === 'web' && <Globe className="text-blue-500" />}
+                                        {project.type === 'backend' && <FileCode className="text-gray-600" />}
+                                        {project.type === 'ai' && <FileCode className="text-purple-500" />}
+
                                     </div>
                                     <span className="text-sm text-center text-gray-700 font-medium leading-tight group-hover:text-blue-700">
                                         {project.title}

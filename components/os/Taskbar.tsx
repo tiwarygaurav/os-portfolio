@@ -84,7 +84,11 @@ export default function Taskbar() {
                                     boxShadow: isActive ? 'inset 1px 1px 3px rgba(0,0,0,0.4)' : '1px 1px 0px rgba(255,255,255,0.2)'
                                 }}
                             >
-                                <Icon size={14} className="shrink-0" />
+                                {app?.iconAsset ? (
+                                    <img src={app.iconAsset} alt={win.title} className="w-3.5 h-3.5 shrink-0" />
+                                ) : (
+                                    <Icon size={14} className="shrink-0" />
+                                )}
                                 <span className="truncate">{win.title}</span>
                             </button>
                         );

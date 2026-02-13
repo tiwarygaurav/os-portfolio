@@ -9,60 +9,76 @@ interface BootScreenProps {
 }
 
 export default function BootScreen({ onComplete }: BootScreenProps) {
-    const [progress, setProgress] = useState(0);
-
     useEffect(() => {
-        const interval = setInterval(() => {
-            setProgress((prev) => {
-                if (prev >= 100) {
-                    clearInterval(interval);
-                    setTimeout(() => {
-                        // Assuming playSound is defined elsewhere or passed as a prop
-                        // For this example, I'll assume it's a global function or imported.
-                        // If not, you'd need to define or import it.
-                        // playSound('startup'); // Uncomment if playSound is available
-                        onComplete();
-                    }, 500); // Small delay after 100%
-                    return 100;
-                }
-                // Randomize speed for "realism"
-                return prev + Math.random() * 10;
-            });
-        }, 200);
+        // Simulate boot time
+        const timer = setTimeout(() => {
+            playSound('startup');
+            onComplete();
+        }, 4500); // 4.5 seconds boot time
 
-        return () => clearInterval(interval);
+        return () => clearTimeout(timer);
     }, [onComplete]);
 
     return (
-        <div className="h-full w-full bg-black text-white flex flex-col items-center justify-center font-mono cursor-wait">
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 1 }}
-                className="mb-8 text-center"
-            >
-                <h1 className="text-4xl font-bold mb-2">Portfolio OS</h1>
-                <p className="text-gray-400 text-sm">Professional Edition</p>
-                <p className="text-gray-500 text-xs mt-1">Copyright © 2024</p>
-            </motion.div>
+        <div className="h-full w-full bg-black text-white flex flex-col items-center justify-center font-sans overflow-hidden relative cursor-wait selection:bg-transparent">
 
-            <div className="w-64 h-4 border border-gray-600 rounded p-0.5 relative">
-                <div className="h-full w-full bg-gray-900 absolute top-0 left-0" />
-                <motion.div
-                    className="h-full bg-win-blue relative z-10"
-                    animate={{ width: `${Math.min(progress, 100)}%` }}
-                    transition={{ ease: "linear", duration: 0.2 }}
-                />
+            {/* Main Center Content */}
+            <div className="flex flex-col items-center mb-12 relative">
 
-                {/* Retro Glint effect */}
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/10 to-transparent pointer-events-none z-20" />
+                {/* Logo Area */}
+                <div className="flex items-center gap-4 mb-16">
+                    {/* XP Flag - Constructed with CSS/Tailwind */}
+                    <div className="grid grid-cols-2 gap-1 transform -rotate-6">
+                        <div className="w-8 h-8 bg-[#f25c19] rounded-tl-[2px] rounded-tr-[12px] rounded-bl-[8px] rounded-br-[2px] shadow-[inset_-2px_-2px_6px_rgba(0,0,0,0.3)]" />
+                        <div className="w-8 h-8 bg-[#83bb22] rounded-tl-[8px] rounded-tr-[2px] rounded-bl-[2px] rounded-br-[12px] shadow-[inset_-2px_-2px_6px_rgba(0,0,0,0.3)]" />
+                        <div className="w-8 h-8 bg-[#00a3e8] rounded-tl-[2px] rounded-tr-[8px] rounded-bl-[12px] rounded-br-[2px] shadow-[inset_-2px_-2px_6px_rgba(0,0,0,0.3)]" />
+                        <div className="w-8 h-8 bg-[#fdbd10] rounded-tl-[12px] rounded-tr-[2px] rounded-bl-[2px] rounded-br-[8px] shadow-[inset_-2px_-2px_6px_rgba(0,0,0,0.3)]" />
+                    </div>
+
+                    {/* Branding Text */}
+                    <div className="relative top-[-5px]">
+                        <h1 className="text-7xl font-bold tracking-tighter leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>
+                            Jack
+                            <span className="text-[#f25c19] text-3xl align-top absolute top-0 -right-10 font-normal italic">
+                                xp
+                            </span>
+                        </h1>
+                        <p className="text-xl italic text-gray-300 mt-1 pl-1 font-sans tracking-wide opacity-90 border-t border-white/20 pt-1 w-full text-right">
+                            Software Developer
+                        </p>
+                    </div>
+                </div>
+
+                {/* Loading Bar Container */}
+                <div className="w-64 h-5 border border-gray-500 rounded-[5px] p-[3px] bg-black relative overflow-hidden shadow-lg mt-8">
+                    {/* The moving blocks */}
+                    <motion.div
+                        className="h-full w-24 bg-gradient-to-r from-blue-900 via-blue-500 to-blue-900 rounded-[2px]"
+                        initial={{ x: -100 }}
+                        animate={{ x: 300 }}
+                        transition={{
+                            repeat: Infinity,
+                            duration: 2,
+                            ease: "linear",
+                            repeatDelay: 0
+                        }}
+                    />
+                </div>
+
             </div>
 
-            <div className="mt-4 text-xs text-gray-500 font-mono">
-                <p>BIOS Date 02/11/24 14:02:11 Ver: 08.00.12</p>
-                <p>CPU : Intel(R) Core(TM) i9-14900K CPU @ 6.00GHz</p>
-                <p>Memory Test : {Math.floor(progress * 640)}K OK</p>
+            {/* Footer */}
+            <div className="absolute bottom-10 w-full px-16 flex justify-between items-end text-white/60 text-xs font-sans">
+                <div>
+                    <p className="font-semibold">Copyright © Microsoft Corporation</p>
+                    <p>All rights reserved</p>
+                </div>
+
+                <div className="text-2xl font-bold italic tracking-tighter opacity-90 text-white flex items-start">
+                    Portfolio
+                </div>
             </div>
+
         </div>
     );
 }

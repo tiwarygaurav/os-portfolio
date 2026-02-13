@@ -39,5 +39,17 @@ declare module 'lucide-react' {
     export const Github: Icon;
     export const ExternalLink: Icon;
     export const ChevronRight: Icon;
+    export const Phone: Icon;
+    export const Linkedin: Icon;
+    export const Music: Icon;
+    export const Palette: Icon;
+    export const Layout: Icon;
+    export const Maximize: Icon; // Sometimes Maximize2 is used, check usage
+    export const Play: Icon;
+    export const Pause: Icon;
+    export const SkipBack: Icon;
+    export const SkipForward: Icon;
+    export const Headphones: Icon;
+    export const PenTool: Icon;
     // Add other icons as needed
 }
