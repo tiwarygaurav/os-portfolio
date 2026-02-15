@@ -9,7 +9,11 @@ interface BootScreenProps {
 }
 
 export default function BootScreen({ onComplete }: BootScreenProps) {
+    const [hasInteracted, setHasInteracted] = useState(false);
+
     useEffect(() => {
+        if (!hasInteracted) return;
+
         // Simulate boot time
         const timer = setTimeout(() => {
             playSound('startup');
@@ -17,7 +21,20 @@ export default function BootScreen({ onComplete }: BootScreenProps) {
         }, 4500); // 4.5 seconds boot time
 
         return () => clearTimeout(timer);
-    }, [onComplete]);
+    }, [onComplete, hasInteracted]);
+
+    if (!hasInteracted) {
+        return (
+            <div
+                className="h-full w-full bg-black text-white flex flex-col items-center justify-center font-sans cursor-pointer"
+                onClick={() => setHasInteracted(true)}
+            >
+                <div className="flex flex-col items-center gap-4 animate-pulse">
+                    <p className="text-xl text-gray-400 font-mono">Press any key or click to boot...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-full w-full bg-black text-white flex flex-col items-center justify-center font-sans overflow-hidden relative cursor-wait selection:bg-transparent">
@@ -38,8 +55,8 @@ export default function BootScreen({ onComplete }: BootScreenProps) {
                     {/* Branding Text */}
                     <div className="relative top-[-5px]">
                         <h1 className="text-7xl font-bold tracking-tighter leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>
-                            Jack
-                            <span className="text-[#f25c19] text-3xl align-top absolute top-0 -right-10 font-normal italic">
+                            Gaurav Tiwary
+                            <span className="text-[#f25c19] text-3xl align-top absolute top-0 -right-8 font-normal italic">
                                 xp
                             </span>
                         </h1>

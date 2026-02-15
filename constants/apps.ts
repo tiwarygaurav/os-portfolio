@@ -19,7 +19,7 @@ export interface AppConfig {
     width?: number;
     height?: number;
     canMaximize?: boolean;
-    iconAsset?: string; // Path to image file (e.g. '/icons/mycomputer.png')
+    iconAsset?: string; // Path to image file (e.g. '/icons/User Personalization.ico')
 }
 
 export const APPS: Record<string, AppConfig> = {
@@ -27,6 +27,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'about',
         title: 'About Me',
         icon: User,
+        iconAsset: '/icons/User Personalization.ico',
         width: 600,
         height: 500,
         canMaximize: true,
@@ -35,6 +36,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'projects',
         title: 'My Projects',
         icon: FolderOpen,
+        iconAsset: '/icons/Folder Open.ico',
         width: 800,
         height: 600,
         canMaximize: true,
@@ -43,6 +45,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'skills',
         title: 'Skills & Tech',
         icon: Cpu,
+        iconAsset: '/icons/Skills.ico',
         width: 700,
         height: 500,
         canMaximize: false,
@@ -51,6 +54,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'resume',
         title: 'Resume.pdf',
         icon: FileText,
+        iconAsset: '/icons/List File.ico',
         width: 500,
         height: 700,
         canMaximize: true,
@@ -59,6 +63,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'contact',
         title: 'Contact Me',
         icon: Mail,
+        iconAsset: '/icons/Phone.ico',
         width: 500,
         height: 400,
         canMaximize: false,
@@ -67,6 +72,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'terminal',
         title: 'Terminal',
         icon: TerminalSquare,
+        iconAsset: '/icons/Laptop.ico',
         width: 600,
         height: 400,
         canMaximize: true,
@@ -75,6 +81,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'trash',
         title: 'Recycle Bin',
         icon: Trash2,
+        iconAsset: '/icons/Minesweeper.ico',
         width: 600,
         height: 400,
         canMaximize: false,
@@ -83,6 +90,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'music',
         title: 'Music Player',
         icon: Headphones,
+        iconAsset: '/icons/Music.ico',
         width: 350,
         height: 450,
         canMaximize: false,
@@ -91,6 +99,7 @@ export const APPS: Record<string, AppConfig> = {
         id: 'paint',
         title: 'Paint',
         icon: PenTool,
+        iconAsset: '/icons/Display.ico',
         width: 800,
         height: 600,
         canMaximize: true,

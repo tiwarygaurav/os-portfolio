@@ -50,7 +50,7 @@ export default function Taskbar() {
                             <div className="w-1.5 h-1.5 bg-yellow-500" />
                         </div>
                     </div>
-                    <span className="text-white drop-shadow-md">Start</span>
+                    <span className="text-white drop-shadow-md italic text-lg pr-1">start</span>
                 </button>
 
                 {/* Divider */}

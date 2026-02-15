@@ -22,6 +22,7 @@ interface SystemState {
     windows: AppWindow[];
     activeWindowId: string | null;
     nextZIndex: number;
+    desktopIcons: Record<string, { x: number; y: number }>; // Map appId -> position
 
     actions: {
         bootComplete: () => void;
@@ -36,6 +37,8 @@ interface SystemState {
         restoreWindow: (id: string) => void;
         focusWindow: (id: string) => void;
         moveWindow: (id: string, position: { x: number; y: number }) => void;
+
+        setDesktopIconPosition: (id: string, x: number, y: number) => void;
     };
 }
 
@@ -50,7 +53,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
     windows: [],
     activeWindowId: null,
-    nextZIndex: 10, // Start z-index
+    nextZIndex: 10,
+    desktopIcons: {}, // Initial empty state, will be populated on load or default // Start z-index
 
     actions: {
         bootComplete: () => set({ isBooting: false }),
@@ -122,6 +126,14 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
         moveWindow: (id, position) => set(state => ({
             windows: state.windows.map(w => w.id === id ? { ...w, position } : w)
+        })),
+
+        // Desktop Icon Management
+        setDesktopIconPosition: (id, x, y) => set(state => ({
+            desktopIcons: {
+                ...state.desktopIcons,
+                [id]: { x, y }
+            }
         })),
     }
 }));

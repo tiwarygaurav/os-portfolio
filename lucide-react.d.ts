@@ -51,5 +51,14 @@ declare module 'lucide-react' {
     export const SkipForward: Icon;
     export const Headphones: Icon;
     export const PenTool: Icon;
+    export const ArrowLeft: Icon;
+    export const ChevronUp: Icon;
+    export const ChevronDown: Icon;
+    export const Code: Icon;
+    export const Star: Icon;
+    export const Heart: Icon;
+    export const Twitter: Icon;
+    export const Instagram: Icon;
+    export const Image: Icon;
     // Add other icons as needed
 }
