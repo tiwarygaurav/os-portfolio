@@ -71,7 +71,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                         <div className="w-6 h-6 bg-[#fdbd10] rounded-tl-lg rounded-tr-sm rounded-bl-sm rounded-br-md shadow-inner" />
                     </div>
                     <h1 className="text-4xl font-bold text-white tracking-tighter drop-shadow-md">
-                        Gaurav<span className="text-orange-500 font-normal italic text-xl align-top">xp</span>
+                        Jack<span className="text-orange-500 font-normal italic text-xl align-top">xp</span>
                     </h1>
                     <p className="text-sky-200 text-lg tracking-wide font-light">Software Developer</p>
 
