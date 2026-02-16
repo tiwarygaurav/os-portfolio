@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, ArrowRight } from 'lucide-react';
+import { Power } from 'lucide-react'; // Using Lucide for shutdown/help if needed, but styling manually
 import { playSound } from '@/utils/sound';
+import Image from 'next/image';
 
 interface LoginScreenProps {
     onLogin: () => void;
@@ -11,101 +12,226 @@ interface LoginScreenProps {
 
 export default function LoginScreen({ onLogin }: LoginScreenProps) {
     const [password, setPassword] = useState('');
-    const [error, setError] = useState(false);
-
-    const handleLogin = (e: React.FormEvent) => {
-        e.preventDefault();
+    const [isHoveringUser, setIsHoveringUser] = useState(false);
+    const [showShutdown, setShowShutdown] = useState(false);
+    const [isShuttingDown, setIsShuttingDown] = useState(false);
+    const handleLogin = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         playSound('click');
         // Simulate loading or just login immediately
-        // For now, accept any password or empty
         onLogin();
     };
 
     return (
-        <div className="h-full w-full flex items-center justify-center relative overflow-hidden font-sans select-none"
-            style={{
-                background: 'conic-gradient(at 0% 0%, #003399 90deg, transparent 0%) 0 0 / 20px 20px, conic-gradient(at 0% 0%, #4D85E8 90deg, transparent 0%) 0 0 / 20px 20px, #003399',
-                // This is an approximation of the checkered pattern
-                backgroundImage: 'linear-gradient(45deg, #4d85e8 25%, transparent 25%, transparent 75%, #4d85e8 75%, #4d85e8), linear-gradient(45deg, #4d85e8 25%, transparent 25%, transparent 75%, #4d85e8 75%, #4d85e8)',
-                backgroundPosition: '0 0, 10px 10px',
-                backgroundSize: '20px 20px',
-                backgroundColor: '#003399'
-            }}
+        <div
+            className={`w-screen h-screen bg-[#345ea8] text-white flex flex-col font-tahoma relative overflow-hidden transition-all duration-500`}
         >
-            <div className="absolute inset-0 bg-blue-600 mix-blend-overlay opacity-50" />
 
-            {/* Top and Bottom Bars (XP Style) */}
-            <div className="absolute top-0 w-full h-24 bg-gradient-to-b from-[#003399] to-[#003399]/0 border-b border-orange-500/50" />
-            <div className="absolute bottom-0 w-full h-24 bg-gradient-to-t from-[#003399] to-[#003399]/0 border-t border-orange-500/50 flex items-center justify-between px-8 text-white z-20">
-                <button className="flex items-center gap-2 hover:brightness-110 active:scale-95 transition-all">
-                    <div className="w-8 h-8 rounded bg-gradient-to-b from-green-400 to-green-600 flex items-center justify-center border border-white/30 shadow-md">
-                        <div className="w-4 h-4 text-white p-0.5">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                                <line x1="12" y1="2" x2="12" y2="12" />
-                            </svg>
+
+            <div className={`flex flex-col flex-1 transition-all duration-700 ${isShuttingDown ? "grayscale brightness-[0.65] contrast-90" : ""
+                }`}>
+
+
+                {/* CRT Grain Overlay */}
+                <div
+                    className="absolute inset-0 pointer-events-none opacity-[0.07] mix-blend-overlay"
+                    style={{
+                        backgroundImage:
+                            "repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0px, rgba(0,0,0,0.12) 1px, transparent 1px, transparent 3px)"
+                    }}
+                />
+                <div
+                    className="absolute inset-0 pointer-events-none opacity-[0.05]"
+                    style={{
+                        backgroundImage:
+                            "radial-gradient(rgba(0,0,0,0.25) 1px, transparent 1px)",
+                        backgroundSize: "3px 3px"
+                    }}
+                />
+                <div className="h-[12.5%] bg-[#003b8f] relative">
+                    <div className="absolute bottom-0 left-0 w-full h-[4px] bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+                </div>
+
+
+                {/* Center */}
+                <div
+                    className="flex flex-1"
+                    style={{
+                        background: `
+  radial-gradient(
+    circle at -260px -220px,
+    rgba(255,255,255,0.45) 0%,
+    rgba(255,255,255,0.2) 35%,
+    rgba(255,255,255,0) 75%
+  )
+`
+                        ,
+                    }}>
+
+
+                    {/* Left Side */}
+                    <div className="w-1/2 flex flex-col justify-center items-end pr-12">
+                        <div className="mb-10">
+                            <Image
+                                src="/icons/windows-xp-logo-white-text-transparent-bg-cropped.png"
+                                width={250}
+                                height={120}
+                                alt="Windows XP"
+                            />
                         </div>
+                        <span className="text-[22px] text-right font-normal">
+                            To begin, click on Gaurav to log in
+                        </span>
                     </div>
-                    <span className="font-semibold text-shadow-sm">Restart Jack XP</span>
-                </button>
-                <div className="text-right">
-                    <p className="text-xs font-semibold opacity-90">After you log on, the system's yours to explore.</p>
-                    <p className="text-xs opacity-70">Every detail has been built with a purpose.</p>
+                    <div className="flex items-center justify-center">
+                        <div className="w-px h-[60%] bg-gradient-to-b from-transparent via-white/40 to-transparent" />
+                    </div>
+
+                    {/* Right Side */}
+                    <div className="w-1/2 flex flex-col justify-center items-start pl-10">
+
+                        <div
+                            onMouseEnter={() => setIsHoveringUser(true)}
+                            onMouseLeave={() => setIsHoveringUser(false)}
+                            onClick={handleLogin}
+                            className={`flex min-w-[400px] p-4 rounded-lg cursor-pointer transition-all duration-200 ${isHoveringUser
+                                ? "bg-gradient-to-r from-[#00489a] to-transparent opacity-100"
+                                : "opacity-60"
+                                }`}
+                        >
+                            <div className="w-[80px] h-[80px] mr-6 border-[3px] border-white rounded-md shadow-md overflow-hidden relative">
+                                <Image
+                                    src="/icons/profile-picture-chess.png"
+                                    alt="User"
+                                    fill
+                                    className="object-cover"
+                                />
+                            </div>
+
+                            <div>
+                                <span className="block text-[22px] mb-2 font-normal">
+                                    Gaurav
+                                </span>
+                                <span className="text-sm text-blue-200">
+                                    Software Engineer
+                                </span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                {/* Bottom Bar */}
+                <div className="h-[12.5%] bg-[#003b8f] relative flex items-center justify-between px-12">
+
+                    <div className="absolute top-0 left-0 w-full h-[4px] bg-gradient-to-r from-transparent via-orange-400 to-transparent" />
+
+                    <div
+                        className="flex items-center cursor-pointer"
+                        onClick={() => {
+                            setIsShuttingDown(true);
+                            setTimeout(() => setShowShutdown(true), 400);
+                        }}
+                    >
+
+                        <div className="w-8 h-8 bg-[#da5020] border border-white rounded-md" />
+                        <span className="ml-3 text-xl">Turn off computer</span>
+                    </div>
+
+                    <span className="text-sm">
+                        After you log on, the system's yours to explore.
+                    </span>
                 </div>
             </div>
 
-            {/* Center Content */}
-            <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.5 }}
-                className="relative z-10 flex gap-0 items-center divide-x divide-white/20 bg-gradient-to-r from-blue-800/40 to-blue-600/40 backdrop-blur-sm p-8 rounded-xl border border-white/10 shadow-2xl"
-            >
-                {/* Left Side: Branding */}
-                <div className="flex flex-col items-end pr-8 gap-2">
-                    {/* Windows Logo simplified */}
-                    <div className="grid grid-cols-2 gap-1 transform -rotate-6 mb-2">
-                        <div className="w-6 h-6 bg-[#f25c19] rounded-tl-sm rounded-tr-lg rounded-bl-md rounded-br-sm shadow-inner" />
-                        <div className="w-6 h-6 bg-[#83bb22] rounded-tl-md rounded-tr-sm rounded-bl-sm rounded-br-lg shadow-inner" />
-                        <div className="w-6 h-6 bg-[#00a3e8] rounded-tl-sm rounded-tr-md rounded-bl-lg rounded-br-sm shadow-inner" />
-                        <div className="w-6 h-6 bg-[#fdbd10] rounded-tl-lg rounded-tr-sm rounded-bl-sm rounded-br-md shadow-inner" />
-                    </div>
-                    <h1 className="text-4xl font-bold text-white tracking-tighter drop-shadow-md">
-                        Jack<span className="text-orange-500 font-normal italic text-xl align-top">xp</span>
-                    </h1>
-                    <p className="text-sky-200 text-lg tracking-wide font-light">Software Developer</p>
 
-                    <div className="mt-8 text-white/80 text-sm font-medium">
-                        To begin, click on Gaurav to log in
-                    </div>
-                </div>
+            {isShuttingDown && (
+                <div className="absolute inset-0 bg-black/45 transition-opacity duration-700 z-30 pointer-events-none" />
+            )}
 
-                {/* Right Side: User Card */}
-                <div className="flex items-center gap-4 pl-8 group cursor-pointer" onClick={() => !password && onLogin()}>
-                    <div className="w-20 h-20 bg-orange-100 rounded-lg border-4 border-yellow-400 shadow-lg flex items-center justify-center overflow-hidden relative">
-                        {/* Avatar Placeholder - simple pixel art styling or just an icon */}
-                        <div className="absolute inset-0 bg-blue-200">
-                            <User size={60} className="text-blue-500 absolute -bottom-2 -right-2" />
+            {showShutdown && (
+                <div className="absolute inset-0 flex items-center justify-center z-50">
+
+                    <div className="w-[420px] shadow-[0_10px_40px_rgba(0,0,0,0.7)] border border-[#001a4a] bg-[#1f4fb0]">
+                        <div className="border border-[#003b8f]">
+
+                            {/* Title Bar */}
+                            <div className="flex justify-between items-center px-4 py-2 bg-gradient-to-r from-[#0a5bd3] via-[#0f62d6] to-[#003b8f] text-white text-sm font-bold">
+                                <span>Turn off Jack XP</span>
+                                <Image
+                                    src="/icons/windows.png"
+                                    width={20}
+                                    height={20}
+                                    alt="Windows"
+                                />
+                            </div>
+
+                            {/* Content */}
+                            <div
+                                className="pt-8 pb-12 px-10 flex justify-center items-center"
+                                style={{
+                                    background:
+                                        "linear-gradient(to bottom, #6f91d4 0%, #486ec3 100%)"
+                                }}
+                            >
+                                <motion.div
+                                    initial={{ scale: 0.9, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="flex gap-14"
+                                >
+
+
+                                    {/* Restart */}
+                                    <div className="flex flex-col items-center cursor-pointer group">
+                                        <Image
+                                            src="/icons/favorite.png"
+                                            width={48}
+                                            height={48}
+                                            alt="Restart"
+                                        />
+                                        <span className="mt-2 text-sm group-hover:underline">
+                                            Restart
+                                        </span>
+                                    </div>
+
+                                    {/* Shut Down */}
+                                    <div className="flex flex-col items-center cursor-pointer group">
+                                        <Image
+                                            src="/icons/log-off.png"
+                                            width={48}
+                                            height={48}
+                                            alt="Shutdown"
+                                        />
+                                        <span className="mt-2 text-sm group-hover:underline">
+                                            Log Off
+                                        </span>
+                                    </div>
+                                </motion.div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="bg-[#0b3e91] px-4 py-3 flex justify-end">
+                                <button
+                                    onClick={() => {
+                                        setShowShutdown(false);
+                                        setIsShuttingDown(false);
+                                    }}
+                                    className="px-4 py-1 bg-gradient-to-b from-white to-gray-300 text-black rounded border border-gray-400 shadow-inner"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+
                         </div>
                     </div>
-
-                    <div className="flex flex-col">
-                        <h2 className="text-2xl text-white font-medium drop-shadow-md group-hover:underline decoration-orange-400 underline-offset-4">Gaurav</h2>
-                        <p className="text-blue-200 text-sm">Software Developer</p>
-
-                        {!password && (
-                            <div className="mt-2 text-white/50 text-xs italic">
-                                (Click to login)
-                            </div>
-                        )}
-
-                        {/* Hidden form for potential password future use */}
-                        <form onSubmit={handleLogin} className="flex gap-2 relative mt-2 opacity-0 h-0 overflow-hidden">
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                        </form>
-                    </div>
                 </div>
-            </motion.div>
+
+            )}
+
+
         </div>
     );
+
 }
+

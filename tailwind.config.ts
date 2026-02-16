@@ -8,6 +8,9 @@ const config: Config = {
     ],
     theme: {
         extend: {
+            fontFamily: {
+                tahoma: ['Tahoma', 'Verdana', 'sans-serif'],
+            },
             colors: {
                 win: {
                     blue: "#245edb",

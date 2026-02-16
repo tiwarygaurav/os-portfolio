@@ -60,5 +60,6 @@ declare module 'lucide-react' {
     export const Twitter: Icon;
     export const Instagram: Icon;
     export const Image: Icon;
+
     // Add other icons as needed
 }
