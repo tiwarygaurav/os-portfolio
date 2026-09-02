@@ -1,180 +1,323 @@
 "use client";
 
-import { Download, FileText, Printer, Search, Mail, Phone, Globe, Linkedin, Github } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle, Download, ExternalLink, FileText, Loader2, Printer } from 'lucide-react';
+import {
+    ACHIEVEMENTS,
+    CERTIFICATIONS,
+    EDUCATION,
+    LINKS,
+    PROFILE,
+    PROJECTS,
+    RESUME,
+    ROLES,
+    SKILL_GROUPS,
+    isConfidential,
+} from '@/content';
+
+/**
+ * Resume — two representations of the same person, both real.
+ *
+ * "Document" is generated live from `@/content`, so it is always current.
+ * "PDF" embeds the owner's actual resume file, served from `public/resume/`.
+ *
+ * The previous version linked a PDF that did not exist in the repository, so the single most
+ * important recruiter action returned a 404. The file now exists at a deterministic path, and
+ * this component *verifies* it at runtime rather than assuming — if it ever goes missing, the
+ * UI says so and falls back to the generated document instead of handing over a broken download.
+ *
+ * Also removed: a "Find..." box that searched nothing and a "1 / 1" page counter that counted
+ * nothing.
+ */
+
+type PdfState = 'checking' | 'available' | 'missing';
 
 export default function ResumeApp() {
+    const [view, setView] = useState<'document' | 'pdf'>('document');
+    const [pdf, setPdf] = useState<PdfState>('checking');
+
+    // Verify the asset exists rather than trusting the path.
+    useEffect(() => {
+        let cancelled = false;
+        fetch(RESUME.path, { method: 'HEAD' })
+            .then((res) => {
+                if (!cancelled) setPdf(res.ok ? 'available' : 'missing');
+            })
+            .catch(() => {
+                if (!cancelled) setPdf('missing');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     return (
-        <div className="h-full flex flex-col bg-gray-500 font-sans">
-            {/* Toolbar */}
-            <div className="bg-gray-100 border-b border-gray-300 p-2 flex items-center gap-4 text-gray-700 shadow-sm z-10">
-                <button className="p-1 hover:bg-gray-200 rounded" title="Print">
-                    <Printer size={18} />
-                </button>
-                <button className="p-1 hover:bg-gray-200 rounded" title="Download">
-                    <Download size={18} />
-                </button>
-                <div className="h-4 w-[1px] bg-gray-300" />
-                <div className="flex items-center bg-white border border-gray-300 rounded px-2 py-0.5 w-32">
-                    <span className="text-xs text-gray-400">1 / 1</span>
+        <div className="flex h-full flex-col bg-[#5a5a5a] font-sans">
+            <div className="z-10 flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-400 bg-[#ece9d8] px-2 py-1.5">
+                <div className="flex overflow-hidden rounded-sm border border-gray-400">
+                    <ToolTab active={view === 'document'} onClick={() => setView('document')}>
+                        Document
+                    </ToolTab>
+                    <ToolTab
+                        active={view === 'pdf'}
+                        onClick={() => setView('pdf')}
+                        disabled={pdf !== 'available'}
+                        title={pdf === 'missing' ? 'The PDF file could not be found' : undefined}
+                    >
+                        PDF
+                    </ToolTab>
                 </div>
-                <div className="flex items-center gap-1 ml-auto">
-                    <Search size={16} />
-                    <input type="text" placeholder="Find..." className="bg-transparent text-sm w-24 outline-none" />
-                </div>
+
+                <div className="mx-1 h-5 w-px bg-gray-400" />
+
+                {pdf === 'available' ? (
+                    <>
+                        <a
+                            href={RESUME.path}
+                            download={RESUME.downloadName}
+                            className="flex items-center gap-1.5 rounded border border-gray-400 bg-white/60 px-2 py-1 text-xs text-gray-800 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        >
+                            <Download size={14} aria-hidden />
+                            Download PDF
+                        </a>
+                        <a
+                            href={RESUME.path}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 rounded border border-gray-400 bg-white/60 px-2 py-1 text-xs text-gray-800 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        >
+                            <ExternalLink size={14} aria-hidden />
+                            Open in new tab
+                        </a>
+                    </>
+                ) : pdf === 'checking' ? (
+                    <span className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500">
+                        <Loader2 size={14} className="animate-spin" aria-hidden />
+                        Checking for the PDF…
+                    </span>
+                ) : (
+                    <span className="flex items-center gap-1.5 px-2 py-1 text-xs text-amber-800">
+                        <AlertTriangle size={14} aria-hidden />
+                        PDF unavailable
+                    </span>
+                )}
+
+                <button
+                    onClick={() => window.print()}
+                    className="ml-auto flex items-center gap-1.5 rounded border border-gray-400 bg-white/60 px-2 py-1 text-xs text-gray-800 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                    <Printer size={14} aria-hidden />
+                    Print
+                </button>
             </div>
 
-            {/* PDF Preview Area */}
-            <div className="flex-1 overflow-auto p-8 flex justify-center">
-                <div className="bg-white w-full max-w-[800px] shadow-lg min-h-[1000px] p-12 text-black relative">
-
-                    {/* Header */}
-                    <div className="border-b-2 border-black pb-4 mb-8 flex justify-between items-baseline">
-                        <div>
-                            <h1 className="text-4xl font-bold uppercase tracking-wider">Kumar Gaurav</h1>
-                            <div className="flex gap-4 mt-2 text-sm text-gray-700">
-                                <a href="mailto:gauravt.nic@gmail.com" className="flex items-center gap-1 hover:underline">
-                                    <Mail size={14} /> gauravt.nic@gmail.com
-                                </a>
-                                <span className="flex items-center gap-1">
-                                    <Phone size={14} /> 6200421041
-                                </span>
-                            </div>
-                            <div className="flex gap-4 mt-1 text-sm text-gray-700">
-                                <a href="https://github.com/tiwarygaurav" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:underline">
-                                    <Github size={14} /> github.com/tiwarygaurav
-                                </a>
-                                <a href="https://linkedin.com/in/gauravtiwary21" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:underline">
-                                    <Linkedin size={14} /> linkedin.com/in/gauravtiwary21
-                                </a>
-                            </div>
+            {view === 'pdf' && pdf === 'available' ? (
+                <div className="flex flex-1 flex-col overflow-hidden">
+                    <p className="shrink-0 bg-[#fff8e1] px-3 py-1.5 text-[11px] leading-relaxed text-[#7a5c00]">
+                        This PDF was generated in {RESUME.asOf}. {RESUME.staleness}
+                    </p>
+                    <object
+                        data={RESUME.path}
+                        type="application/pdf"
+                        className="flex-1"
+                        aria-label={`${PROFILE.name} resume PDF`}
+                    >
+                        {/* Browsers without an inline PDF viewer land here — a real link, not a dead frame. */}
+                        <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#5a5a5a] p-6 text-center text-sm text-white">
+                            <FileText size={32} aria-hidden />
+                            <p>Your browser can’t display PDFs inline.</p>
+                            <a
+                                href={RESUME.path}
+                                download={RESUME.downloadName}
+                                className="rounded border border-white/40 px-3 py-1.5 underline"
+                            >
+                                Download the resume instead
+                            </a>
                         </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="grid grid-cols-[1fr_2fr] gap-8">
-
-                        {/* Left Column */}
-                        <div className="space-y-6">
-                            <section>
-                                <h3 className="font-bold uppercase text-sm border-b border-gray-300 mb-2">Education</h3>
-                                <div className="mb-2">
-                                    <h4 className="font-bold text-sm">B. Tech Computer Science</h4>
-                                    <p className="text-xs text-gray-600">Birla Institute of Technology Mesra</p>
-                                    <p className="text-xs text-gray-500">Ranchi, Jharkhand</p>
-                                    <p className="text-xs text-gray-500 font-mono">2021 - 2025</p>
-                                    <div className="mt-2 text-xs text-gray-600">
-                                        <p className="font-semibold">Coursework:</p>
-                                        <p>Data Structures & Algorithms, Software Engineering, Computer Networks, Cryptography, AI/ML, OS, DBMS</p>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section>
-                                <h3 className="font-bold uppercase text-sm border-b border-gray-300 mb-2">Skills</h3>
-                                <div className="text-sm space-y-2">
-                                    <div>
-                                        <p className="font-bold text-xs">Languages</p>
-                                        <p className="text-gray-700">Python, JavaScript, Java, SQL, HTML/CSS</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-xs">Backend</p>
-                                        <p className="text-gray-700">Angular (basic), Node.js, Spring Boot, REST APIs</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-xs">Dev Tools</p>
-                                        <p className="text-gray-700">Git, Docker (basic), Postman</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-xs">ML</p>
-                                        <p className="text-gray-700">PyTorch, Numpy, Pandas, GeoPandas</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-xs">Cloud & Deployment</p>
-                                        <p className="text-gray-700">AWS EC2, Render (basic), GitHub Actions</p>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section>
-                                <h3 className="font-bold uppercase text-sm border-b border-gray-300 mb-2">Certifications</h3>
-                                <div className="text-sm">
-                                    <p className="font-bold">AWS Cloud Practitioner Essential</p>
-                                    <p className="text-xs text-gray-600">Amazon • Ongoing</p>
-                                </div>
-                            </section>
-
-                            <section>
-                                <h3 className="font-bold uppercase text-sm border-b border-gray-300 mb-2">Achievements</h3>
-                                <ul className="text-xs list-disc pl-4 space-y-2 text-gray-700">
-                                    <li>
-                                        Advanced to Round 3 of <strong>Tata Imagination Challenge 2024</strong> (Top 0.6% of ~1M participants).
-                                    </li>
-                                    <li>
-                                        Advanced to Round 2 of <strong>Luminous Techno-X Techathon 2024</strong> (Top 2% of ~95k participants).
-                                    </li>
-                                </ul>
-                            </section>
-                        </div>
-
-                        {/* Right Column */}
-                        <div className="space-y-6">
-                            <section>
-                                <h3 className="font-bold uppercase text-sm border-b border-gray-300 mb-2">Experience</h3>
-
-                                <div className="mb-4">
-                                    <div className="flex justify-between items-baseline mb-1">
-                                        <h4 className="font-bold">Software Developer Trainee Intern</h4>
-                                        <span className="text-xs text-gray-500 font-mono">July 2025 – Current</span>
-                                    </div>
-                                    <p className="text-xs font-bold text-gray-600 mb-2">VXO Digital • Remote</p>
-                                    <ul className="text-sm list-disc pl-4 space-y-1 text-gray-700">
-                                        <li>Developed and maintained full-stack features using <strong>Angular</strong> and <strong>Spring Boot</strong> for enterprise modules (Orders, Opportunities, MOM).</li>
-                                        <li>Implemented RESTful APIs handling complex data flows, validations, and error handling.</li>
-                                        <li>Built an <strong>AI-powered Resume Parser</strong> for automated candidate profiling.</li>
-                                        <li>Worked with SQL queries for CRUD operations and transaction workflows.</li>
-                                        <li>Followed agile practices and Git workflows for code reviews and feature rollouts.</li>
-                                    </ul>
-                                </div>
-
-                                <div className="mb-4">
-                                    <div className="flex justify-between items-baseline mb-1">
-                                        <h4 className="font-bold">Data Engineering Intern</h4>
-                                        <span className="text-xs text-gray-500 font-mono">Jan 2025 – July 2025</span>
-                                    </div>
-                                    <p className="text-xs font-bold text-gray-600 mb-2">Here Technologies • Mumbai, Maharashtra</p>
-                                    <ul className="text-sm list-disc pl-4 space-y-1 text-gray-700">
-                                        <li>Developed <strong>Python-based data pipelines</strong> to detect bypass lanes from geospatial features.</li>
-                                        <li>Engineered graph-based spatial ML workflows and integrated backend support for edge features.</li>
-                                        <li>Enhanced internal Node.js visualization tool by linking road topology with traffic elements.</li>
-                                        <li>Collaborated on scalable pipeline design for large-scale geospatial datasets.</li>
-                                    </ul>
-                                </div>
-                            </section>
-
-                            <section>
-                                <h3 className="font-bold uppercase text-sm border-b border-gray-300 mb-2">Projects</h3>
-
-                                <div className="mb-4">
-                                    <div className="flex justify-between items-baseline mb-1">
-                                        <h4 className="font-bold">URL Shortener & Analytics System</h4>
-                                        <span className="text-xs text-gray-500 font-mono">Current</span>
-                                    </div>
-                                    <p className="text-xs font-bold text-gray-600 mb-2">Spring Boot</p>
-                                    <ul className="text-sm list-disc pl-4 space-y-1 text-gray-700">
-                                        <li>Built a Bitly-like URL shortening service using <strong>Java Spring Boot</strong> and relational database.</li>
-                                        <li>Implemented short URL generation logic with collision handling and fast redirection.</li>
-                                        <li>Designed backend architecture for link creation, retrieval, and redirection.</li>
-                                        <li>Integrated <strong>JPA/Hibernate</strong> for storing original URLs, short codes, and access metadata.</li>
-                                        <li>Implemented basic analytics tracking (click count / usage data).</li>
-                                    </ul>
-                                </div>
-                            </section>
-                        </div>
-
-                    </div>
-
+                    </object>
                 </div>
+            ) : (
+                <div className="flex-1 overflow-y-auto p-6">
+                    {pdf === 'missing' && (
+                        <div className="mx-auto mb-4 flex max-w-[800px] items-start gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+                            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+                            <span>
+                                The PDF file (<code className="font-mono">{RESUME.path}</code>) could not be
+                                loaded, so the download is disabled rather than offered as a broken link. The
+                                resume below is generated from live content and is complete.
+                            </span>
+                        </div>
+                    )}
+                    <GeneratedResume />
+                </div>
+            )}
+
+            <div className="flex h-6 shrink-0 items-center justify-between border-t border-gray-400 bg-[#ece9d8] px-2 text-xs text-gray-600">
+                <span>
+                    {view === 'pdf' ? `PDF · generated ${RESUME.asOf}` : 'Document · generated from live content'}
+                </span>
+                <span>{PROFILE.name}</span>
             </div>
         </div>
+    );
+}
+
+function ToolTab({
+    active,
+    onClick,
+    disabled,
+    title,
+    children,
+}: {
+    active: boolean;
+    onClick: () => void;
+    disabled?: boolean;
+    title?: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            aria-pressed={active}
+            className={`px-3 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                active ? 'bg-[#316ac5] text-white' : 'bg-white/60 text-gray-800 hover:bg-white'
+            } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+        >
+            {children}
+        </button>
+    );
+}
+
+/** The resume, rendered from `@/content`. Nothing here is typed by hand. */
+function GeneratedResume() {
+    return (
+        <article className="mx-auto min-h-[1000px] w-full max-w-[800px] bg-white p-12 text-black shadow-lg">
+            <header className="mb-8 border-b-2 border-black pb-4">
+                <h1 className="text-4xl font-bold uppercase tracking-wider">{PROFILE.name}</h1>
+                <p className="mt-1 text-sm text-gray-700">{PROFILE.title}</p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
+                    <a href={`mailto:${PROFILE.email}`} className="hover:underline">
+                        {PROFILE.email}
+                    </a>
+                    {LINKS.filter((l) => l.known && l.label !== 'Email' && l.label !== 'Instagram').map((l) => (
+                        <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                            {l.url.replace(/^https?:\/\//, '')}
+                        </a>
+                    ))}
+                </div>
+            </header>
+
+            <div className="grid grid-cols-[1fr_2fr] gap-8">
+                <div className="space-y-6">
+                    <Section title="Education">
+                        {EDUCATION.map((e) => (
+                            <div key={e.id}>
+                                <h4 className="text-sm font-bold">{e.qualification}</h4>
+                                <p className="text-xs text-gray-600">{e.institution}</p>
+                                <p className="text-xs text-gray-500">{e.location}</p>
+                                <p className="font-mono text-xs text-gray-500">{e.period}</p>
+                                <p className="mt-2 text-xs text-gray-600">
+                                    <span className="font-semibold">Coursework: </span>
+                                    {e.coursework.join(', ')}
+                                </p>
+                            </div>
+                        ))}
+                    </Section>
+
+                    <Section title="Skills">
+                        <div className="space-y-2 text-sm">
+                            {SKILL_GROUPS.map((g) => (
+                                <div key={g.id}>
+                                    <p className="text-xs font-bold">{g.label}</p>
+                                    <p className="text-gray-700">{g.skills.map((s) => s.name).join(', ')}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </Section>
+
+                    <Section title="Certifications">
+                        {CERTIFICATIONS.map((c) => (
+                            <div key={c.id} className="text-sm">
+                                <p className="font-bold">{c.name}</p>
+                                <p className="text-xs text-gray-600">
+                                    {c.issuer} · {c.status === 'in-progress' ? 'ongoing' : 'completed'}
+                                </p>
+                            </div>
+                        ))}
+                    </Section>
+
+                    <Section title="Achievements">
+                        <ul className="list-disc space-y-2 pl-4 text-xs text-gray-700">
+                            {ACHIEVEMENTS.map((a) => (
+                                <li key={a.id}>
+                                    <strong>{a.title}</strong> — {a.detail}
+                                </li>
+                            ))}
+                        </ul>
+                    </Section>
+                </div>
+
+                <div className="space-y-6">
+                    <Section title="Experience">
+                        {ROLES.map((r) => (
+                            <div key={r.id} className="mb-4">
+                                <div className="mb-1 flex items-baseline justify-between gap-3">
+                                    <h4 className="font-bold">{r.title.value}</h4>
+                                    <span className="shrink-0 font-mono text-xs text-gray-500">{r.period.value}</span>
+                                </div>
+                                <p className="mb-2 text-xs font-bold text-gray-600">
+                                    {r.company}
+                                    {r.location.from !== 'needs-confirmation' && ` · ${r.location.value}`}
+                                </p>
+                                {r.highlights.length > 0 ? (
+                                    <ul className="list-disc space-y-1 pl-4 text-sm text-gray-700">
+                                        {r.highlights.map((h) => (
+                                            <li key={h}>{h}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-xs italic text-gray-500">Details not published yet.</p>
+                                )}
+                            </div>
+                        ))}
+                    </Section>
+
+                    <Section title="Projects">
+                        {PROJECTS.map((p) => (
+                            <div key={p.id} className="mb-4">
+                                <div className="mb-1 flex items-baseline justify-between gap-3">
+                                    <h4 className="font-bold">{p.name}</h4>
+                                    <span className="shrink-0 font-mono text-xs text-gray-500">{p.period}</span>
+                                </div>
+                                <p className="mb-2 text-xs font-bold text-gray-600">
+                                    {p.stack.slice(0, 4).join(' · ')}
+                                    {isConfidential(p) && (
+                                        <span className="ml-2 font-normal uppercase tracking-wide text-[#8a6100]">
+                                            confidential
+                                        </span>
+                                    )}
+                                </p>
+                                <ul className="list-disc space-y-1 pl-4 text-sm text-gray-700">
+                                    {(p.contribution ?? p.highlights).slice(0, 4).map((h) => (
+                                        <li key={h}>{h}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ))}
+                    </Section>
+                </div>
+            </div>
+        </article>
+    );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+        <section>
+            <h3 className="mb-2 border-b border-gray-300 text-sm font-bold uppercase">{title}</h3>
+            {children}
+        </section>
     );
 }
