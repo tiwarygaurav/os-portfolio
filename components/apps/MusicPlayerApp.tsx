@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
+import { useSystemStore } from '@/store/useSystemStore';
 import { Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 
 const PLAYLIST = [
@@ -22,18 +23,28 @@ export default function MusicPlayerApp() {
     const [progress, setProgress] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(0.7);
+    const [playbackError, setPlaybackError] = useState<string | null>(null);
 
-    // Play / Pause
+    const systemVolume = useSystemStore((s) => s.volume);
+    const isMuted = useSystemStore((s) => s.isMuted);
+
+    /*
+     * Play / pause.
+     *
+     * `isPlaying` used to be flipped optimistically while `play()`'s promise went unhandled, so a
+     * browser that refused playback left the UI claiming to play silence — and threw an unhandled
+     * rejection. The flag is now driven by the element's own `play` / `pause` events (see the
+     * `<audio>` handlers below), and a refusal is caught and surfaced.
+     */
     const togglePlay = () => {
-        if (!audioRef.current) return;
+        const audio = audioRef.current;
+        if (!audio) return;
 
-        if (isPlaying) {
-            audioRef.current.pause();
+        if (audio.paused) {
+            audio.play().catch(() => setPlaybackError('Playback was blocked by the browser.'));
         } else {
-            audioRef.current.play();
+            audio.pause();
         }
-
-        setIsPlaying(!isPlaying);
     };
 
     // Next Track
@@ -71,18 +82,32 @@ export default function MusicPlayerApp() {
     const handleVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
         const vol = Number(e.target.value);
         setVolume(vol);
-        if (audioRef.current) audioRef.current.volume = vol;
+        // The effect below applies it together with the system volume.
     };
 
     // Auto play when track changes
     useEffect(() => {
-        if (!audioRef.current) return;
+        const audio = audioRef.current;
+        if (!audio) return;
 
-        audioRef.current.load();
+        audio.load();
         if (isPlaying) {
-            audioRef.current.play();
+            audio.play().catch(() => setPlaybackError('Playback was blocked by the browser.'));
         }
+        // `isPlaying` is intentionally not a dependency: this should fire on track change only,
+        // otherwise pausing would reload and restart the track.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentTrack]);
+
+    /*
+     * Honour the taskbar volume and mute. The tray slider used to have no effect here at all —
+     * the system claimed a global volume control that this app quietly ignored.
+     */
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        audio.volume = isMuted ? 0 : volume * systemVolume;
+    }, [volume, systemVolume, isMuted]);
 
     return (
         <div className="h-full bg-[#c0c0c0] p-1 flex flex-col font-sans select-none">
@@ -133,8 +158,21 @@ export default function MusicPlayerApp() {
                         value={volume}
                         onChange={handleVolume}
                         className="w-full"
+                        aria-label="Player volume"
                     />
                 </div>
+
+                {/* Real failure states, rather than a play button that silently does nothing. */}
+                {isMuted && (
+                    <p className="mt-2 text-center text-[10px] text-amber-300">
+                        System volume is muted — unmute from the taskbar.
+                    </p>
+                )}
+                {playbackError && (
+                    <p role="alert" className="mt-1 text-center text-[10px] text-red-400">
+                        {playbackError}
+                    </p>
+                )}
             </div>
 
             {/* Playlist */}
@@ -157,6 +195,10 @@ export default function MusicPlayerApp() {
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={handleLoadedMetadata}
                 onEnded={nextTrack}
+                // The element is the source of truth for transport state, not local optimism.
+                onPlay={() => { setIsPlaying(true); setPlaybackError(null); }}
+                onPause={() => setIsPlaying(false)}
+                onError={() => { setIsPlaying(false); setPlaybackError('This track could not be loaded.'); }}
             />
         </div>
     );
