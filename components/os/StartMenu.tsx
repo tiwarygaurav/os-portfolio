@@ -2,33 +2,107 @@
 
 import { useSystemStore } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
-import { Power, User, LogOut, ChevronRight, FolderOpen, Mail, Music, Play, PenTool, Layout, TerminalSquare, FileText, Globe, Image as ImageIcon, Instagram, Github, Linkedin } from 'lucide-react';
+import { Power, LogOut, ChevronRight, Music, Instagram, Github, Linkedin, Mail, Calculator, StickyNote, HardDrive, TerminalSquare, Image as ImageIcon, Monitor, FolderOpen, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useState, useRef, useEffect } from 'react';
+import { playSound } from '@/utils/sound';
+import { LINKS, PROFILE } from '@/content';
 
 interface StartMenuProps {
     onClose: () => void;
 }
 
+/** Glyph for a social link label. Falls back to a globe for anything unrecognised. */
+function SOCIAL_ICONS({ l }: { l: string }) {
+    if (l === 'GitHub') return <Github size={16} />;
+    if (l === 'LinkedIn') return <Linkedin size={16} />;
+    if (l === 'Instagram') return <Instagram size={16} />;
+    return <Globe size={16} />;
+}
+
 export default function StartMenu({ onClose }: StartMenuProps) {
     const { actions } = useSystemStore();
+    const [allProgramsOpen, setAllProgramsOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const onClickOutside = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                onClose();
+            }
+        };
+        document.addEventListener('mousedown', onClickOutside);
+        return () => document.removeEventListener('mousedown', onClickOutside);
+    }, [onClose]);
 
     const handleAppClick = (appId: string) => {
         const app = APPS[appId];
         if (app) {
+            playSound('open');
             actions.openWindow(app.id, app.title);
             onClose();
         }
     };
 
+    const handleLogout = () => {
+        playSound('logoff');
+        actions.logout();
+    };
+
+    const handleShutdown = () => {
+        playSound('shutdown');
+        actions.shutdown();
+        onClose();
+    };
+
+    const programGroups: { title: string; apps: { id: string; label: string }[] }[] = [
+        {
+            title: 'Accessories',
+            apps: [
+                { id: 'notepad', label: 'Notepad' },
+                { id: 'calculator', label: 'Calculator' },
+                { id: 'paint', label: 'Paint' },
+                { id: 'terminal', label: 'Command Prompt' },
+                { id: 'imageviewer', label: 'Picture Viewer' },
+            ]
+        },
+        {
+            title: 'Games',
+            apps: [{ id: 'minesweeper', label: 'Minesweeper' }]
+        },
+        {
+            title: 'Portfolio',
+            apps: [
+                { id: 'about', label: 'About Me' },
+                { id: 'projects', label: 'My Projects' },
+                { id: 'skills', label: 'Skills' },
+                { id: 'resume', label: 'Resume' },
+                { id: 'contact', label: 'Contact Me' },
+            ]
+        },
+        {
+            title: 'System',
+            apps: [
+                { id: 'mycomputer', label: 'My Computer' },
+                { id: 'settings', label: 'Display Properties' },
+                { id: 'trash', label: 'Recycle Bin' },
+                { id: 'music', label: 'Media Player' },
+            ]
+        },
+    ];
+
     return (
         <motion.div
+            ref={menuRef}
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 20, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed bottom-12 left-0 w-[380px] bg-white rounded-t-lg overflow-hidden z-[9999] flex flex-col font-sans shadow-2xl rounded-tr-lg rounded-tl-lg"
+            transition={{ duration: 0.18 }}
+            className="fixed bottom-9 left-0 w-[380px] bg-white overflow-visible z-[9999] flex flex-col font-sans"
             style={{
-                boxShadow: "2px 2px 10px rgba(0,0,0,0.5), -1px -1px 3px rgba(255,255,255,0.3)"
+                boxShadow: "2px 2px 12px rgba(0,0,0,0.5), -1px -1px 3px rgba(255,255,255,0.3)",
+                borderTopLeftRadius: 8,
+                borderTopRightRadius: 8,
             }}
         >
             {/* Header */}
@@ -37,31 +111,26 @@ export default function StartMenu({ onClose }: StartMenuProps) {
                 <div className="w-12 h-12 rounded border-2 border-white overflow-hidden shrink-0 shadow-md bg-white">
                     <img
                         src="/profile.jpg"
-                        alt="Kumar Gaurav"
+                        alt={PROFILE.name}
                         className="w-full h-full object-cover"
                     />
                 </div>
-
-                <span className="font-bold text-lg text-white drop-shadow-md select-none">Kumar Gaurav</span>
+                <span className="font-bold text-lg text-white drop-shadow-md select-none">{PROFILE.name}</span>
             </div>
 
             {/* Body */}
-            <div className="flex bg-white border-l border-r border-[#3c82f2]">
-                {/* Left Column (Pinned Apps) */}
+            <div className="flex bg-white border-l border-r border-[#3c82f2] relative">
+                {/* Left Column */}
                 <div className="w-1/2 bg-white py-2 flex flex-col">
-                    <div className="px-1 text-xs text-gray-400 font-bold mb-1 pl-2 hidden">Pinned</div>
-
                     <StartMenuItem
                         icon="/icons/Folder Open.ico"
                         label="My Projects"
-                        // subLabel="View my work"
                         onClick={() => handleAppClick('projects')}
                         bold
                     />
                     <StartMenuItem
                         icon="/icons/Phone.ico"
                         label="Contact Me"
-                        // subLabel="Send me a message"
                         onClick={() => handleAppClick('contact')}
                         bold
                     />
@@ -69,119 +138,164 @@ export default function StartMenu({ onClose }: StartMenuProps) {
                     <div className="h-[1px] bg-gradient-to-r from-transparent via-gray-300 to-transparent my-1 mx-2" />
 
                     <StartMenuItem icon="/icons/User Personalization.ico" label="About Me" onClick={() => handleAppClick('about')} />
-                    <StartMenuItem icon="/icons/Music.ico" label="Music Player" onClick={() => handleAppClick('music')} />
-                    {/* Placeholder for Media Player */}
-                    <StartMenuItem icon="/icons/Video.ico" label="Media Player" onClick={() => { }} />
-                    <StartMenuItem icon="/icons/Display.ico" label="Paint" onClick={() => handleAppClick('paint')} />
-                    <StartMenuItem icon="/icons/Game Controller.ico" label="Valorant" onClick={() => { }} />
+                    <StartMenuItem icon="/icons/media-player.png" label="Media Player" onClick={() => handleAppClick('music')} />
+                    <StartMenuItem icon="/icons/paint.png" label="Paint" onClick={() => handleAppClick('paint')} />
+                    <StartMenuItem icon="/icons/Minesweeper.ico" label="Minesweeper" onClick={() => handleAppClick('minesweeper')} />
+                    <StartMenuItem fallback={<Calculator size={20} />} label="Calculator" onClick={() => handleAppClick('calculator')} />
+                    <StartMenuItem fallback={<StickyNote size={20} />} label="Notepad" onClick={() => handleAppClick('notepad')} />
 
-                    <div className="mt-auto pt-4 px-2">
+                    <div className="mt-auto pt-4 px-2 relative">
                         <div className="h-[1px] bg-gray-200 mb-1" />
-                        <button className="w-full flex items-center justify-center gap-1 py-1 hover:bg-[#2f7bf2] hover:text-white transition-colors group">
+                        <button
+                            onMouseEnter={() => setAllProgramsOpen(true)}
+                            onClick={() => setAllProgramsOpen(v => !v)}
+                            className="w-full flex items-center justify-center gap-1 py-1 hover:bg-[#2f7bf2] hover:text-white transition-colors group"
+                        >
                             <span className="font-bold text-sm">All Programs</span>
-                            <div className="bg-[#2f8b19] rounded-full p-0.5 group-hover:bg-white group-hover:text-[#2f8b19]">
+                            <div className="bg-[#2f8b19] rounded-full p-0.5 group-hover:bg-white">
                                 <ChevronRight size={10} className="text-white group-hover:text-[#2f8b19]" />
                             </div>
                         </button>
+
+                        {allProgramsOpen && (
+                            <div
+                                className="absolute bottom-0 left-full ml-0 w-56 bg-white border border-gray-500 shadow-2xl py-1 z-[10000]"
+                                onMouseLeave={() => setAllProgramsOpen(false)}
+                            >
+                                {programGroups.map((group, gi) => (
+                                    <div key={group.title} className="relative group">
+                                        <div className="flex items-center justify-between px-3 py-1.5 text-xs font-bold hover:bg-[#316ac5] hover:text-white cursor-pointer">
+                                            <span>{group.title}</span>
+                                            <ChevronRight size={12} />
+                                        </div>
+                                        <div
+                                            className="absolute top-0 left-full bg-white border border-gray-500 shadow-2xl py-1 w-52 hidden group-hover:block"
+                                        >
+                                            {group.apps.map(a => (
+                                                <button
+                                                    key={a.id}
+                                                    onClick={() => { handleAppClick(a.id); setAllProgramsOpen(false); }}
+                                                    className="w-full text-left px-3 py-1 text-xs hover:bg-[#316ac5] hover:text-white flex items-center gap-2"
+                                                >
+                                                    {APPS[a.id]?.iconAsset && (
+                                                        <img src={APPS[a.id].iconAsset!} alt="" className="w-4 h-4 object-contain" />
+                                                    )}
+                                                    {a.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Right Column (System / Recent) */}
+                {/* Right Column */}
                 <div className="w-1/2 bg-[#d3e5fa] py-2 border-l border-[#95bdee] flex flex-col text-[#00136b]">
-                    <StartMenuLink icon="/icons/instagram.png" label="Instagram" onClick={() => window.open('https://instagram.com/gauravtewaryy', '_blank')} />
-                    <StartMenuLink icon="/icons/github.png" label="Github" onClick={() => window.open('https://github.com/tiwarygaurav', '_blank')} />
-                    <StartMenuLink icon="/icons/linkedin.png" label="LinkedIn" onClick={() => window.open('https://linkedin.com/gauravtiwary21', '_blank')} />
+                    <StartMenuLink fallback={<HardDrive size={16} />} icon="/icons/My Computer.ico" label="My Computer" onClick={() => handleAppClick('mycomputer')} />
+                    <StartMenuLink fallback={<FolderOpen size={16} />} icon="/icons/documents.png" label="My Documents" onClick={() => handleAppClick('resume')} />
+                    <StartMenuLink fallback={<Music size={16} />} icon="/icons/Music.ico" label="My Music" onClick={() => handleAppClick('music')} />
 
                     <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
 
-                    <button className="w-full px-2 py-1 flex items-center gap-2 hover:bg-[#316ac5] hover:text-white text-sm group">
-                        <div className="relative">
-                            <FileText size={16} className="text-[#00136b] group-hover:text-white" />
-                            <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-[1px]"><Music size={8} /></div>
-                        </div>
-                        <div className="flex flex-col items-start leading-none">
-                            <span className="font-bold">Recently Used</span>
-                        </div>
-                        <ChevronRight size={12} className="ml-auto text-gray-500 group-hover:text-white" />
-                    </button>
+                    <StartMenuLink fallback={<Monitor size={16} />} icon="/icons/control-panel.png" label="Control Panel" onClick={() => handleAppClick('settings')} />
+                    <StartMenuLink fallback={<TerminalSquare size={16} />} icon="/icons/278.ico" label="Command Prompt" onClick={() => handleAppClick('terminal')} />
+                    <StartMenuLink fallback={<ImageIcon size={16} />} icon="/icons/Display.ico" label="Picture Viewer" onClick={() => handleAppClick('imageviewer')} />
 
                     <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
 
-                    <StartMenuLink icon="/icons/terminal.png" label="Command Prompt" onClick={() => handleAppClick('terminal')} />
-                    <StartMenuLink icon="/icons/image.png" label="Image Viewer" onClick={() => { }} />
-                    <StartMenuLink icon="/icons/List File.ico" label="My Resume" onClick={() => handleAppClick('resume')} />
+                    {/* URLs come from `@/content` — they were duplicated here before. */}
+                    <div className="px-2 text-[10px] text-gray-600 font-bold pb-1">CONNECT WITH ME</div>
+                    {LINKS.filter((l) => l.known && l.label !== 'Email').map((l) => (
+                        <StartMenuLink
+                            key={l.url}
+                            fallback={<SOCIAL_ICONS l={l.label} />}
+                            label={l.label}
+                            onClick={() => window.open(l.url, '_blank', 'noopener,noreferrer')}
+                        />
+                    ))}
+                    <StartMenuLink fallback={<Mail size={16} />} label="Email" onClick={() => handleAppClick('contact')} />
                 </div>
             </div>
 
             {/* Footer */}
-            <div className="h-10 bg-gradient-to-b from-[#245dca] to-[#3c82f2] flex items-center justify-end gap-3 px-3 border-t-2 border-orange-300">
+            <div
+                className="h-10 flex items-center justify-end gap-3 px-3 border-t-2 border-orange-300 rounded-b-lg"
+                style={{
+                    background: 'linear-gradient(to bottom, #245dca 0%, #3c82f2 100%)',
+                }}
+            >
                 <button
-                    onClick={actions.logout}
+                    onClick={handleLogout}
                     className="flex items-center gap-1 px-2 py-1 hover:bg-[#2f7bf2] rounded transition-colors text-white shadow-sm active:translate-y-px"
                     title="Log Off"
                 >
                     <div className="bg-[#e7a32b] p-0.5 rounded shadow-sm border border-white/30">
                         <LogOut size={14} className="text-white" />
                     </div>
-                    <span className="text-sm font-sans">Log Off</span>
+                    <span className="text-sm">Log Off</span>
                 </button>
                 <button
-                    onClick={actions.shutdown}
+                    onClick={handleShutdown}
                     className="flex items-center gap-1 px-2 py-1 hover:bg-[#2f7bf2] rounded transition-colors text-white shadow-sm active:translate-y-px"
                     title="Shut Down"
                 >
                     <div className="bg-[#d12828] p-0.5 rounded shadow-sm border border-white/30">
                         <Power size={14} className="text-white" />
                     </div>
-                    <span className="text-sm font-sans">Shut Down</span>
+                    <span className="text-sm">Turn Off Computer</span>
                 </button>
             </div>
         </motion.div>
     );
 }
 
-function StartMenuItem({ icon, label, subLabel, onClick, bold }: { icon: string, label: string, subLabel?: string, onClick: () => void, bold?: boolean }) {
+function StartMenuItem({ icon, label, onClick, bold, fallback }: { icon?: string, label: string, onClick: () => void, bold?: boolean, fallback?: React.ReactNode }) {
     return (
         <button
             onClick={onClick}
             className="w-full text-left px-2 py-1.5 hover:bg-[#316ac5] hover:text-white flex items-center gap-2 group transition-colors"
         >
-            <img
-                src={icon}
-                alt={label}
-                className="w-6 h-6 object-contain shrink-0"
-            />
-            <div className="flex flex-col items-start leading-tight">
-                <span className={`text-sm text-gray-800 group-hover:text-white ${bold ? 'font-bold' : ''}`}>
-                    {label}
-                </span>
-                {subLabel && <span className="text-[10px] text-gray-500 group-hover:text-blue-100">{subLabel}</span>}
-            </div>
+            {icon ? (
+                <img
+                    src={icon}
+                    alt={label}
+                    className="w-6 h-6 object-contain shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+            ) : (
+                <div className="w-6 h-6 flex items-center justify-center shrink-0 text-gray-700 group-hover:text-white">{fallback}</div>
+            )}
+            <span className={`text-sm text-gray-800 group-hover:text-white ${bold ? 'font-bold' : ''}`}>
+                {label}
+            </span>
         </button>
     );
 }
 
-function StartMenuLink({
-    icon,
-    label,
-    onClick
-}: {
-    icon: string,
-    label: string,
-    onClick: () => void
-}) {
+function StartMenuLink({ icon, label, onClick, fallback }: { icon?: string, label: string, onClick: () => void, fallback?: React.ReactNode }) {
+    const [iconBroken, setIconBroken] = useState(false);
+    const showFallback = !icon || iconBroken;
+
     return (
         <button
             onClick={onClick}
             className="w-full text-left px-2 py-1 hover:bg-[#316ac5] hover:text-white flex items-center gap-2 group transition-colors"
         >
-            <img
-                src={icon}
-                alt={label}
-                className="w-4 h-4 object-contain shrink-0"
-            />
+            <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                {showFallback ? (
+                    <div className="text-[#00136b] group-hover:text-white">{fallback}</div>
+                ) : (
+                    <img
+                        src={icon}
+                        alt={label}
+                        className="w-4 h-4 object-contain"
+                        onError={() => setIconBroken(true)}
+                    />
+                )}
+            </div>
             <span className="text-sm font-medium">{label}</span>
         </button>
     );
 }
-

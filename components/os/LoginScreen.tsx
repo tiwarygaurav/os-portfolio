@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Power } from 'lucide-react'; // Using Lucide for shutdown/help if needed, but styling manually
+import { useSystemStore } from '@/store/useSystemStore';
+import { PROFILE, SYSTEM } from '@/content';
 import { playSound } from '@/utils/sound';
 import Image from 'next/image';
 
@@ -11,7 +12,8 @@ interface LoginScreenProps {
 }
 
 export default function LoginScreen({ onLogin }: LoginScreenProps) {
-    const [password, setPassword] = useState('');
+    const shutdown = useSystemStore((s) => s.actions.shutdown);
+
     const [isHoveringUser, setIsHoveringUser] = useState(false);
     const [showShutdown, setShowShutdown] = useState(false);
     const [isShuttingDown, setIsShuttingDown] = useState(false);
@@ -77,10 +79,11 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                                 width={250}
                                 height={120}
                                 alt="Windows XP"
+                                priority
                             />
                         </div>
                         <span className="text-[22px] text-right font-normal">
-                            To begin, click on Gaurav to log in
+                            To begin, click on {PROFILE.shortName} to log in
                         </span>
                     </div>
                     <div className="flex items-center justify-center">
@@ -110,11 +113,9 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
                             <div>
                                 <span className="block text-[22px] mb-2 font-normal">
-                                    Gaurav
+                                    {PROFILE.shortName}
                                 </span>
-                                <span className="text-sm text-blue-200">
-                                    Software Engineer
-                                </span>
+                                <span className="text-sm text-blue-200">{PROFILE.title}</span>
                             </div>
                         </div>
 
@@ -139,7 +140,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                     </div>
 
                     <span className="text-sm">
-                        After you log on, the system's yours to explore.
+                        After you log on, the system&apos;s yours to explore.
                     </span>
                 </div>
             </div>
@@ -157,13 +158,8 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
                             {/* Title Bar */}
                             <div className="flex justify-between items-center px-4 py-2 bg-gradient-to-r from-[#0a5bd3] via-[#0f62d6] to-[#003b8f] text-white text-sm font-bold">
-                                <span>Turn off Jack XP</span>
-                                <Image
-                                    src="/icons/windows.png"
-                                    width={20}
-                                    height={20}
-                                    alt="Windows"
-                                />
+                                <span>Turn off {SYSTEM.name}</span>
+                                <Image src="/icons/windows.png" width={20} height={20} alt="" />
                             </div>
 
                             {/* Content */}
@@ -182,31 +178,27 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                                 >
 
 
-                                    {/* Restart */}
-                                    <div className="flex flex-col items-center cursor-pointer group">
-                                        <Image
-                                            src="/icons/favorite.png"
-                                            width={48}
-                                            height={48}
-                                            alt="Restart"
-                                        />
-                                        <span className="mt-2 text-sm group-hover:underline">
-                                            Restart
-                                        </span>
-                                    </div>
+                                    {/* Both of these were dead buttons. They now do what they say. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => window.location.reload()}
+                                        className="group flex flex-col items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                                    >
+                                        <Image src="/icons/favorite.png" width={48} height={48} alt="" />
+                                        <span className="mt-2 text-sm group-hover:underline">Restart</span>
+                                    </button>
 
-                                    {/* Shut Down */}
-                                    <div className="flex flex-col items-center cursor-pointer group">
-                                        <Image
-                                            src="/icons/log-off.png"
-                                            width={48}
-                                            height={48}
-                                            alt="Shutdown"
-                                        />
-                                        <span className="mt-2 text-sm group-hover:underline">
-                                            Log Off
-                                        </span>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            playSound('shutdown');
+                                            shutdown();
+                                        }}
+                                        className="group flex flex-col items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                                    >
+                                        <Image src="/icons/log-off.png" width={48} height={48} alt="" />
+                                        <span className="mt-2 text-sm group-hover:underline">Turn Off</span>
+                                    </button>
                                 </motion.div>
                             </div>
 

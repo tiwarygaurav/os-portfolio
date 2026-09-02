@@ -1,39 +1,110 @@
 "use client";
 
-import { useSystemStore } from '@/store/useSystemStore';
+import { useSystemStore, WALLPAPERS } from '@/store/useSystemStore';
 import { APPS, DESKTOP_ICONS } from '@/constants/apps';
 import Taskbar from './Taskbar';
 import Window from './Window';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { playSound } from '@/utils/sound';
 import { useEffect, useState } from 'react';
 import DesktopIcon from './DesktopIcon';
 import ContextMenu from '@/components/ui/ContextMenu';
+import { PROFILE, SYSTEM } from '@/content';
 
 export default function Desktop() {
-    const { windows, actions } = useSystemStore();
+    const { windows, actions, wallpaperId, deletedAppIds } = useSystemStore();
     const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
-    const [contextMenu, setContextMenu] = useState({ isOpen: false, x: 0, y: 0 });
+    const [desktopMenu, setDesktopMenu] = useState({ isOpen: false, x: 0, y: 0 });
+    const [iconMenu, setIconMenu] = useState<{ isOpen: boolean; x: number; y: number; appId: string | null }>({ isOpen: false, x: 0, y: 0, appId: null });
+    const [showBalloon, setShowBalloon] = useState(true);
 
-    const handleContextMenu = (e: React.MouseEvent) => {
+    const visibleIcons = DESKTOP_ICONS.filter(id => !deletedAppIds.includes(id));
+    const wallpaper = WALLPAPERS.find(w => w.id === wallpaperId) || WALLPAPERS[0];
+
+    const handleDesktopContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
-        setContextMenu({
-            isOpen: true,
-            x: e.clientX,
-            y: e.clientY
-        });
+        setDesktopMenu({ isOpen: true, x: e.clientX, y: e.clientY });
+        setIconMenu({ isOpen: false, x: 0, y: 0, appId: null });
     };
+
+    const handleIconContextMenu = (e: React.MouseEvent, appId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIconMenu({ isOpen: true, x: e.clientX, y: e.clientY, appId });
+        setDesktopMenu({ isOpen: false, x: 0, y: 0 });
+        setSelectedIconId(appId);
+    };
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            // Konami
+            // (handled separately below)
+            const target = e.target as HTMLElement;
+            const inForm = ['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable;
+
+            // Alt+F4 closes active window
+            if (e.altKey && e.key === 'F4') {
+                e.preventDefault();
+                const active = useSystemStore.getState().activeWindowId;
+                if (active) {
+                    playSound('close');
+                    actions.closeWindow(active);
+                }
+            }
+
+            // Escape closes context menus and deselects
+            if (e.key === 'Escape' && !inForm) {
+                setDesktopMenu({ isOpen: false, x: 0, y: 0 });
+                setIconMenu({ isOpen: false, x: 0, y: 0, appId: null });
+                setSelectedIconId(null);
+            }
+
+            // Delete removes selected icon to recycle bin
+            if (e.key === 'Delete' && selectedIconId && !inForm) {
+                const app = APPS[selectedIconId];
+                if (app && selectedIconId !== 'trash') {
+                    if (confirm(`Send "${app.title}" to the Recycle Bin?`)) {
+                        actions.deleteIcon(selectedIconId, app.title, app.iconAsset || '');
+                        setSelectedIconId(null);
+                    }
+                }
+            }
+
+            // Enter opens selected icon
+            if (e.key === 'Enter' && selectedIconId && !inForm) {
+                const app = APPS[selectedIconId];
+                if (app) {
+                    playSound('open');
+                    actions.openWindow(selectedIconId, app.title);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [selectedIconId, actions]);
 
     useEffect(() => {
         const konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
         let cursor = 0;
 
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === konamiCode[cursor]) {
+            // Ignore keystrokes aimed at an input — typing "…b, a" in the terminal used to fire this.
+            const target = e.target as HTMLElement;
+            if (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable) {
+                cursor = 0;
+                return;
+            }
+
+            if (e.key.toLowerCase() === konamiCode[cursor].toLowerCase()) {
                 cursor++;
                 if (cursor === konamiCode.length) {
-                    playSound('startup'); // Play sound or unlock something
-                    alert("Easter Egg Unlocked! Unlimited Power!");
+                    playSound('tada');
+                    alert(
+                        `🎉 Easter Egg Unlocked!\n\nThanks for exploring ${SYSTEM.name}.\n\n` +
+                        'Try the Command Prompt next — it runs on a real filesystem. Start with `ls ~`.',
+                    );
                     cursor = 0;
                 }
             } else {
@@ -45,37 +116,28 @@ export default function Desktop() {
         return () => window.removeEventListener('keydown', onKey);
     }, []);
 
+    const wallpaperStyle: React.CSSProperties = wallpaper.color
+        ? { backgroundColor: wallpaper.color }
+        : { backgroundImage: `url('${wallpaper.url}')`, backgroundSize: 'cover', backgroundPosition: 'center' };
+
     return (
         <div className="h-full w-full bg-[#1c55ee] relative font-sans overflow-hidden">
-            {/* Background - Classic Bliss Wallpaper */}
-            <div
-                className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: "url('/wallpapers/Bliss.jpg')" }}
-            />
+            {/* Background */}
+            <div className="absolute inset-0" style={wallpaperStyle} />
 
-            {/* Desktop Icons Grid */}
+            {/* Desktop Icons */}
             <div
                 className="absolute inset-0"
                 onClick={() => setSelectedIconId(null)}
-                onContextMenu={handleContextMenu}
+                onContextMenu={handleDesktopContextMenu}
             >
-                {DESKTOP_ICONS.map((appId, index) => {
+                {visibleIcons.map((appId, index) => {
                     const app = APPS[appId];
                     if (!app) return null;
 
-                    // Calculate initial position (Vertical Column Layout)
-                    // Windows XP style: Top to bottom, then left to right.
-                    // We need window height to determine when to wrap.
-                    // Since specific window height might vary, we can estimate or use a ref.
-                    // For simplicity, let's assume a safe height or just use flex/grid? 
-                    // No, for drag and drop to work with absolute positioning store, 
-                    // we need to calculate specific coordinates.
-
-                    // Let's assume a grid cell of 100x100
-                    const cellHeight = 100;
-                    const cellWidth = 100;
-                    const rowsPerColumn = Math.floor((typeof window !== 'undefined' ? window.innerHeight : 800) / cellHeight) - 1; // -1 for taskbar/margin
-
+                    const cellHeight = 90;
+                    const cellWidth = 90;
+                    const rowsPerColumn = Math.floor((typeof window !== 'undefined' ? window.innerHeight - 80 : 700) / cellHeight);
                     const safeRows = Math.max(1, rowsPerColumn);
                     const col = Math.floor(index / safeRows);
                     const row = index % safeRows;
@@ -91,54 +153,117 @@ export default function Desktop() {
                             initialPosition={{ x: initialX, y: initialY }}
                             isSelected={selectedIconId === appId}
                             onSelect={() => setSelectedIconId(appId)}
+                            onContextMenu={(e) => handleIconContextMenu(e, appId)}
                         />
                     );
                 })}
             </div>
 
+            {/* Desktop context menu */}
             <ContextMenu
-                x={contextMenu.x}
-                y={contextMenu.y}
-                isOpen={contextMenu.isOpen}
-                onClose={() => setContextMenu({ ...contextMenu, isOpen: false })}
+                x={desktopMenu.x}
+                y={desktopMenu.y}
+                isOpen={desktopMenu.isOpen}
+                onClose={() => setDesktopMenu({ ...desktopMenu, isOpen: false })}
                 items={[
                     { label: "Arrange Icons By", disabled: true },
                     { label: "Refresh", action: () => window.location.reload() },
                     { divider: true },
-                    { label: "New", disabled: true },
+                    { label: "Paste", disabled: true },
+                    { label: "Paste Shortcut", disabled: true },
                     { divider: true },
-                    { label: "Properties", disabled: true },
-                    { label: "Personalize", action: () => actions.openWindow('settings', 'Settings') }, // Future
+                    { label: "New Folder", disabled: true },
+                    { divider: true },
+                    { label: "Properties", action: () => actions.openWindow('settings') },
                 ]}
             />
 
+            {/* Icon context menu */}
+            <ContextMenu
+                x={iconMenu.x}
+                y={iconMenu.y}
+                isOpen={iconMenu.isOpen}
+                onClose={() => setIconMenu({ ...iconMenu, isOpen: false })}
+                items={(() => {
+                    if (!iconMenu.appId) return [];
+                    const app = APPS[iconMenu.appId];
+                    if (!app) return [];
+                    const id = iconMenu.appId;
+                    return [
+                        { label: "Open", action: () => { playSound('open'); actions.openWindow(id, app.title); } },
+                        { label: "Run as...", disabled: true },
+                        { divider: true },
+                        { label: "Send to", disabled: true },
+                        { label: "Cut", disabled: true },
+                        { label: "Copy", disabled: true },
+                        { divider: true },
+                        { label: "Create Shortcut", disabled: true },
+                        {
+                            label: "Delete",
+                            disabled: id === 'trash',
+                            action: () => {
+                                if (id === 'trash') return;
+                                if (confirm(`Send "${app.title}" to the Recycle Bin?`)) {
+                                    actions.deleteIcon(id, app.title, app.iconAsset || '');
+                                }
+                            }
+                        },
+                        { label: "Rename", disabled: true },
+                        { divider: true },
+                        { label: "Properties", action: () => alert(`${app.title}\nType: Application\nSize: 0 bytes`) },
+                    ];
+                })()}
+            />
+
             {/* Windows Layer */}
-            {windows.map((win) => (
-                <Window key={win.id} window={win} />
-            ))}
+            <AnimatePresence>
+                {windows.map((win) => (
+                    <Window key={win.id} win={win} />
+                ))}
+            </AnimatePresence>
 
             {/* Welcome Balloon */}
-            <motion.div
-                initial={{ opacity: 0, y: 50, scale: 0.8 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ delay: 1, duration: 0.5 }}
-                className="absolute bottom-12 right-4 w-72 bg-[#FFFFE1] border border-black rounded-lg shadow-xl p-3 z-40 text-black text-xs font-sans pointer-events-none origin-bottom-right"
-            >
-                <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-bold text-sm">Welcome to Gaurav's XP</h3>
-                    <button className="text-gray-500 hover:text-black">×</button>
-                </div>
-                <p>A faithful XP-inspired interface, custom-built to showcase my work and attention to detail.</p>
-                <div className="mt-2 text-blue-800 underline cursor-pointer hover:text-blue-600 pointer-events-auto flex gap-2">
-                    <span>Get Started:</span>
-                    <button onClick={() => actions.openWindow('about', 'About Me')}>About Me</button>
-                    <span>|</span>
-                    <button onClick={() => actions.openWindow('projects', 'My Projects')}>My Projects</button>
-                </div>
+            {showBalloon && (
+                <motion.div
+                    initial={{ opacity: 0, y: 50, scale: 0.8 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ delay: 1, duration: 0.5 }}
+                    className="absolute bottom-12 right-4 w-72 bg-[#FFFFE1] border border-black rounded-lg shadow-xl p-3 z-40 text-black text-xs font-sans origin-bottom-right"
+                >
+                    <div className="flex justify-between items-start mb-1">
+                        <h3 className="font-bold text-sm">Welcome to {SYSTEM.name}</h3>
+                        <button
+                            onClick={() => setShowBalloon(false)}
+                            className="text-gray-500 hover:text-black px-1 leading-none"
+                            aria-label="Dismiss"
+                        >
+                            ×
+                        </button>
+                    </div>
+                    {/*
+                      * Wayfinding. The links point at what a visitor actually came for — the old
+                      * balloon led with Minesweeper — but the XP balloon styling and voice stay.
+                      */}
+                    <p>
+                        A faithful XP-inspired desktop. Try right-clicking the desktop, or start here:
+                    </p>
+                    <div className="mt-2 text-blue-800 flex gap-2 flex-wrap">
+                        <button className="underline hover:text-blue-600" onClick={() => actions.openWindow('resume')}>Resume</button>
+                        <span>|</span>
+                        <button className="underline hover:text-blue-600" onClick={() => actions.openWindow('projects')}>My Projects</button>
+                        <span>|</span>
+                        <button className="underline hover:text-blue-600" onClick={() => actions.openWindow('contact')}>Contact Me</button>
+                        <span>|</span>
+                        <button className="underline hover:text-blue-600" onClick={() => actions.openWindow('minesweeper')}>Minesweeper</button>
+                    </div>
+                    <p className="mt-2 text-[11px] text-gray-600">
+                        The Command Prompt is real — try <code className="font-mono">ls ~</code>.
+                    </p>
 
-                {/* Balloon Tail */}
-                <div className="absolute -bottom-2 right-8 w-4 h-4 bg-[#FFFFE1] border-b border-r border-black transform rotate-45"></div>
-            </motion.div>
+                    <div className="absolute -bottom-2 right-8 w-4 h-4 bg-[#FFFFE1] border-b border-r border-black transform rotate-45"></div>
+                </motion.div>
+            )}
 
             {/* Taskbar */}
             <Taskbar />
