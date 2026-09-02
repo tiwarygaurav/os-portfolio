@@ -1,12 +1,12 @@
 "use client";
 
-import { useSystemStore, AppWindow } from '@/store/useSystemStore';
+import { useSystemStore, type AppWindow, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
-import { X, Minus, Square, Maximize2 } from 'lucide-react';
+import { X, Square } from 'lucide-react';
 import { motion, useDragControls } from 'framer-motion';
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { playSound } from '@/utils/sound';
 
-// Import apps lazily or directly if small
 import AboutApp from '@/components/apps/AboutApp';
 import ProjectsApp from '@/components/apps/ProjectsApp';
 import SkillsApp from '@/components/apps/SkillsApp';
@@ -15,9 +15,18 @@ import TerminalApp from '@/components/apps/TerminalApp';
 import ResumeApp from '@/components/apps/ResumeApp';
 import MusicPlayerApp from '@/components/apps/MusicPlayerApp';
 import PaintApp from '@/components/apps/PaintApp';
+import NotepadApp from '@/components/apps/NotepadApp';
+import CalculatorApp from '@/components/apps/CalculatorApp';
+import MinesweeperApp from '@/components/apps/MinesweeperApp';
+import MyComputerApp from '@/components/apps/MyComputerApp';
+import RecycleBinApp from '@/components/apps/RecycleBinApp';
+import SettingsApp from '@/components/apps/SettingsApp';
+import ImageViewerApp from '@/components/apps/ImageViewerApp';
 
-// Mapping for dynamic rendering
-const APP_COMPONENTS: Record<string, any> = {
+type AppComponent = React.ComponentType<{ windowId?: string; payload?: WindowPayload }>;
+
+/** id -> component. Must stay in sync with `constants/apps.ts`; see components/apps/CLAUDE.md. */
+const APP_COMPONENTS: Record<string, AppComponent> = {
     about: AboutApp,
     projects: ProjectsApp,
     skills: SkillsApp,
@@ -26,125 +35,173 @@ const APP_COMPONENTS: Record<string, any> = {
     resume: ResumeApp,
     music: MusicPlayerApp,
     paint: PaintApp,
+    notepad: NotepadApp,
+    calculator: CalculatorApp,
+    minesweeper: MinesweeperApp,
+    mycomputer: MyComputerApp,
+    trash: RecycleBinApp,
+    settings: SettingsApp,
+    imageviewer: ImageViewerApp,
 };
 
 interface WindowProps {
-    window: AppWindow;
+    win: AppWindow;
 }
 
-export default function Window({ window }: WindowProps) {
-    const { actions, activeWindowId } = useSystemStore();
-    const isActive = activeWindowId === window.id;
-    const appConfig = APPS[window.appId];
-    const AppBody = APP_COMPONENTS[window.appId] || (() => <div className="p-4">App not found</div>);
+export default function Window({ win }: WindowProps) {
+    const actions = useSystemStore((s) => s.actions);
+    const activeWindowId = useSystemStore((s) => s.activeWindowId);
+    const isActive = activeWindowId === win.id;
+    const appConfig = APPS[win.appId];
+    const AppBody = APP_COMPONENTS[win.appId] || (() => <div className="p-4">App not found</div>);
 
     const controls = useDragControls();
+    const winRef = useRef<HTMLDivElement>(null);
+    const [size, setSize] = useState(win.size);
+    const [isResizing, setIsResizing] = useState(false);
+
+    useEffect(() => {
+        setSize(win.size);
+    }, [win.size]);
 
     const handlePointerDown = () => {
-        actions.focusWindow(window.id);
+        actions.focusWindow(win.id);
     };
 
-    if (window.isMinimized) return null;
+    const startResize = (e: React.PointerEvent) => {
+        if (!appConfig?.canResize || win.isMaximized) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setIsResizing(true);
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startW = size.width;
+        const startH = size.height;
+
+        const onMove = (ev: PointerEvent) => {
+            const newW = Math.max(280, startW + (ev.clientX - startX));
+            const newH = Math.max(220, startH + (ev.clientY - startY));
+            setSize({ width: newW, height: newH });
+        };
+        const onUp = (ev: PointerEvent) => {
+            const newW = Math.max(280, startW + (ev.clientX - startX));
+            const newH = Math.max(220, startH + (ev.clientY - startY));
+            actions.resizeWindow(win.id, { width: newW, height: newH });
+            setIsResizing(false);
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+        };
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+    };
+
+    if (win.isMinimized) return null;
 
     return (
         <motion.div
-            drag={!window.isMaximized}
+            ref={winRef}
+            drag={!win.isMaximized && !isResizing}
             dragControls={controls}
-            dragListener={false} // Only drag from header
+            dragListener={false}
             dragMomentum={false}
-            initial={{ scale: 0.9, opacity: 0 }}
+            onDragEnd={(_, info) => {
+                actions.moveWindow(win.id, {
+                    x: win.position.x + info.offset.x,
+                    y: win.position.y + info.offset.y,
+                });
+            }}
+            initial={{ scale: 0.92, opacity: 0 }}
             animate={{
-                width: window.isMaximized ? '100%' : window.size.width,
-                height: window.isMaximized ? 'calc(100% - 40px)' : window.size.height,
-                x: window.isMaximized ? 0 : window.position.x,
-                y: window.isMaximized ? 0 : window.position.y,
-                top: window.isMaximized ? 0 : undefined,
-                left: window.isMaximized ? 0 : undefined,
+                width: win.isMaximized ? '100%' : size.width,
+                height: win.isMaximized ? 'calc(100% - 36px)' : size.height,
+                x: win.isMaximized ? 0 : win.position.x,
+                y: win.isMaximized ? 0 : win.position.y,
+                top: win.isMaximized ? 0 : undefined,
+                left: win.isMaximized ? 0 : undefined,
                 opacity: 1,
                 scale: 1,
             }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
             style={{
                 position: 'absolute',
-                zIndex: window.zIndex
+                zIndex: win.zIndex
             }}
-            className={`
-        flex flex-col shadow-2xl overflow-hidden
-        ${window.isMaximized ? '' : 'rounded-t-xl rounded-b-md'}
-        ${isActive ? 'z-50' : 'z-0 opacity-95'}
-      `}
+            className={`flex flex-col shadow-2xl overflow-visible ${win.isMaximized ? '' : 'rounded-t-xl rounded-b-md'} ${isActive ? '' : 'opacity-95'}`}
             onPointerDown={handlePointerDown}
         >
             {/* XP Title Bar */}
             <div
                 onPointerDown={(e) => {
-                    controls.start(e);
+                    if (!win.isMaximized) controls.start(e);
                     handlePointerDown();
                 }}
-                onDoubleClick={() => appConfig.canMaximize && actions.maximizeWindow(window.id)}
-                className={`
-          flex items-center justify-between px-3 h-8 select-none cursor-default
-          bg-gradient-to-b from-[#0058ee] via-[#0073e6] to-[#0058ee]
-          text-white text-shadow-md border-b border-[#003da8]
-          ${window.isMaximized ? '' : 'rounded-t-lg'}
-        `}
+                onDoubleClick={() => {
+                    if (!appConfig.canMaximize) return;
+                    if (win.isMaximized) actions.unmaximizeWindow(win.id);
+                    else actions.maximizeWindow(win.id);
+                }}
+                className={`flex items-center justify-between px-2 h-7 select-none cursor-default ${isActive
+                    ? 'bg-gradient-to-b from-[#0058ee] via-[#0073e6] to-[#0058ee]'
+                    : 'bg-gradient-to-b from-[#7a96df] via-[#9bb4ea] to-[#7a96df]'} text-white border-b border-[#003da8] ${win.isMaximized ? '' : 'rounded-t-lg'}`}
             >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                     {appConfig.iconAsset ? (
-                        <img src={appConfig.iconAsset} alt={window.title} className="w-4 h-4 drop-shadow-md" />
+                        <img src={appConfig.iconAsset} alt={win.title} className="w-4 h-4 drop-shadow-md shrink-0" />
                     ) : (
-                        appConfig.icon && <appConfig.icon size={16} className="filter drop-shadow-md" />
+                        appConfig.icon && <appConfig.icon size={16} className="filter drop-shadow-md shrink-0" />
                     )}
-                    <span className="text-xs font-bold tracking-wide drop-shadow-md font-sans">{window.title}</span>
+                    <span className="text-xs font-bold tracking-wide drop-shadow-md truncate">{win.title}</span>
                 </div>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5 shrink-0">
                     <button
-                        onClick={(e) => { e.stopPropagation(); actions.minimizeWindow(window.id); }}
-                        className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-[#0058ee] hover:bg-[#2f7bf2] active:bg-[#004dc2] border border-white/30 shadow-inner transition-colors"
+                        onClick={(e) => { e.stopPropagation(); playSound('minimize'); actions.minimizeWindow(win.id); }}
+                        className="w-5 h-5 flex items-end justify-center pb-0.5 rounded-[3px] bg-gradient-to-b from-[#3d80f1] to-[#0e4cb0] hover:from-[#5fa6f5] hover:to-[#1c63d4] active:from-[#0e4cb0] active:to-[#3d80f1] border border-white/40"
                         title="Minimize"
                     >
-                        <Minus size={12} strokeWidth={3} className="mb-1" />
+                        <span className="block w-2 h-0.5 bg-white" />
                     </button>
 
                     {appConfig.canMaximize && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (window.isMaximized) actions.restoreWindow(window.id);
-                                else actions.maximizeWindow(window.id);
+                                if (win.isMaximized) actions.unmaximizeWindow(win.id);
+                                else actions.maximizeWindow(win.id);
                             }}
-                            className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-[#0058ee] hover:bg-[#2f7bf2] active:bg-[#004dc2] border border-white/30 shadow-inner transition-colors"
-                            title={window.isMaximized ? "Restore" : "Maximize"}
+                            className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-gradient-to-b from-[#3d80f1] to-[#0e4cb0] hover:from-[#5fa6f5] hover:to-[#1c63d4] active:from-[#0e4cb0] active:to-[#3d80f1] border border-white/40"
+                            title={win.isMaximized ? "Restore" : "Maximize"}
                         >
-                            {window.isMaximized ? <Square size={10} strokeWidth={3} /> : <Maximize2 size={12} strokeWidth={3} />}
+                            {win.isMaximized ? <Square size={9} strokeWidth={3} /> : <span className="block w-2.5 h-2 border-2 border-white border-t-[3px]" />}
                         </button>
                     )}
 
                     <button
-                        onClick={(e) => { e.stopPropagation(); actions.closeWindow(window.id); }}
-                        className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-[#e81123] hover:bg-[#f44a56] active:bg-[#bf0e1d] border border-white/30 shadow-inner transition-colors ml-1"
+                        onClick={(e) => { e.stopPropagation(); playSound('close'); actions.closeWindow(win.id); }}
+                        className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-gradient-to-b from-[#e74e57] to-[#a91b1b] hover:from-[#f47280] hover:to-[#c0252b] active:from-[#a91b1b] active:to-[#e74e57] border border-white/40 ml-0.5"
                         title="Close"
                     >
-                        <X size={14} strokeWidth={3} />
+                        <X size={12} strokeWidth={3} />
                     </button>
                 </div>
             </div>
 
-            {/* Menu Bar (Standard XP Gray) */}
-            <div className="bg-[#ece9d8] border-l-4 border-r-4 border-[#0055ea] flex text-xs px-2 py-0.5 gap-4 text-black cursor-default font-sans">
-                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">File</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Edit</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">View</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Favorites</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Tools</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-2 py-0.5">Help</span>
+            {/* Content Area */}
+            <div className="flex-1 bg-white overflow-hidden relative border-l-2 border-r-2 border-b-2 border-[#0055ea]">
+                <AppBody windowId={win.id} payload={win.payload} />
             </div>
 
-            {/* Content Area - Thick Blue Borders */}
-            <div className="flex-1 bg-white overflow-hidden relative border-l-4 border-r-4 border-b-4 border-[#0055ea]">
-                <AppBody windowId={window.id} />
-            </div>
-
+            {/* Resize handle */}
+            {appConfig?.canResize && !win.isMaximized && (
+                <div
+                    onPointerDown={startResize}
+                    className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
+                    style={{
+                        background: 'linear-gradient(135deg, transparent 50%, #888 50%, #888 60%, transparent 60%, transparent 70%, #888 70%, #888 80%, transparent 80%)'
+                    }}
+                />
+            )}
         </motion.div>
     );
 }
