@@ -1,124 +1,230 @@
+"use client";
+
+import Image from 'next/image';
+import { Briefcase, GraduationCap, Award, Mail, Github, Linkedin, Globe, FileText } from 'lucide-react';
+import {
+    ACHIEVEMENTS,
+    CERTIFICATIONS,
+    EDUCATION,
+    LINKS,
+    PROFILE,
+    ROLES,
+    type Role,
+} from '@/content';
+import { useSystemStore } from '@/store/useSystemStore';
 import ExplorerLayout from '../os/ExplorerLayout';
-import { User, MapPin, Briefcase, GraduationCap, Mail, Code, Star, Heart, Globe, Linkedin, Twitter } from 'lucide-react';
+import { SectionHeading } from '@/components/ui/Disclosure';
 
-interface AboutAppProps {
-    windowId?: string;
-}
+/**
+ * About — every fact comes from `@/content`.
+ *
+ * The previous version positioned the owner as a "Full Stack Developer & Designer" interested in
+ * nostalgia and pixel art, listed Figma and Blender as top skills, and used a generic glyph in
+ * place of his photo — all of which contradicted his own resume two windows away. None of that
+ * text exists any more; there is only one source now.
+ */
 
-export default function AboutApp({ windowId }: AboutAppProps) {
-    const socialLinks = [
-        { label: "GitHub", icon: Globe, action: () => window.open("https://github.com/tiwarygaurav", "tiwarygaurav") },
-        { label: "LinkedIn", icon: Globe, action: () => window.open("https://linkedin.com/in/gauravtiwary21", "gauravtiwary21") },
-        { label: "Twitter", icon: Globe, action: () => window.open("https://twitter.com/GauravI970936", "GauravI970936") },
-        { label: "Email Me", icon: Mail, action: () => window.open("mailto:gauravt.nic@gmail.com", "gauravt.nic@gmail.com") },
-    ];
+const ICONS: Record<string, typeof Github> = {
+    GitHub: Github,
+    LinkedIn: Linkedin,
+    Twitter: Globe,
+    Instagram: Globe,
+    Email: Mail,
+};
 
-    const skills = [
-        { label: "React & Next.js", icon: Code },
-        { label: "TypeScript", icon: Code },
-        { label: "Tailwind CSS", icon: Code },
-        { label: "Node.js", icon: Code },
-        { label: "UI/UX Design", icon: Star },
-    ];
-
-    const interests = [
-        { label: "Retro Computing", icon: Heart },
-        { label: "Pixel Art", icon: Heart },
-        { label: "Open Source", icon: Heart },
-    ];
+export default function AboutApp() {
+    const openWindow = useSystemStore((s) => s.actions.openWindow);
 
     return (
         <ExplorerLayout
-            windowId={windowId || 'about'}
-            title="About Me"
-            address="Control Panel \ System \ About Me"
+            path="~/about.md"
             sidebarSections={[
-                { title: "Connect", items: socialLinks, defaultOpen: true },
-                { title: "Top Skills", items: skills, defaultOpen: true },
-                { title: "Interests", items: interests, defaultOpen: true },
+                {
+                    title: 'Connect',
+                    defaultOpen: true,
+                    items: LINKS.map((l) => ({
+                        label: l.label,
+                        icon: ICONS[l.label] ?? Globe,
+                        action: () => window.open(l.url, '_blank', 'noopener,noreferrer'),
+                    })),
+                },
+                {
+                    title: 'See also',
+                    defaultOpen: true,
+                    items: [
+                        { label: 'Resume', icon: FileText, action: () => openWindow('resume') },
+                        { label: 'Projects', icon: Briefcase, action: () => openWindow('projects') },
+                        { label: 'Skills', icon: Award, action: () => openWindow('skills') },
+                    ],
+                },
             ]}
         >
-            <div className="max-w-3xl mx-auto">
-                {/* Header */}
-                <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
-                    <div className="relative group">
-                        <div className="w-32 h-32 rounded-lg bg-gradient-to-br from-blue-400 to-blue-600 shadow-xl overflow-hidden border-2 border-white transform -rotate-2 group-hover:rotate-0 transition-transform duration-300">
-                            {/* Placeholder for real avatar if available */}
-                            <User size={64} className="text-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                        </div>
-                        <div className="absolute -bottom-2 -right-2 bg-yellow-400 text-xs font-bold px-2 py-0.5 rounded border border-yellow-600 shadow-sm rotate-3">
-                            v1.0
+            <div className="mx-auto max-w-3xl">
+                <header className="mb-8 flex flex-col items-center gap-6 sm:flex-row sm:items-start">
+                    <Image
+                        src={PROFILE.avatar}
+                        alt={`${PROFILE.name}`}
+                        width={112}
+                        height={112}
+                        className="h-28 w-28 shrink-0 rounded-lg border-2 border-white object-cover shadow-lg"
+                        priority
+                    />
+
+                    <div className="text-center sm:text-left">
+                        <h1 className="text-3xl font-bold text-gray-900">{PROFILE.name}</h1>
+                        <p className="mt-0.5 text-lg text-gray-600">{PROFILE.title}</p>
+
+                        <div className="mt-3 flex flex-wrap justify-center gap-2 text-xs sm:justify-start">
+                            <span className="rounded border border-blue-100 bg-blue-50 px-2 py-1 text-blue-700">
+                                {PROFILE.availability}
+                            </span>
+                            {/* Location is unconfirmed in content/, so it is labelled rather than asserted. */}
+                            <span
+                                className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-gray-600"
+                                title={PROFILE.location.note}
+                            >
+                                {PROFILE.location.value}
+                                {PROFILE.location.from === 'needs-confirmation' && (
+                                    <span className="ml-1 text-gray-400">(unconfirmed)</span>
+                                )}
+                            </span>
                         </div>
                     </div>
+                </header>
 
-                    <div className="text-center md:text-left">
-                        <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600 drop-shadow-sm mb-1">
-                            Kumar Gaurav
-                        </h1>
-                        <h2 className="text-xl text-gray-500 font-medium mb-3">Full Stack Developer & Designer</h2>
+                <p className="mb-8 border-l-2 border-blue-300 bg-blue-50/40 py-3 pl-4 text-sm leading-relaxed text-gray-800">
+                    {PROFILE.summary}
+                </p>
 
-                        <div className="flex flex-wrap justify-center md:justify-start gap-3 text-sm text-gray-600">
-                            <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded border border-gray-200"><MapPin size={14} className="text-red-500" /> Mumbai, India</span>
-                            <span className="flex items-center gap-1 bg-blue-50 px-2 py-1 rounded border border-blue-100 text-blue-700"><Briefcase size={14} /> Open to Work</span>
-                        </div>
+                <section className="mb-8">
+                    <SectionHeading>What I work on</SectionHeading>
+                    <ul className="space-y-1">
+                        {PROFILE.focus.map((f) => (
+                            <li key={f} className="text-sm text-gray-700">
+                                — {f}
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+
+                <section className="mb-8">
+                    <h2 className="mb-3 flex items-center gap-2 border-b border-gray-200 pb-2 text-lg font-bold text-gray-800">
+                        <Briefcase size={18} className="text-blue-600" aria-hidden />
+                        Experience
+                    </h2>
+                    <div className="space-y-4">
+                        {ROLES.map((role) => (
+                            <RoleCard key={role.id} role={role} />
+                        ))}
                     </div>
-                </div>
+                </section>
 
-                {/* Bio */}
-                <div className="bg-[#FFFFE1] border border-[#d0d0bf] p-4 rounded shadow-sm mb-8 relative">
-                    <div className="absolute -top-3 left-4 bg-[#FFFFE1] px-2 text-xs font-bold text-gray-500 uppercase tracking-wide border border-[#d0d0bf] rounded">
-                        Biography
-                    </div>
-                    <p className="text-gray-800 leading-relaxed text-sm md:text-base">
-                        I craft digital experiences with a focus on <strong className="text-blue-700">nostalgia</strong>, <strong className="text-purple-700">interactivity</strong>, and pixel-perfect design.
-                        Specializing in React, Next.js, AI-ML and creative coding, I turn complex problems into intuitive,
-                        beautiful interfaces. My journey started with a fascination for how things work under the hood, leading me to explore everything from low-level systems to high-level UI architectures.
-                    </p>
-                </div>
-
-                {/* Two Column Layout for Details */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Experience */}
-                    <div>
-                        <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2">
-                            <Briefcase className="text-blue-600" size={20} />
-                            <h3 className="text-lg font-bold text-gray-700">Experience</h3>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div className="bg-white hover:bg-gray-50 p-3 rounded border border-transparent hover:border-blue-200 transition-colors group">
-                                <h4 className="font-bold text-gray-800 group-hover:text-blue-600">Software Engineer</h4>
-                                <div className="text-xs text-gray-500 mb-1">VXO Digital • Aug 2025 - Present</div>
-                                <p className="text-xs text-gray-600 leading-snug">Developing and Enhancing Platform Architecture, mobile applications, and implementing AI Use cases.</p>
+                <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+                    <section>
+                        <h2 className="mb-3 flex items-center gap-2 border-b border-gray-200 pb-2 text-lg font-bold text-gray-800">
+                            <GraduationCap size={18} className="text-green-600" aria-hidden />
+                            Education
+                        </h2>
+                        {EDUCATION.map((e) => (
+                            <div key={e.id} className="mb-3">
+                                <h3 className="text-sm font-bold text-gray-800">{e.qualification}</h3>
+                                <p className="text-xs text-gray-600">{e.institution}</p>
+                                <p className="text-xs text-gray-500">
+                                    {e.location} · {e.period}
+                                </p>
+                                <p className="mt-2 text-xs leading-relaxed text-gray-600">
+                                    <span className="font-semibold">Coursework: </span>
+                                    {e.coursework.join(', ')}
+                                </p>
                             </div>
+                        ))}
 
-                            <div className="bg-white hover:bg-gray-50 p-3 rounded border border-transparent hover:border-blue-200 transition-colors group">
-                                <h4 className="font-bold text-gray-800 group-hover:text-blue-600">Data Engineering Intern</h4>
-                                <div className="text-xs text-gray-500 mb-1">Here Technologies • Jan 2025 - July 2025</div>
-                                <p className="text-xs text-gray-600 leading-snug">Explored GIS domain, ADAS systems, crafting solutions based on ML Algorithms.</p>
+                        {CERTIFICATIONS.length > 0 && (
+                            <div className="mt-4">
+                                <SectionHeading>Certifications</SectionHeading>
+                                {CERTIFICATIONS.map((c) => (
+                                    <p key={c.id} className="text-xs text-gray-700">
+                                        {c.name} — {c.issuer}
+                                        <span className="ml-1 text-gray-400">
+                                            ({c.status === 'in-progress' ? 'in progress' : 'completed'})
+                                        </span>
+                                    </p>
+                                ))}
                             </div>
-                        </div>
-                    </div>
+                        )}
+                    </section>
 
-                    {/* Education */}
-                    <div>
-                        <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2">
-                            <GraduationCap className="text-green-600" size={20} />
-                            <h3 className="text-lg font-bold text-gray-700">Education</h3>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div className="bg-white hover:bg-gray-50 p-3 rounded border border-transparent hover:border-green-200 transition-colors group">
-                                <h4 className="font-bold text-gray-800 group-hover:text-green-600">B.Tech - Computer Science</h4>
-                                <div className="text-xs text-gray-500 mb-1">Birla Institute of Technology Mesra</div>
-                                <div className="text-xs text-gray-400">2021 - 2025</div>
-                                <p className="text-xs text-gray-600 mt-1 leading-snug">Specialized in Intelligent Systems and Distributed Computing.</p>
-                            </div>
-                        </div>
-                    </div>
+                    <section>
+                        <h2 className="mb-3 flex items-center gap-2 border-b border-gray-200 pb-2 text-lg font-bold text-gray-800">
+                            <Award size={18} className="text-amber-600" aria-hidden />
+                            Achievements
+                        </h2>
+                        <ul className="space-y-3">
+                            {ACHIEVEMENTS.map((a) => (
+                                <li key={a.id}>
+                                    <p className="text-sm font-bold text-gray-800">{a.title}</p>
+                                    <p className="text-xs leading-relaxed text-gray-600">{a.detail}</p>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
                 </div>
-
             </div>
         </ExplorerLayout>
+    );
+}
+
+function RoleCard({ role }: { role: Role }) {
+    const unconfirmed =
+        role.title.from === 'needs-confirmation' || role.period.from === 'needs-confirmation';
+
+    return (
+        <article className="rounded border border-gray-200 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-bold text-gray-800">
+                    {role.title.value}
+                    {role.current && (
+                        <span className="ml-2 rounded-sm bg-green-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-green-800">
+                            Current
+                        </span>
+                    )}
+                </h3>
+                <span className="text-xs text-gray-500">{role.period.value}</span>
+            </div>
+            <p className="mb-2 text-xs font-semibold text-gray-600">
+                {role.company}
+                {role.location.from !== 'needs-confirmation' && ` · ${role.location.value}`}
+            </p>
+
+            {role.highlights.length > 0 ? (
+                <ul className="list-inside list-disc space-y-1 text-xs leading-relaxed text-gray-700">
+                    {role.highlights.map((h) => (
+                        <li key={h}>{h}</li>
+                    ))}
+                </ul>
+            ) : (
+                // A real role with nothing recorded yet. Say so; do not invent responsibilities.
+                <p className="text-xs italic text-gray-500">
+                    Details for this role haven’t been published yet.
+                </p>
+            )}
+
+            {role.stack.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                    {role.stack.map((t) => (
+                        <span key={t} className="rounded-sm border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">
+                            {t}
+                        </span>
+                    ))}
+                </div>
+            )}
+
+            {unconfirmed && (
+                <p className="mt-2 border-t border-gray-100 pt-2 text-[10px] leading-relaxed text-gray-400">
+                    Title and dates for this entry are pending the owner’s correction and are shown
+                    as recorded rather than reconciled.
+                </p>
+            )}
+        </article>
     );
 }
