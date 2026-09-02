@@ -1,135 +1,101 @@
-# 🖥️ Interactive OS-Style Portfolio
+# 🖥️ Gaurav XP — an OS-style portfolio
 
-An interactive portfolio website inspired by a nostalgic operating system experience.  
-Built with modern web technologies while maintaining a retro UI concept.
+An interactive Windows XP-inspired desktop, in the browser, used as a personal portfolio.
 
-## 🚀 Overview
+Built by **Kumar Gaurav** — software engineer working across backend services, geospatial data
+pipelines and applied ML.
 
-This project simulates a desktop operating system inside the browser.  
-Users can log in, open applications, explore projects, and interact with various UI elements like windows, a start menu, and a terminal.
-
-The goal of this portfolio is to create a memorable, immersive experience while still presenting professional work clearly and effectively.
+[github.com/tiwarygaurav](https://github.com/tiwarygaurav) ·
+[linkedin.com/in/gauravtiwary21](https://linkedin.com/in/gauravtiwary21)
 
 ---
 
-## ✨ Features
+## The idea
 
-### 🟢 Boot & Login
-- Animated boot sequence
-- Startup sound
-- Login screen simulation
-- Smooth transition to desktop
+It looks like Windows XP — the boot screen, the login, Bliss, the taskbar, the start menu, the
+startup sound, the beige dialogs. That part is deliberate homage and it stays.
 
-### 🖥️ Desktop Environment
-- Custom wallpaper
-- Draggable desktop icons
-- Functional taskbar
-- Live system clock
-- Start menu
-- Window management (open, close, minimize, maximize)
+What makes it more than a skin is that the **OS primitives underneath it are real**:
 
-### 📂 Applications
-- **About Me** – Profile and background
-- **Projects** – Interactive project explorer
-- **Skills** – Animated skill dashboard
-- **Resume** – Downloadable CV
-- **Contact** – Contact form UI
-- **Terminal** – Interactive command simulation
+- A **virtual filesystem** generated at load time from a single typed content layer.
+- A **Command Prompt** that walks that filesystem — `ls`, `cd`, `cat`, `tree`, `grep`, `open`,
+  `ps`, `kill` — none of which print canned strings.
+- A **window manager** in a Zustand store, projected into `/proc` as live processes, so `ps`
+  lists the windows you actually have open and `kill w2` closes one.
+- **One source of truth.** The GUI windows and the shell read the same data, so
+  `cat ~/experience/here-technologies.md` and the About window cannot disagree.
 
-### 🎵 Sound System
-- Startup sound
-- Window interaction sounds
-- Shutdown screen
+## Try this
 
-### 🎮 Extras
-- Easter eggs
-- Hidden features
-- Konami code detection
-- Simulated blue screen
+Open the Command Prompt and run:
 
----
+```
+ls ~
+tree ~/projects
+cat ~/projects/os-portfolio/README.md
+grep spring
+ps
+open ~/projects/url-shortener
+sysinfo
+```
 
-## 🛠️ Tech Stack
+`open` launches the matching window, because filesystem nodes carry the same launch hint the
+desktop icons use.
 
-- Next.js
-- React
-- Tailwind CSS
-- Framer Motion
-- Zustand / Context API (state management)
+## Features
 
----
+**Boot & login** — animated boot sequence, XP startup sound, login screen, shutdown.
+**Desktop** — Bliss wallpaper, draggable icons with persisted positions, taskbar with live clock
+and system tray, start menu with All Programs.
+**Window management** — open, close, minimise, maximise, restore, drag, resize, focus, z-order.
+**Applications** — About, Projects, Skills, Resume, Contact, Command Prompt, My Computer, Recycle
+Bin, Media Player, Notepad, Calculator, Minesweeper, Paint, Picture Viewer, Display Properties.
+**Extras** — context menus, recycle bin that really deletes and restores, Konami code.
 
-## 📁 Project Structure
+## Stack
 
-/components
-/apps
-/hooks
-/store
-/public
-/styles
-/pages (or app directory)
-README.md
+Next.js 14 (App Router) · React 18 · TypeScript (strict) · Zustand · Framer Motion · Tailwind CSS.
+No backend.
 
+## Layout
 
-- **components/** → Core UI components (Window, Taskbar, Desktop, StartMenu)
-- **apps/** → Individual application windows
-- **store/** → Global state management
-- **public/** → Sounds, icons, assets
-- **styles/** → Global styles
+```
+content/      typed source of truth for every fact on the site — headless
+system/       virtual filesystem + shell — headless, no React
+store/        Zustand store and window manager
+components/
+  os/         shell chrome: boot, login, desktop, window, taskbar, start menu
+  apps/       one component per application window
+  ui/         shared primitives
+constants/    the application registry
+public/       icons, wallpapers, sounds, profile image, resume
+docs/         standing audit and forward roadmap
+```
 
----
+`content/` and `system/` never import React. That is what makes the shell testable outside a
+browser, and it is why the same command set can be driven from Node.
 
-## 🧑‍💻 Getting Started
+## Running it
 
-### 1. Clone the Repository
-
-git clone https://github.com/yourusername/os-portfolio.git
-
-cd os-portfolio
-
-
-### 2. Install Dependencies
-
+```bash
 npm install
+npm run dev      # http://localhost:3000
+npm run build
+npm run lint
+```
 
+## Notes on content
 
-### 3. Run Development Server
+Nothing on this site is fabricated. Where a fact is unconfirmed it is labelled as such; where a
+project was built inside a company, it is described at a non-confidential level and the absence
+of source code is stated explicitly rather than hidden behind a dead link.
 
-npm run dev
+## Attribution
 
+The visual design is a tribute to Windows XP. This project is not affiliated with, endorsed by,
+or connected to Microsoft. Windows and Windows XP are trademarks of Microsoft Corporation.
 
-Visit:
+## Project context
 
-http://localhost:3000
-
-
----
-
-## 🌍 Deployment
-
-This project can be deployed easily using:
-
-- Vercel
-- Netlify
-- GitHub Pages (static export)
-
----
-
-## 📄 License
-
-This project is for personal portfolio use.  
-All design inspiration is original and does not copy proprietary assets.
-
----
-
-## 👤 Author
-
-Your Name  
-GitHub: https://github.com/yourusername  
-Portfolio: (Live link once deployed)
-
----
-
-## ⭐ If You Like This Project
-
-Give it a star on GitHub!
+`CLAUDE.md` carries the architecture, conventions and decision log. `docs/AUDIT.md` is the
+standing technical audit. `docs/ROADMAP.md` holds the forward plan.
