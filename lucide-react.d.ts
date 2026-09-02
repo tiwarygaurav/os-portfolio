@@ -5,6 +5,10 @@ declare module 'lucide-react' {
         absoluteStrokeWidth?: boolean;
     }
     export type Icon = FC<IconProps>;
+    export type LucideIcon = Icon;
+    export const AlertCircle: Icon;
+    export const AlertTriangle: Icon;
+    export const ArrowUpRight: Icon;
     export const User: Icon;
     export const FolderOpen: Icon;
     export const Cpu: Icon;
@@ -16,6 +20,7 @@ declare module 'lucide-react' {
     export const Monitor: Icon;
     export const Volume2: Icon;
     export const Wifi: Icon;
+    export const Volume1: Icon;
     export const Power: Icon;
     export const Settings: Icon;
     export const LogOut: Icon;
@@ -24,8 +29,12 @@ declare module 'lucide-react' {
     export const Square: Icon;
     export const Maximize2: Icon;
     export const ArrowRight: Icon;
+    export const Award: Icon;
     export const MapPin: Icon;
     export const Briefcase: Icon;
+    export const Calculator: Icon;
+    export const Check: Icon;
+    export const ChevronLeft: Icon;
     export const GraduationCap: Icon;
     export const Download: Icon;
     export const Printer: Icon;
@@ -34,17 +43,21 @@ declare module 'lucide-react' {
     export const Paperclip: Icon;
     export const Minimize2: Icon;
     export const Folder: Icon;
+    export const FolderGit2: Icon;
     export const FileCode: Icon;
+    export const FileCode2: Icon;
     export const Globe: Icon;
     export const Github: Icon;
     export const ExternalLink: Icon;
     export const ChevronRight: Icon;
     export const Phone: Icon;
     export const Linkedin: Icon;
+    export const Lock: Icon;
     export const Music: Icon;
     export const Palette: Icon;
     export const Layout: Icon;
     export const Maximize: Icon; // Sometimes Maximize2 is used, check usage
+    export const Loader2: Icon;
     export const Play: Icon;
     export const Pause: Icon;
     export const SkipBack: Icon;
@@ -55,11 +68,22 @@ declare module 'lucide-react' {
     export const ChevronUp: Icon;
     export const ChevronDown: Icon;
     export const Code: Icon;
+    export const Copy: Icon;
     export const Star: Icon;
     export const Heart: Icon;
+    export const HardDrive: Icon;
+    export const Info: Icon;
     export const Twitter: Icon;
     export const Instagram: Icon;
     export const Image: Icon;
+    export const RotateCw: Icon;
+    export const ShieldCheck: Icon;
+    export const StickyNote: Icon;
+    export const Terminal: Icon;
+    export const VolumeX: Icon;
+    export const ZoomIn: Icon;
+    export const ZoomOut: Icon;
+    export const Bomb: Icon;
 
     // Add other icons as needed
 }
