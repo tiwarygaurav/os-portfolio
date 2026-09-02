@@ -1,8 +1,16 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { PROFILE, SYSTEM } from '@/content';
 
 type Op = '+' | '-' | '*' | '/' | null;
+
+const MENU = ['Edit', 'View', 'Help'];
+
+// Paste needs the async Clipboard API's read half, which some browsers do not expose to pages.
+// Decided once at module load; the menu item is shown disabled (with the reason) when it is absent.
+const canReadClipboard =
+    typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function';
 
 export default function CalculatorApp() {
     const [display, setDisplay] = useState('0');
@@ -10,6 +18,62 @@ export default function CalculatorApp() {
     const [op, setOp] = useState<Op>(null);
     const [overwrite, setOverwrite] = useState(true);
     const [memory, setMemory] = useState(0);
+    const [openMenu, setOpenMenu] = useState<string | null>(null);
+    // Short-lived message under the display for clipboard outcomes — never a native alert.
+    const [notice, setNotice] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!notice) return;
+        const t = setTimeout(() => setNotice(null), 3000);
+        return () => clearTimeout(t);
+    }, [notice]);
+
+    const copyDisplay = async () => {
+        setOpenMenu(null);
+        try {
+            await navigator.clipboard.writeText(display);
+            setNotice('Copied to clipboard.');
+        } catch {
+            setNotice('Copy failed: the browser refused clipboard access.');
+        }
+    };
+
+    const pasteDisplay = async () => {
+        setOpenMenu(null);
+        try {
+            const raw = (await navigator.clipboard.readText()).trim();
+            const n = Number(raw);
+            if (raw === '' || !Number.isFinite(n)) {
+                setNotice('Clipboard does not contain a number.');
+                return;
+            }
+            setDisplay(formatResult(n));
+            setOverwrite(true);
+        } catch {
+            setNotice('Paste failed: the browser refused clipboard access.');
+        }
+    };
+
+    const menus: Record<string, { label: string; action?: () => void; shortcut?: string; divider?: boolean; checked?: boolean; disabled?: boolean; title?: string }[]> = {
+        Edit: [
+            { label: 'Copy', action: () => { void copyDisplay(); }, shortcut: 'Ctrl+C' },
+            {
+                label: canReadClipboard ? 'Paste' : 'Paste (clipboard read not permitted here)',
+                action: () => { void pasteDisplay(); },
+                shortcut: 'Ctrl+V',
+                disabled: !canReadClipboard,
+                title: canReadClipboard ? undefined : 'This browser does not let pages read the clipboard.',
+            },
+        ],
+        View: [
+            // Standard is the only mode this calculator has; it is shown checked, not as a choice.
+            { label: 'Standard', action: () => setOpenMenu(null), checked: true },
+        ],
+        Help: [
+            // Native alert() for now — the in-world XP dialog system is next phase.
+            { label: 'About Calculator', action: () => { alert(`Calculator — ${SYSTEM.name}\n${PROFILE.name}`); setOpenMenu(null); } },
+        ],
+    };
 
     const inputDigit = (d: string) => {
         if (overwrite) {
@@ -109,55 +173,101 @@ export default function CalculatorApp() {
     );
 
     return (
-        <div className="h-full bg-[#ece9d8] p-2 flex flex-col font-sans select-none">
-            <div className="text-xs flex gap-3 mb-2 text-black">
-                <span className="hover:bg-[#316ac5] hover:text-white px-1 cursor-default"><u>E</u>dit</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-1 cursor-default"><u>V</u>iew</span>
-                <span className="hover:bg-[#316ac5] hover:text-white px-1 cursor-default"><u>H</u>elp</span>
+        <div className="h-full bg-[#ece9d8] flex flex-col font-sans select-none">
+            {/* Menu bar — same pattern as NotepadApp so the two look identical. */}
+            <div className="flex text-xs bg-[#ece9d8] border-b border-gray-400 relative">
+                {MENU.map(m => (
+                    <button
+                        key={m}
+                        onMouseDown={(e) => { e.preventDefault(); setOpenMenu(openMenu === m ? null : m); }}
+                        onMouseEnter={() => openMenu && setOpenMenu(m)}
+                        className={`px-3 py-1 hover:bg-[#316ac5] hover:text-white ${openMenu === m ? 'bg-[#316ac5] text-white' : ''}`}
+                    >
+                        <u>{m[0]}</u>{m.slice(1)}
+                    </button>
+                ))}
+
+                {openMenu && (
+                    <div
+                        className="absolute top-full left-0 z-50 min-w-[200px] bg-[#ece9d8] border border-gray-500 shadow-lg py-1 select-none"
+                        style={{
+                            left: MENU.indexOf(openMenu) * 50,
+                        }}
+                        onMouseLeave={() => setOpenMenu(null)}
+                    >
+                        {menus[openMenu].map((item, i) =>
+                            item.divider ? (
+                                <div key={i} className="h-px bg-gray-400 my-1 mx-1" />
+                            ) : (
+                                <button
+                                    key={i}
+                                    onClick={item.action}
+                                    disabled={item.disabled}
+                                    title={item.title}
+                                    className="w-full flex justify-between items-center px-4 py-1 text-xs hover:bg-[#316ac5] hover:text-white disabled:text-gray-500 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                                >
+                                    <span>
+                                        {item.checked !== undefined && (
+                                            <span className="inline-block w-3">{item.checked ? '✓' : ''}</span>
+                                        )}
+                                        {item.label}
+                                    </span>
+                                    {item.shortcut && <span className="text-gray-500 ml-6">{item.shortcut}</span>}
+                                </button>
+                            )
+                        )}
+                    </div>
+                )}
             </div>
 
-            <div
-                className="bg-white border-2 border-gray-500 px-2 py-1 text-right font-mono text-lg mb-2 overflow-hidden"
-                style={{ boxShadow: 'inset 1px 1px 2px rgba(0,0,0,0.3)' }}
-            >
-                {display}
-            </div>
-
-            <div className="grid grid-cols-5 gap-1 text-black">
-                <div />
-                {btn('Backspace', backspace, 'col-span-2 text-red-700')}
-                {btn('CE', clearEntry, 'text-red-700')}
-                {btn('C', clear, 'text-red-700')}
-
-                {btn('MC', () => setMemory(0))}
-                {btn('7', () => inputDigit('7'))}
-                {btn('8', () => inputDigit('8'))}
-                {btn('9', () => inputDigit('9'))}
-                {btn('/', () => inputOp('/'), 'text-red-700')}
-
-                {btn('MR', () => { setDisplay(formatResult(memory)); setOverwrite(true); })}
-                {btn('4', () => inputDigit('4'))}
-                {btn('5', () => inputDigit('5'))}
-                {btn('6', () => inputDigit('6'))}
-                {btn('*', () => inputOp('*'), 'text-red-700')}
-
-                {btn('MS', () => setMemory(parseFloat(display)))}
-                {btn('1', () => inputDigit('1'))}
-                {btn('2', () => inputDigit('2'))}
-                {btn('3', () => inputDigit('3'))}
-                {btn('-', () => inputOp('-'), 'text-red-700')}
-
-                {btn('M+', () => setMemory(m => m + parseFloat(display)))}
-                {btn('0', () => inputDigit('0'))}
-                {btn('±', negate)}
-                {btn('.', () => inputDigit('.'))}
-                {btn('+', () => inputOp('+'), 'text-red-700')}
-
-                <div />
-                {btn('sqrt', sqrt)}
-                {btn('%', percent)}
-                {btn('1/x', reciprocal)}
-                {btn('=', equals, 'text-red-700')}
+            <div className="p-2 flex flex-col flex-1">
+                <div
+                    className="bg-white border-2 border-gray-500 px-2 py-1 text-right font-mono text-lg overflow-hidden"
+                    style={{ boxShadow: 'inset 1px 1px 2px rgba(0,0,0,0.3)' }}
+                >
+                    {display}
+                </div>
+                {/* Clipboard outcome, in-world. Reserved height so the keypad does not jump. */}
+                <p role="status" className="h-4 mb-1 text-[10px] leading-4 text-gray-600 truncate">
+                    {notice ?? ''}
+                </p>
+    
+                <div className="grid grid-cols-5 gap-1 text-black">
+                    <div />
+                    {btn('Backspace', backspace, 'col-span-2 text-red-700')}
+                    {btn('CE', clearEntry, 'text-red-700')}
+                    {btn('C', clear, 'text-red-700')}
+    
+                    {btn('MC', () => setMemory(0))}
+                    {btn('7', () => inputDigit('7'))}
+                    {btn('8', () => inputDigit('8'))}
+                    {btn('9', () => inputDigit('9'))}
+                    {btn('/', () => inputOp('/'), 'text-red-700')}
+    
+                    {btn('MR', () => { setDisplay(formatResult(memory)); setOverwrite(true); })}
+                    {btn('4', () => inputDigit('4'))}
+                    {btn('5', () => inputDigit('5'))}
+                    {btn('6', () => inputDigit('6'))}
+                    {btn('*', () => inputOp('*'), 'text-red-700')}
+    
+                    {btn('MS', () => setMemory(parseFloat(display)))}
+                    {btn('1', () => inputDigit('1'))}
+                    {btn('2', () => inputDigit('2'))}
+                    {btn('3', () => inputDigit('3'))}
+                    {btn('-', () => inputOp('-'), 'text-red-700')}
+    
+                    {btn('M+', () => setMemory(m => m + parseFloat(display)))}
+                    {btn('0', () => inputDigit('0'))}
+                    {btn('±', negate)}
+                    {btn('.', () => inputDigit('.'))}
+                    {btn('+', () => inputOp('+'), 'text-red-700')}
+    
+                    <div />
+                    {btn('sqrt', sqrt)}
+                    {btn('%', percent)}
+                    {btn('1/x', reciprocal)}
+                    {btn('=', equals, 'text-red-700')}
+                </div>
             </div>
         </div>
     );

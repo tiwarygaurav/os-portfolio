@@ -2,17 +2,23 @@
 
 import { useSystemStore } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Monitor, Volume2, VolumeX, Volume1, Wifi } from 'lucide-react';
 import StartMenu from './StartMenu';
 import { playSound } from '@/utils/sound';
 
 export default function Taskbar() {
-    const { windows, activeWindowId, actions, volume, isMuted } = useSystemStore();
+    const windows = useSystemStore((s) => s.windows);
+    const activeWindowId = useSystemStore((s) => s.activeWindowId);
+    const actions = useSystemStore((s) => s.actions);
+    const volume = useSystemStore((s) => s.volume);
+    const isMuted = useSystemStore((s) => s.isMuted);
     const [startOpen, setStartOpen] = useState(false);
     const [time, setTime] = useState(new Date());
     const [trayOpen, setTrayOpen] = useState<'volume' | 'wifi' | 'clock' | null>(null);
     const trayRef = useRef<HTMLDivElement>(null);
+    // Handed to StartMenu so its outside-click handler leaves the Start button to `toggleStart`.
+    const startButtonRef = useRef<HTMLButtonElement>(null);
 
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date()), 1000);
@@ -31,9 +37,13 @@ export default function Taskbar() {
 
     const toggleStart = () => {
         playSound('click');
-        setStartOpen(!startOpen);
+        setStartOpen((open) => !open);
         setTrayOpen(null);
     };
+
+    // Stable identity: the clock re-renders this component every second, and StartMenu
+    // re-subscribes its document listeners whenever `onClose` changes.
+    const closeStart = useCallback(() => setStartOpen(false), []);
 
     const VolumeIcon = isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
@@ -42,7 +52,7 @@ export default function Taskbar() {
 
     return (
         <>
-            {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
+            {startOpen && <StartMenu onClose={closeStart} triggerRef={startButtonRef} />}
 
             <div
                 className="fixed bottom-0 left-0 right-0 h-9 flex items-center justify-between shadow-lg z-50 text-white select-none"
@@ -53,7 +63,9 @@ export default function Taskbar() {
             >
                 {/* Start Button */}
                 <button
+                    ref={startButtonRef}
                     onClick={toggleStart}
+                    aria-expanded={startOpen}
                     className="flex items-center gap-2 px-3 h-full font-bold italic tracking-wide relative"
                     style={{
                         background: startOpen

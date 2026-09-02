@@ -10,7 +10,7 @@
 
 **Repo:** `os-portfolio` — https://github.com/tiwarygaurav/os-portfolio
 **Owner:** Kumar Gaurav (`tiwarygaurav`) — software engineer; backend, geospatial data, applied ML.
-**Deployed:** not yet confirmed. `ProjectsApp` references `https://os-portfolio.vercel.app` — unverified.
+**Deployed:** **no.** `https://os-portfolio.vercel.app` serves an unrelated person's site, and the owner's Vercel account has no project for this repository (checked 2026-09-02). The former "Live" link was removed from `content/projects.ts`; add one only when a deployment exists.
 
 ### What it is today
 
@@ -263,18 +263,26 @@ MyComputer Back/Forward/Up/Refresh/Search/Folders/Go · Settings OK/Cancel/Apply
 Screen Saver dropdown · Resume "Find…" box and "1 / 1" page counter · MyComputer sidebar links
 that fired `alert('Not implemented')`.
 
+### Fixed in the P1 follow-up pass (2026-09-03)
+
+An eight-dimension adversarial review of the committed P1 work confirmed 30 defects. All are
+fixed and verified — headless for the shell, a real browser for the UI. Full table in
+`docs/AUDIT.md`. The load-bearing ones: minimising a window no longer unmounts (and destroys) its
+app; windows finally open at their registry size; the media player plays a playlist through;
+`history`, `constructor`, Tab completion and `tree /` behave; `/etc/system.conf` is generated from
+the same list the persist middleware uses; clamped drags actually render; and dropping a desktop
+icon on the Recycle Bin deletes it, which is what the bin already claimed.
+
 ### Still broken / not built
 
 | Item | Detail |
 | --- | --- |
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | Paint | Still an `<iframe>` to `jspaint.app` — not the owner's work, blockable by the host. |
-| `alert()` / `confirm()` | 10 remaining uses (icon delete, Konami, Notepad menus). They work, but a native browser dialog breaks the XP illusion — an in-world XP-styled dialog would be better. |
-| Desktop icon layout | Still computed once from `window.innerHeight` with no resize listener (C10). |
-| Notepad `execCommand` | Deprecated; Paste is blocked by browsers (C12). |
-| `deletedAppIds` | Still persisted — a visitor can permanently lose the Projects icon (A10). |
+| `alert()` / `confirm()` | Remaining uses (icon delete, Konami, Notepad/Calculator menus). They work, but a native browser dialog breaks the XP illusion — an in-world XP-styled dialog is the next task. |
+| `deletedAppIds` | Still persisted — a visitor can permanently lose the Projects icon (A10). The Recycle Bin restores it, but nothing signposts that. |
 | Bundle | All 15 apps still statically imported into the initial bundle (P4). |
-| Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~2 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
+| Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~3 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
 | Not implemented | Mobile/touch model · desktop keyboard navigation · focus trapping · reduced motion · SEO metadata / OG image / favicon · error boundary · tests. |
 
 ---
@@ -377,6 +385,44 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-03 - Verify with both a headless probe and a real browser
+
+**Why:** the P1 pass was verified with a Node probe that drove the shell against a stub context,
+and it missed the `ps`/`kill` pid collision because the stub `closeProcess` accepted any id. The
+follow-up review then found that minimising a window unmounted its app — invisible to any
+non-browser check, and directly contradicted by what both memory files claimed.
+**Consequences:** two harnesses, both in the scratchpad, neither committed. The probe compiles
+`content/` + `system/` + `store/persistence.ts` to CommonJS and rewrites the `@/` alias; the UI
+harness drives Playwright through boot, login and the desktop. The rule: a change to `system/`
+needs the probe, a change to `components/` or `store/` needs the browser, and most changes need
+both. Findings that survive only one of them are not verified.
+
+### 2026-09-03 - `store/persistence.ts`: one list, two readers
+
+**Why:** `/etc/system.conf` hand-listed the persisted store keys and drifted — it advertised a
+`theme` key that had been deleted and omitted `deletedAppIds`, the one persisted key a visitor can
+actually feel. It did this inside a file whose own header says it is generated from the
+repository, which is worse than not claiming it.
+**Alternatives:** import the store into `system/` (breaks the no-React, no-store rule that makes
+the shell testable); delete the line (loses real information an engineer wants).
+**Consequences:** a new leaf module with no imports at all, so `system/` may read it without
+gaining a dependency on React or the store. `partialize` is derived from the same list. Adding a
+persisted field is now one edit, and the file the shell shows cannot disagree with what is saved.
+
+### 2026-09-03 - A minimised window is hidden, not unmounted
+
+**Why:** `Window` returned null while minimised, which unmounted the whole app subtree. Minimising
+Minesweeper reset the board, Notepad lost unsaved text, the terminal lost its scrollback and
+working directory, and the media player's `<audio>` element left the document mid-track. Both
+`CLAUDE.md` and `store/CLAUDE.md` asserted the opposite: the *store* round-trip was lossless, the
+rendered app was not.
+**Alternatives:** lift each app's state into the store (fifteen migrations, a second source of
+truth for things like a Minesweeper board, and it would still not keep an `<audio>` element
+alive); serialise and restore per app (same cost, more code).
+**Consequences:** one line of CSS fixes all fifteen apps, and it is what XP did. Windows stay in
+the DOM while minimised, so anything measuring the document sees them — the drag test had to close
+windows before dragging a desktop icon underneath one.
 
 ### 2026-08-20 - Window ids are readable pids
 

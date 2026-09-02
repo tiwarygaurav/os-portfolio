@@ -1,10 +1,13 @@
 "use client";
 
+import Image from 'next/image';
 import { useSystemStore } from '@/store/useSystemStore';
 import { Trash2, RotateCw } from 'lucide-react';
 
 export default function RecycleBinApp() {
-    const { recycleBin, actions } = useSystemStore();
+    const recycleBin = useSystemStore((s) => s.recycleBin);
+    const emptyRecycleBin = useSystemStore((s) => s.actions.emptyRecycleBin);
+    const restoreItem = useSystemStore((s) => s.actions.restoreItem);
     const isEmpty = recycleBin.length === 0;
 
     return (
@@ -12,7 +15,7 @@ export default function RecycleBinApp() {
             {/* Toolbar */}
             <div className="flex items-center gap-1 px-2 py-1 border-b border-gray-400">
                 <button
-                    onClick={actions.emptyRecycleBin}
+                    onClick={emptyRecycleBin}
                     disabled={isEmpty}
                     className="flex items-center gap-1 px-2 py-1 text-xs hover:bg-[#d9d6c4] active:translate-y-px disabled:opacity-40"
                 >
@@ -29,11 +32,11 @@ export default function RecycleBinApp() {
                     <div className="mb-3 bg-white/20 rounded overflow-hidden">
                         <div className="bg-gradient-to-r from-[#f0b765] to-[#cf8b1f] px-2 py-1 font-bold text-[11px] text-white">Recycle Bin Tasks</div>
                         <div className="p-2 space-y-2">
-                            <button onClick={actions.emptyRecycleBin} disabled={isEmpty} className="text-left hover:underline w-full disabled:opacity-40">
+                            <button onClick={emptyRecycleBin} disabled={isEmpty} className="text-left hover:underline w-full disabled:opacity-40">
                                 Empty the Recycle Bin
                             </button>
                             <button
-                                onClick={() => recycleBin.forEach(r => actions.restoreItem(r.id))}
+                                onClick={() => recycleBin.forEach(r => restoreItem(r.id))}
                                 disabled={isEmpty}
                                 className="text-left hover:underline w-full disabled:opacity-40"
                             >
@@ -47,7 +50,9 @@ export default function RecycleBinApp() {
                         <div className="p-2">
                             <p className="font-bold">Recycle Bin</p>
                             <p className="text-[10px] text-blue-100 mt-1">
-                                Drag desktop items here to delete them, or right-click an icon and choose Delete.
+                                To delete a desktop icon: drag it onto the Recycle Bin icon on the
+                                desktop, right-click it and choose Delete, or select it and press
+                                the Delete key. Deleted icons can be restored from here.
                             </p>
                         </div>
                     </div>
@@ -74,14 +79,15 @@ export default function RecycleBinApp() {
                                 {recycleBin.map(item => (
                                     <tr key={item.id} className="hover:bg-blue-50">
                                         <td className="p-1 flex items-center gap-2">
-                                            <img src={item.icon} alt="" className="w-5 h-5 object-contain opacity-70" />
+                                            {/* `unoptimized`: these are the desktop's own .ico/.png files at 20 px; the optimizer has nothing to add. */}
+                                            <Image src={item.icon} alt="" width={20} height={20} unoptimized className="w-5 h-5 object-contain opacity-70" />
                                             <span>{item.name}</span>
                                         </td>
                                         <td className="p-1 text-xs text-gray-600">{item.origin}</td>
                                         <td className="p-1 text-xs text-gray-600">{new Date(item.deletedAt).toLocaleString()}</td>
                                         <td className="p-1">
                                             <button
-                                                onClick={() => actions.restoreItem(item.id)}
+                                                onClick={() => restoreItem(item.id)}
                                                 className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#ece9d8] border border-gray-500 hover:bg-blue-100"
                                                 title="Restore"
                                             >

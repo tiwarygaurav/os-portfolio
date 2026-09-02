@@ -11,12 +11,37 @@ Severity: **S1** breaks trust or function for a visitor · **S2** real defect, d
 
 | Section | Resolved | Open |
 | --- | --- | --- |
-| §2 Correctness | C1, C2, C3, C4, C5, C6, C7, C8, C9, C11, C13 | C10, C12 |
+| §2 Correctness | C1–C9, C10, C11, C12, C13 | — |
 | §3 Honesty | **all** (H1–H7) | — |
-| §4 Dead UI | ~25 controls removed or made real | 10 `alert()`/`confirm()` calls remain — they work, but an XP-styled dialog would fit better |
-| §5 Architecture | A1, A5 (partial), A8, A11, A12 | A2, A3 (partial), A6, A7, A9, A10 |
+| §4 Dead UI | ~25 controls removed or made real; Notepad Exit / Status Bar and the Calculator menu bar now work | `alert()`/`confirm()` calls remain — they work, but an XP-styled dialog would fit better |
+| §5 Architecture | A1, A3, A5 (partial), A8, A11, A12 | A2, A6, A7, A9, A10 |
 | §6 Performance | — | P2, P3, P4, P5, P6. P1 (media size) is accepted by the owner, not a defect |
 | §7–9 UX / a11y / visual | — | all open; P2 and P4 phases |
+
+## Status after the P1 follow-up pass (2026-09-03)
+
+An eight-dimension adversarial review of the committed P1 work confirmed 30 defects, all now
+fixed and verified. The ones that mattered most:
+
+| Was | Now |
+| --- | --- |
+| **Minimising a window unmounted its app**, destroying a Minesweeper game, unsaved Notepad text, the terminal's scrollback and cwd, and stopping playback mid-track. Both memory files claimed minimise/restore was lossless | `Window` hides with `display:none` instead of returning null; state survives, verified live |
+| **Registry window sizes had zero readers** — every window opened at 800x600, and the four apps that declare small sizes also forbid resizing, so a visitor could not correct it | `openWindow` reads `constants/apps.ts` and caps to the viewport |
+| **Media player stopped at the end of every track**: the browser fires `pause` before `ended`, so the track-change effect saw "not playing" and never resumed. The playlist could not play through | Intent is tracked in a `wantsPlay` ref, separate from the element's transport state |
+| **`history` always printed "No history yet."** — the shell held a snapshot array captured before anything was typed, while Up-arrow walked the real list | `ShellContext.history` is a getter, like every other live field |
+| **`constructor` / `__proto__` threw** out of a React handler and printed nothing at all | `COMMANDS` has a null prototype; `APPS` lookups are `hasOwnProperty`-guarded |
+| **Tab completion resolved to `/`**, offering root entries that did not exist relative to the cwd | Completion splits the argument and resolves against the working directory |
+| **`tree /` omitted `/proc`** while `ls /` showed it | One `rootFor(procs)` composition that all five traversals walk |
+| **`/etc/system.conf` misreported what is persisted** — named a `theme` key deleted from the store, omitted `deletedAppIds` — in a file that claims to be generated from the repo | Rendered from `store/persistence.ts`, which `partialize` also reads |
+| **Clamped drags did not render**: framer-motion skips an unchanged `animate` target, so dragging off the same edge twice left the window off-screen while the store believed otherwise | `Window` and `DesktopIcon` own `x`/`y` as motion values and write the clamped result back |
+| **Icon drag was clamped at 0 only**, so an icon could be dropped under the taskbar and the position persisted | Clamped both ends, on write *and* at render, so a position saved on a wide monitor recovers on a laptop |
+| Recycle Bin told visitors to drag icons onto it; **there was no drop target** | Dropping a desktop icon on the bin deletes it, and the bin restores it |
+| Fabricated "Size: 0 bytes", "Color quality: Highest (32 bit)", global skill-evidence counts | Registry facts, `screen.colorDepth`, per-skill counts |
+
+C10 (icon grid never reflowed) and C12 (Notepad `execCommand` paste) are closed: the grid has a
+resize listener, and Paste uses the async Clipboard API and says so plainly when the browser
+refuses. A3 is closed — `Desktop`, `Taskbar`, `StartMenu`, `DesktopIcon` and `RecycleBinApp` now
+subscribe with selectors.
 
 The media-licensing item (P1) is closed as **accepted by the owner** — the playlist, the XP
 startup sound and the XP logo assets ship deliberately. See `CLAUDE.md` §9; do not re-open it.

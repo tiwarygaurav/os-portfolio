@@ -126,7 +126,8 @@ export default function SettingsApp() {
                 {tab === 'Settings' && (
                     <div className="space-y-2">
                         <p className="text-gray-600">Display: {typeof window !== 'undefined' ? `${window.screen.width} x ${window.screen.height}` : 'Unknown'}</p>
-                        <p className="text-gray-600">Color quality: Highest (32 bit)</p>
+                        {/* Read from the browser, like the resolution above — this line used to be a literal "32 bit". */}
+                        <p className="text-gray-600">Color quality: {typeof window !== 'undefined' ? `${window.screen.colorDepth}-bit` : 'Unknown'}</p>
                     </div>
                 )}
             </div>

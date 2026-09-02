@@ -11,12 +11,26 @@ import DesktopIcon from './DesktopIcon';
 import ContextMenu from '@/components/ui/ContextMenu';
 import { PROFILE, SYSTEM } from '@/content';
 
+/** Desktop icon grid cell, in px. Icons are 80x88 with a little air around them. */
+const CELL_WIDTH = 90;
+const CELL_HEIGHT = 90;
+/** Vertical space the grid never uses: the taskbar plus a margin. */
+const GRID_RESERVED_HEIGHT = 80;
+
 export default function Desktop() {
-    const { windows, actions, wallpaperId, deletedAppIds } = useSystemStore();
+    const windows = useSystemStore((s) => s.windows);
+    const actions = useSystemStore((s) => s.actions);
+    const wallpaperId = useSystemStore((s) => s.wallpaperId);
+    const deletedAppIds = useSystemStore((s) => s.deletedAppIds);
     const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
     const [desktopMenu, setDesktopMenu] = useState({ isOpen: false, x: 0, y: 0 });
     const [iconMenu, setIconMenu] = useState<{ isOpen: boolean; x: number; y: number; appId: string | null }>({ isOpen: false, x: 0, y: 0, appId: null });
     const [showBalloon, setShowBalloon] = useState(true);
+    // Desktop is only mounted client-side (page.tsx renders null until mounted), so `window`
+    // is safe here; the fallback keeps the initialiser total.
+    const [viewportHeight, setViewportHeight] = useState(() =>
+        typeof window !== 'undefined' ? window.innerHeight : 700,
+    );
 
     const visibleIcons = DESKTOP_ICONS.filter(id => !deletedAppIds.includes(id));
     const wallpaper = WALLPAPERS.find(w => w.id === wallpaperId) || WALLPAPERS[0];
@@ -34,6 +48,22 @@ export default function Desktop() {
         setDesktopMenu({ isOpen: false, x: 0, y: 0 });
         setSelectedIconId(appId);
     };
+
+    // Reflow the default icon grid when the viewport height changes. Only the defaults move:
+    // positions a visitor has dragged are persisted in the store and DesktopIcon prefers them.
+    // Coalesced to one update per frame so a live window resize does not re-render per event.
+    useEffect(() => {
+        let frame = 0;
+        const onResize = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => setViewportHeight(window.innerHeight));
+        };
+        window.addEventListener('resize', onResize);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.removeEventListener('resize', onResize);
+        };
+    }, []);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -116,6 +146,8 @@ export default function Desktop() {
         return () => window.removeEventListener('keydown', onKey);
     }, []);
 
+    const rowsPerColumn = Math.max(1, Math.floor((viewportHeight - GRID_RESERVED_HEIGHT) / CELL_HEIGHT));
+
     const wallpaperStyle: React.CSSProperties = wallpaper.color
         ? { backgroundColor: wallpaper.color }
         : { backgroundImage: `url('${wallpaper.url}')`, backgroundSize: 'cover', backgroundPosition: 'center' };
@@ -135,15 +167,11 @@ export default function Desktop() {
                     const app = APPS[appId];
                     if (!app) return null;
 
-                    const cellHeight = 90;
-                    const cellWidth = 90;
-                    const rowsPerColumn = Math.floor((typeof window !== 'undefined' ? window.innerHeight - 80 : 700) / cellHeight);
-                    const safeRows = Math.max(1, rowsPerColumn);
-                    const col = Math.floor(index / safeRows);
-                    const row = index % safeRows;
+                    const col = Math.floor(index / rowsPerColumn);
+                    const row = index % rowsPerColumn;
 
-                    const initialX = 10 + (col * cellWidth);
-                    const initialY = 10 + (row * cellHeight);
+                    const initialX = 10 + (col * CELL_WIDTH);
+                    const initialY = 10 + (row * CELL_HEIGHT);
 
                     return (
                         <DesktopIcon
@@ -210,7 +238,22 @@ export default function Desktop() {
                         },
                         { label: "Rename", disabled: true },
                         { divider: true },
-                        { label: "Properties", action: () => alert(`${app.title}\nType: Application\nSize: 0 bytes`) },
+                        {
+                            label: "Properties",
+                            // Only facts the registry holds and the window manager honours. The
+                            // previous version asserted "Size: 0 bytes" for every app — a
+                            // fabricated file-metadata readout of the same class as the drive
+                            // capacities removed from My Computer.
+                            action: () => alert(
+                                [
+                                    app.title,
+                                    'Type: Application',
+                                    `Opens at: ${app.width ?? 800} x ${app.height ?? 600}`,
+                                    `Resizable: ${app.canResize ? 'Yes' : 'No'}`,
+                                    `Maximizable: ${app.canMaximize ? 'Yes' : 'No'}`,
+                                ].join('\n'),
+                            ),
+                        },
                     ];
                 })()}
             />

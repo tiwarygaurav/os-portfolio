@@ -45,7 +45,7 @@ These are marked `needs-confirmation` in code and must not be presented as settl
 
 - `ROLES.vxo-digital.title` / `.period` — About and Resume disagreed.
 - `PROFILE.location` — asserted by the old About window, absent from the resume.
-- `PROJECTS."os-portfolio".links` "Live" — deployment URL unverified (`known: false`).
+- `PROJECTS."os-portfolio"` has no "Live" link on purpose: the site is not deployed, and the URL it once carried belongs to someone else (see CLAUDE.md §1).
 
 ## Adding something
 

@@ -10,6 +10,11 @@ import { LINKS, PROFILE } from '@/content';
 
 interface StartMenuProps {
     onClose: () => void;
+    /**
+     * The element that opened the menu (the Start button). A mousedown on it is not "outside":
+     * the button toggles the menu itself, and closing here first made the toggle re-open it.
+     */
+    triggerRef?: React.RefObject<HTMLElement>;
 }
 
 /** Glyph for a social link label. Falls back to a globe for anything unrecognised. */
@@ -20,20 +25,28 @@ function SOCIAL_ICONS({ l }: { l: string }) {
     return <Globe size={16} />;
 }
 
-export default function StartMenu({ onClose }: StartMenuProps) {
-    const { actions } = useSystemStore();
+export default function StartMenu({ onClose, triggerRef }: StartMenuProps) {
+    const actions = useSystemStore((s) => s.actions);
     const [allProgramsOpen, setAllProgramsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const onClickOutside = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                onClose();
-            }
+        const onMouseDown = (e: MouseEvent) => {
+            const target = e.target as Node;
+            if (menuRef.current?.contains(target)) return;
+            if (triggerRef?.current?.contains(target)) return;
+            onClose();
         };
-        document.addEventListener('mousedown', onClickOutside);
-        return () => document.removeEventListener('mousedown', onClickOutside);
-    }, [onClose]);
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', onMouseDown);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [onClose, triggerRef]);
 
     const handleAppClick = (appId: string) => {
         const app = APPS[appId];

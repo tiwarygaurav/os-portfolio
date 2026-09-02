@@ -3,8 +3,6 @@
 import { useState } from 'react';
 import { ArrowUpRight, Briefcase, FolderGit2, Info } from 'lucide-react';
 import {
-    PROJECTS,
-    ROLES,
     SKILL_GROUPS,
     projectById,
     roleById,
@@ -143,6 +141,13 @@ function EvidencePanel({ skill, onOpen }: { skill: Skill | null; onOpen: (id: st
         );
     }
 
+    // Counts describe *this skill's* evidence only. The footer used to print the global
+    // ROLES/PROJECTS totals, which read as a claim about the selected skill — and contradicted
+    // the "no evidence" sentence directly above it.
+    const roleCount = skill.evidence.filter((id) => roleById(id)).length;
+    const projectCount = skill.evidence.filter((id) => projectById(id)).length;
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
     return (
         <div className="rounded border border-gray-200 bg-white">
             <div className="border-b border-gray-200 px-3 py-2">
@@ -190,9 +195,11 @@ function EvidencePanel({ skill, onOpen }: { skill: Skill | null; onOpen: (id: st
                 </ul>
             )}
 
-            <p className="border-t border-gray-100 px-3 py-2 text-[10px] text-gray-400">
-                Evidence spans {ROLES.length} roles and {PROJECTS.length} projects.
-            </p>
+            {skill.evidence.length > 0 && (
+                <p className="border-t border-gray-100 px-3 py-2 text-[10px] text-gray-400">
+                    Evidence for {skill.name}: {plural(roleCount, 'role')}, {plural(projectCount, 'project')}.
+                </p>
+            )}
         </div>
     );
 }

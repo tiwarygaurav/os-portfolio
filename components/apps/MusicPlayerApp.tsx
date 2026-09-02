@@ -29,6 +29,28 @@ export default function MusicPlayerApp() {
     const isMuted = useSystemStore((s) => s.isMuted);
 
     /*
+     * What the *user* wants, as opposed to what the element is doing right now.
+     *
+     * `isPlaying` mirrors the element's transport state for the button glyph. It cannot be used
+     * to decide whether the next track should start: when a track reaches its end the browser
+     * fires `pause` (setting `isPlaying` false) *before* `ended`, so a track-change effect keyed on
+     * `isPlaying` saw "paused" and never auto-advanced. This ref is set only by deliberate
+     * intent — the user pressing Play/Pause, or a track ending while playing — and is what the
+     * track-change effect consults.
+     */
+    const wantsPlay = useRef(false);
+
+    const startPlayback = (audio: HTMLAudioElement) => {
+        audio.play().catch((err: unknown) => {
+            // A `load()` for the next track interrupts a pending `play()` with AbortError
+            // (e.g. Next pressed twice quickly). That is not a refusal — intent stands.
+            if (err instanceof DOMException && err.name === 'AbortError') return;
+            wantsPlay.current = false;
+            setPlaybackError('Playback was blocked by the browser.');
+        });
+    };
+
+    /*
      * Play / pause.
      *
      * `isPlaying` used to be flipped optimistically while `play()`'s promise went unhandled, so a
@@ -41,15 +63,25 @@ export default function MusicPlayerApp() {
         if (!audio) return;
 
         if (audio.paused) {
-            audio.play().catch(() => setPlaybackError('Playback was blocked by the browser.'));
+            wantsPlay.current = true;
+            startPlayback(audio);
         } else {
+            wantsPlay.current = false;
             audio.pause();
         }
     };
 
-    // Next Track
+    // Next Track. Wraps: after the last track the playlist starts over from the first, so an
+    // untouched player plays through continuously (matches Prev wrapping from the first track to
+    // the last). Deliberate — change `% PLAYLIST.length` to a bounds check to stop at the end.
     const nextTrack = () => {
         setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
+    };
+
+    // A track that ends while playing is intent to keep going — carry it across the boundary.
+    const handleEnded = () => {
+        wantsPlay.current = true;
+        nextTrack();
     };
 
     // Previous Track
@@ -85,17 +117,19 @@ export default function MusicPlayerApp() {
         // The effect below applies it together with the system volume.
     };
 
-    // Auto play when track changes
+    // Track change: reload the element, clear the previous track's slider position and length
+    // (otherwise the slider sits at the old track's end until the first `timeupdate`), and
+    // continue playing only if that is what the user wanted.
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return;
 
+        setProgress(0);
+        setDuration(0);
+        setPlaybackError(null);
         audio.load();
-        if (isPlaying) {
-            audio.play().catch(() => setPlaybackError('Playback was blocked by the browser.'));
-        }
-        // `isPlaying` is intentionally not a dependency: this should fire on track change only,
-        // otherwise pausing would reload and restart the track.
+        if (wantsPlay.current) startPlayback(audio);
+        // Fires on track change only; `startPlayback` is a stable closure over refs/setters.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentTrack]);
 
@@ -194,11 +228,17 @@ export default function MusicPlayerApp() {
                 src={PLAYLIST[currentTrack].file}
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={handleLoadedMetadata}
-                onEnded={nextTrack}
-                // The element is the source of truth for transport state, not local optimism.
+                onEnded={handleEnded}
+                // The element is the source of truth for transport state (the button glyph), not
+                // local optimism. Intent lives in `wantsPlay`, not here.
                 onPlay={() => { setIsPlaying(true); setPlaybackError(null); }}
                 onPause={() => setIsPlaying(false)}
-                onError={() => { setIsPlaying(false); setPlaybackError('This track could not be loaded.'); }}
+                onError={() => {
+                    // A track that cannot load must not auto-advance into the next one on its own.
+                    wantsPlay.current = false;
+                    setIsPlaying(false);
+                    setPlaybackError('This track could not be loaded.');
+                }}
             />
         </div>
     );

@@ -35,12 +35,14 @@ export const PROJECTS: Project[] = [
             'Headless shell layer that returns structured output, with no React or DOM dependency.',
             'Virtual filesystem generated from typed content — one source of truth for every fact on the site.',
             'Store-driven window manager: focus, z-order, drag, resize, minimise/maximise, taskbar.',
-            'Synthesised UI audio via WebAudio oscillators rather than shipped sound files.',
+            'UI sounds synthesised with WebAudio oscillators; one sampled file for the startup chime.',
         ],
         availability: 'public',
+        // No "Live" link: the site is not deployed. `os-portfolio.vercel.app` was listed here once,
+        // but that address serves an unrelated person's site and no deployment of this repository
+        // exists on the owner's Vercel account (checked 2026-09-02). Add the link when one is real.
         links: [
             { label: 'Source', url: 'https://github.com/tiwarygaurav/os-portfolio', known: true },
-            { label: 'Live', url: 'https://os-portfolio.vercel.app', known: false },
         ],
         provenance: 'repo',
     },

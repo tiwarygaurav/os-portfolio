@@ -42,10 +42,14 @@ export default function ProjectsApp({ payload }: ProjectsAppProps) {
     const [selectedId, setSelectedId] = useState<string | null>(payload?.projectId ?? null);
     const [filter, setFilter] = useState<ProjectKind | 'all'>('all');
 
-    // A later `open ~/projects/<id>` reuses this window; follow the new payload.
+    // A later `open ~/projects/<id>` (or a Skills evidence click) reuses this window; follow the
+    // new payload. Keyed on the payload *object*, not `payload.projectId`: every launch site builds
+    // a fresh `{ projectId }` literal and `openWindow` stores it as-is, so a new reference means a
+    // new launch — which is what should re-select, even when the id is the same as last time
+    // (the visitor may have clicked "All projects" in between).
     useEffect(() => {
         if (payload?.projectId && projectById(payload.projectId)) setSelectedId(payload.projectId);
-    }, [payload?.projectId]);
+    }, [payload]);
 
     const selected = selectedId ? projectById(selectedId) : undefined;
     const visible = filter === 'all' ? PROJECTS : PROJECTS.filter((p) => p.kind === filter);
