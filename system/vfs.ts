@@ -25,6 +25,9 @@ import {
     type Project,
     type Role,
 } from '@/content';
+// Pure data, no React and no store: the one module both the persist middleware and this
+// generated file read, so what the shell shows a visitor is what is actually saved.
+import { PERSISTED_KEYS, PERSISTED_KEY_LABELS } from '@/store/persistence';
 
 /* ------------------------------------------------------------------ types */
 
@@ -91,14 +94,17 @@ const renderRole = (r: Role): string =>
         `Status    : ${r.current ? 'current' : 'past'}`,
         `Stack     : ${r.stack.length ? r.stack.join(', ') : '(not supplied yet)'}`,
         '',
-        r.highlights.length ? 'What I worked on' : 'Details pending — nothing has been recorded for this role yet.',
-        r.highlights.length ? bullets(r.highlights) : '',
+        // Conditional inside the spread rather than filtered out afterwards. The old version
+        // stripped *every* empty string in order to drop one optional entry, which collapsed the
+        // file into an unbroken block: the underline ran into "Period", and "Stack" ran into the
+        // highlights. These were the only files in the tree that read as a wall of text.
+        ...(r.highlights.length
+            ? ['What I worked on', bullets(r.highlights)]
+            : ['Details pending — nothing has been recorded for this role yet.']),
         ...(notes(r.title, r.period, r.location).length
             ? ['', ...notes(r.title, r.period, r.location)]
             : []),
-    ]
-        .filter((l) => l !== '')
-        .join('\n');
+    ].join('\n');
 
 const renderProject = (p: Project): string => {
     const links = p.links.length
@@ -233,7 +239,10 @@ const renderSystemConf = (): string =>
         '',
         '[state]',
         'store          = Zustand 4 with persist middleware',
-        'persisted      = volume, mute, wallpaper, theme, icon positions, recycle bin',
+        // Derived from `store/persistence.ts`, which the persist middleware also reads. This line
+        // used to name a `theme` key that had been deleted from the store and to omit
+        // `deletedAppIds`, which is the one persisted key a visitor can feel.
+        `persisted      = ${PERSISTED_KEYS.map((k) => PERSISTED_KEY_LABELS[k]).join(', ')}`,
         'not_persisted  = open windows, focus, session',
         '',
         '[layers]',
@@ -372,6 +381,15 @@ const buildRoot = (): VDir =>
 /** Built once — content is static, so rebuilding per call would be waste. */
 const ROOT: VDir = buildRoot();
 
+/**
+ * The filesystem root for this call: the static tree plus the live `/proc`.
+ *
+ * Every traversal goes through this one composition. They used to assemble the root separately
+ * and `renderTree` forgot `/proc` altogether, so `ls /` listed the process table while `tree /`
+ * — the command whose entire job is showing the filesystem at a glance — did not.
+ */
+const rootFor = (procs: ProcEntry[]): VDir => dir('', [...ROOT.children, procDir(procs)]);
+
 /* ------------------------------------------------------------- /proc (live) */
 
 const procDir = (procs: ProcEntry[]): VDir =>
@@ -429,10 +447,9 @@ export function resolvePath(cwd: string, input: string): string {
 export function lookup(absPath: string, procs: ProcEntry[] = []): VNode | null {
     const segments = absPath.split('/').filter(Boolean);
 
-    let node: VNode = segments[0] === 'proc' ? procDir(procs) : ROOT;
-    const rest = segments[0] === 'proc' ? segments.slice(1) : segments;
+    let node: VNode = rootFor(procs);
 
-    for (const seg of rest) {
+    for (const seg of segments) {
         if (!isDir(node)) return null;
         const next: VNode | undefined = node.children.find((c) => c.name === seg);
         if (!next) return null;
@@ -443,9 +460,6 @@ export function lookup(absPath: string, procs: ProcEntry[] = []): VNode | null {
 
 /** Children of a directory path, or null if the path is not a directory. */
 export function listDir(absPath: string, procs: ProcEntry[] = []): VNode[] | null {
-    if (absPath === '/') {
-        return [...ROOT.children, procDir(procs)];
-    }
     const node = lookup(absPath, procs);
     return node && isDir(node) ? node.children : null;
 }
@@ -487,8 +501,7 @@ export function searchFiles(
         });
     };
 
-    walk(ROOT, '');
-    procDir(procs).children.forEach((c) => walk(c, `/proc/${c.name}`));
+    walk(rootFor(procs), '');
     return hits;
 }
 
@@ -499,7 +512,6 @@ export function allPaths(procs: ProcEntry[] = []): string[] {
         paths.push(path + (isDir(node) ? '/' : ''));
         if (isDir(node)) node.children.forEach((c) => walk(c, `${path}/${c.name}`));
     };
-    ROOT.children.forEach((c) => walk(c, `/${c.name}`));
-    if (procs.length) walk(procDir(procs), '/proc');
+    rootFor(procs).children.forEach((c) => walk(c, `/${c.name}`));
     return paths;
 }

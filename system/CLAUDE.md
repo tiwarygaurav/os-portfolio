@@ -48,12 +48,28 @@ A command table plus a parser. `runCommand(input, ctx)` returns `ShellResult` �
 Side effects go through `ShellContext`, supplied by the renderer:
 
 ```ts
+cwd: string
+history()    -> string[]           // live; see below
 processes()  -> ProcEntry[]        // live windows
 appIds()     -> string[]           // registered apps
 openApp(id, payload?) -> boolean   // false when unregistered, so the shell can say so
 closeProcess(pid)     -> boolean
 openUrl(url)
 ```
+
+**Everything live is a function.** `history` was once a plain array, and the renderer memoised the
+context, so the shell held a snapshot taken before any command had been typed — `history` printed
+"No history yet." for an entire session while Up-arrow happily walked the same commands. If a
+field can change after the context is built, it is a getter.
+
+`COMMANDS` has a **null prototype**, and `APPS` lookups in the renderer are guarded with
+`hasOwnProperty`. With a plain object literal, `COMMANDS['constructor']` returned `Object`'s
+constructor, passed the truthiness guard and threw out of a React event handler, so the terminal
+printed nothing at all. Any table indexed by user input needs the same treatment.
+
+The traversal functions (`lookup`, `listDir`, `renderTree`, `searchFiles`, `allPaths`) all walk
+one `rootFor(procs)` composition. They used to assemble the root separately and `renderTree`
+forgot `/proc`, so `ls /` showed the process table and `tree /` did not.
 
 ## Rules
 
@@ -68,13 +84,24 @@ openUrl(url)
    how the system works. Nothing exists to pad the `help` output.
 5. **Paths are real.** `pwd` must print somewhere `cd` can reach. The old terminal printed
    `C:\Users\Gaurav\Desktop`, which existed nowhere.
-6. **`content/` is the only data source.** Never hardcode a fact into a command.
+6. **`content/` is the only data source.** Never hardcode a fact into a command. The one other
+   import allowed here is `store/persistence.ts` — pure data, no React, no store — which
+   `/etc/system.conf` renders so the persisted-key list cannot drift from what `partialize`
+   actually saves. Importing the store itself is still forbidden.
 
 ## Verifying a change
 
-The layers compile to CommonJS and run under Node with the `@/content` alias rewritten. Drive
+The layers compile to CommonJS and run under Node with the `@/` alias rewritten. Drive
 `runCommand` against a stub `ShellContext` and check the emitted lines — no browser needed. That
 round trip is the reason to keep this directory pure.
+
+Recipe: a `tsconfig` with `module: commonjs`, `rootDir` at the repo root and
+`include` covering `content/**`, `system/**` and `store/persistence.ts`; then a runner that
+patches `Module._resolveFilename` to map `@/x` onto the emitted `out/x`. Stub `ShellContext` with
+a couple of fake `ProcEntry` rows and assert on the rendered lines.
+
+**A headless pass is not a UI pass.** The `ps`/`kill` pid defect was invisible to this probe
+because the stub `closeProcess` accepted any id; only driving the real browser found it. Use both.
 
 ## Not built yet
 

@@ -55,8 +55,13 @@ export interface ShellResult {
 
 export interface ShellContext {
     cwd: string;
-    /** Command history, newest last. Owned by the renderer, read by `history`. */
-    history: string[];
+    /**
+     * Command history, newest last. A getter, not an array: the renderer owns the list and keeps
+     * appending to it, so a snapshot captured when the context was built goes stale immediately —
+     * `history` reported "No history yet." for a whole session. Every other live field here is a
+     * function for the same reason.
+     */
+    history: () => string[];
     processes: () => ProcEntry[];
     /** Returns false when no app is registered under that id, so the shell can report honestly. */
     openApp: (appId: string, payload?: Record<string, string>) => boolean;
@@ -103,13 +108,21 @@ export const prettyPath = (p: string): string =>
 
 /* --------------------------------------------------------------- commands */
 
-const COMMANDS: Record<string, Command> = {
+/**
+ * The command table has a null prototype.
+ *
+ * With a plain object literal, `COMMANDS['constructor']` resolves to `Object`'s own constructor,
+ * which passed the `if (command)` guard and then threw `command.run is not a function` out of a
+ * React event handler — the terminal printed nothing at all. `__proto__` and `toString` behaved
+ * the same way. A null prototype means only the commands defined below exist.
+ */
+const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as Record<string, Command>, {
     help: {
         name: 'help',
         summary: 'List commands. `help <command>` for detail.',
         run: (args) => {
             if (args[0]) {
-                const cmd = COMMANDS[args[0]];
+                const cmd = findCommand(args[0]);
                 if (!cmd) return out(error(`help: no such command: ${args[0]}`));
                 return out(
                     heading(cmd.name),
@@ -464,10 +477,12 @@ const COMMANDS: Record<string, Command> = {
     history: {
         name: 'history',
         summary: 'Commands entered this session.',
-        run: (_args, ctx) =>
-            ctx.history.length
-                ? out(...ctx.history.map((h, i) => pair(String(i + 1).padStart(3), h)))
-                : out(muted('No history yet.')),
+        run: (_args, ctx) => {
+            const entries = ctx.history();
+            return entries.length
+                ? out(...entries.map((h, i) => pair(String(i + 1).padStart(3), h)))
+                : out(muted('No history yet.'));
+        },
     },
 
     date: {
@@ -513,7 +528,10 @@ const COMMANDS: Record<string, Command> = {
             return out(muted('Closing.'));
         },
     },
-};
+} satisfies Record<string, Command>);
+
+/** Look up a command by name. Returns undefined for anything not defined in the table. */
+const findCommand = (name: string): Command | undefined => COMMANDS[name.toLowerCase()];
 
 /* ----------------------------------------------------------------- runtime */
 
@@ -552,7 +570,7 @@ export function runCommand(input: string, ctx: ShellContext): ShellResult {
     if (!tokens.length) return { lines: [] };
 
     const [name, ...args] = tokens;
-    const command = COMMANDS[name.toLowerCase()];
+    const command = findCommand(name);
     if (command) return command.run(args, ctx);
 
     // Bare path? Treat it as `cat`/`cd` so exploring is forgiving.
@@ -577,16 +595,20 @@ export function complete(input: string, ctx: ShellContext): string[] {
         return Object.keys(COMMANDS).filter((c) => c.startsWith(last.toLowerCase()));
     }
 
-    const absPrefix = resolvePath(ctx.cwd, last.endsWith('/') ? last : last + '/..');
+    /*
+     * Split the argument into the directory it names and the leaf being completed. An empty
+     * argument (`ls ` + Tab) completes against the working directory — it used to resolve to
+     * `/` and offer root entries that did not exist relative to where the user actually was.
+     */
+    const cut = last.lastIndexOf('/');
+    const head = cut === -1 ? '' : last.slice(0, cut + 1);
+    const leaf = cut === -1 ? last : last.slice(cut + 1);
+    const absPrefix = resolvePath(ctx.cwd, head || '.');
     const children = listDir(absPrefix, ctx.processes()) ?? [];
-    const leaf = last.endsWith('/') ? '' : (last.split('/').pop() ?? '');
 
     const paths = children
         .filter((c) => c.name.startsWith(leaf))
-        .map((c) => {
-            const head = last.slice(0, last.length - leaf.length);
-            return head + c.name + (isDir(c) ? '/' : '');
-        });
+        .map((c) => head + c.name + (isDir(c) ? '/' : ''));
 
     // `open ter<tab>` should also reach app ids, which are not filesystem entries.
     if (tokens[0] === 'open') {

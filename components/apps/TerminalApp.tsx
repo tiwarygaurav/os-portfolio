@@ -57,10 +57,16 @@ export default function TerminalApp() {
     const ctx: ShellContext = useMemo(
         () => ({
             cwd,
-            history: history.current,
+            // A getter, so the shell always reads the live list rather than the snapshot that
+            // existed when this context was memoised.
+            history: () => history.current,
             processes,
             appIds: () => Object.keys(APPS),
             openApp: (appId, payload) => {
+                // `APPS` is a plain object literal, so `APPS['constructor']` would otherwise
+                // return a truthy inherited value and `open constructor` would report success
+                // while creating a window with an undefined title.
+                if (!Object.prototype.hasOwnProperty.call(APPS, appId)) return false;
                 const app = APPS[appId];
                 if (!app) return false;
                 openWindow(app.id, app.title, payload);
@@ -87,7 +93,9 @@ export default function TerminalApp() {
         setHistoryIndex(null);
         if (!command) return;
 
-        history.current = [...history.current, command];
+        // Mutate in place: `ctx.history` is a getter over this ref, and the Up/Down recall below
+        // reads the same array.
+        history.current.push(command);
         const result = runCommand(command, ctx);
 
         if (result.cwd) setCwd(result.cwd);
