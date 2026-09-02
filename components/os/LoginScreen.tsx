@@ -57,7 +57,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
                 {/* Center */}
                 <div
-                    className="flex flex-1"
+                    className="flex flex-1 flex-col md:flex-row"
                     style={{
                         background: `
   radial-gradient(
@@ -72,37 +72,38 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
 
                     {/* Left Side */}
-                    <div className="w-1/2 flex flex-col justify-center items-end pr-12">
-                        <div className="mb-10">
+                    <div className="flex w-full flex-col items-center justify-end px-6 pb-4 md:w-1/2 md:items-end md:justify-center md:pb-0 md:pr-12">
+                        <div className="mb-6 md:mb-10">
                             <Image
                                 src="/icons/windows-xp-logo-white-text-transparent-bg-cropped.png"
                                 width={250}
                                 height={120}
                                 alt="Windows XP"
+                                className="h-auto w-[170px] md:w-[250px]"
                                 priority
                             />
                         </div>
-                        <span className="text-[22px] text-right font-normal">
+                        <span className="text-center text-[17px] font-normal md:text-right md:text-[22px]">
                             To begin, click on {PROFILE.shortName} to log in
                         </span>
                     </div>
                     <div className="flex items-center justify-center">
-                        <div className="w-px h-[60%] bg-gradient-to-b from-transparent via-white/40 to-transparent" />
+                        <div className="h-px w-[70%] bg-gradient-to-r from-transparent via-white/40 to-transparent md:h-[60%] md:w-px md:bg-gradient-to-b" />
                     </div>
 
                     {/* Right Side */}
-                    <div className="w-1/2 flex flex-col justify-center items-start pl-10">
+                    <div className="flex w-full flex-col items-center justify-start px-4 pt-4 md:w-1/2 md:items-start md:justify-center md:pl-10 md:pt-0">
 
                         <div
                             onMouseEnter={() => setIsHoveringUser(true)}
                             onMouseLeave={() => setIsHoveringUser(false)}
                             onClick={handleLogin}
-                            className={`flex min-w-[400px] p-4 rounded-lg cursor-pointer transition-all duration-200 ${isHoveringUser
+                            className={`flex w-full max-w-[400px] cursor-pointer rounded-lg p-4 transition-all duration-200 md:min-w-[400px] ${isHoveringUser
                                 ? "bg-gradient-to-r from-[#00489a] to-transparent opacity-100"
                                 : "opacity-60"
                                 }`}
                         >
-                            <div className="w-[80px] h-[80px] mr-6 border-[3px] border-white rounded-md shadow-md overflow-hidden relative">
+                            <div className="relative mr-4 h-[64px] w-[64px] shrink-0 overflow-hidden rounded-md border-[3px] border-white shadow-md md:mr-6 md:h-[80px] md:w-[80px]">
                                 <Image
                                     src="/icons/profile-picture-chess.png"
                                     alt="User"
@@ -112,7 +113,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                             </div>
 
                             <div>
-                                <span className="block text-[22px] mb-2 font-normal">
+                                <span className="mb-1 block text-[19px] font-normal md:mb-2 md:text-[22px]">
                                     {PROFILE.shortName}
                                 </span>
                                 <span className="text-sm text-blue-200">{PROFILE.title}</span>
@@ -123,7 +124,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                 </div>
 
                 {/* Bottom Bar */}
-                <div className="h-[12.5%] bg-[#003b8f] relative flex items-center justify-between px-12">
+                <div className="relative flex h-[12.5%] min-h-[64px] items-center justify-between gap-3 bg-[#003b8f] px-5 md:px-12">
 
                     <div className="absolute top-0 left-0 w-full h-[4px] bg-gradient-to-r from-transparent via-orange-400 to-transparent" />
 
@@ -136,10 +137,10 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                     >
 
                         <div className="w-8 h-8 bg-[#da5020] border border-white rounded-md" />
-                        <span className="ml-3 text-xl">Turn off computer</span>
+                        <span className="ml-3 whitespace-nowrap text-base md:text-xl">Turn off computer</span>
                     </div>
 
-                    <span className="text-sm">
+                    <span className="hidden text-sm sm:inline">
                         After you log on, the system&apos;s yours to explore.
                     </span>
                 </div>

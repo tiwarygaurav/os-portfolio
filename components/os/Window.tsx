@@ -7,6 +7,7 @@ import { motion, useDragControls, useMotionValue } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { playSound } from '@/utils/sound';
+import { useIsMobile } from '@/utils/viewport';
 
 /**
  * App bodies, code-split and loaded on first open.
@@ -54,6 +55,14 @@ export default function Window({ win }: WindowProps) {
     const isActive = activeWindowId === win.id;
     const appConfig = APPS[win.appId];
     const AppBody = bodyFor(win.appId);
+    /*
+     * On a phone every window is maximised (see `openWindow`), so un-maximising it would hand the
+     * visitor a window wider than the screen with no way to scroll to the rest. The controls that
+     * would do that are hidden rather than left present and inert.
+     */
+    const isMobile = useIsMobile();
+    const canMaximize = !isMobile && !!appConfig?.canMaximize;
+    const canResize = !isMobile && !!appConfig?.canResize;
 
     const controls = useDragControls();
     const winRef = useRef<HTMLDivElement>(null);
@@ -94,7 +103,7 @@ export default function Window({ win }: WindowProps) {
     };
 
     const startResize = (e: React.PointerEvent) => {
-        if (!appConfig?.canResize || win.isMaximized) return;
+        if (!canResize || win.isMaximized) return;
         e.preventDefault();
         e.stopPropagation();
         setIsResizing(true);
@@ -132,7 +141,7 @@ export default function Window({ win }: WindowProps) {
     return (
         <motion.div
             ref={winRef}
-            drag={!win.isMaximized && !isResizing && !win.isMinimized}
+            drag={!win.isMaximized && !isResizing && !win.isMinimized && !isMobile}
             dragControls={controls}
             dragListener={false}
             dragMomentum={false}
@@ -176,7 +185,7 @@ export default function Window({ win }: WindowProps) {
                     handlePointerDown();
                 }}
                 onDoubleClick={() => {
-                    if (!appConfig?.canMaximize) return;
+                    if (!canMaximize) return;
                     if (win.isMaximized) actions.unmaximizeWindow(win.id);
                     else actions.maximizeWindow(win.id);
                 }}
@@ -202,7 +211,7 @@ export default function Window({ win }: WindowProps) {
                         <span className="block w-2 h-0.5 bg-white" />
                     </button>
 
-                    {appConfig?.canMaximize && (
+                    {canMaximize && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -232,7 +241,7 @@ export default function Window({ win }: WindowProps) {
             </div>
 
             {/* Resize handle */}
-            {appConfig?.canResize && !win.isMaximized && (
+            {canResize && !win.isMaximized && (
                 <div
                     onPointerDown={startResize}
                     className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"

@@ -13,6 +13,7 @@ import DialogLayer from './Dialog';
 import { RunDialogLayer } from './RunDialog';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 import { PROFILE, SYSTEM } from '@/content';
+import { useIsMobile } from '@/utils/viewport';
 import type { AppConfig } from '@/constants/apps';
 
 /**
@@ -49,11 +50,16 @@ export default function Desktop() {
     const [iconMenu, setIconMenu] = useState<{ isOpen: boolean; x: number; y: number; appId: string | null }>({ isOpen: false, x: 0, y: 0, appId: null });
     const [showBalloon, setShowBalloon] = useState(true);
     const [runOpen, setRunOpen] = useState(false);
+    const isMobile = useIsMobile();
     // Desktop is only mounted client-side (page.tsx renders null until mounted), so `window`
     // is safe here; the fallback keeps the initialiser total.
     const [viewportHeight, setViewportHeight] = useState(() =>
         typeof window !== 'undefined' ? window.innerHeight : 700,
     );
+
+    useEffect(() => {
+        if (windows.length > 0) setShowBalloon(false);
+    }, [windows.length]);
 
     const visibleIcons = DESKTOP_ICONS.filter(id => !deletedAppIds.includes(id));
     const wallpaper = WALLPAPERS.find(w => w.id === wallpaperId) || WALLPAPERS[0];
@@ -314,7 +320,7 @@ export default function Desktop() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
                     transition={{ delay: 1, duration: 0.5 }}
-                    className="absolute bottom-12 right-4 w-72 bg-[#FFFFE1] border border-black rounded-lg shadow-xl p-3 z-40 text-black text-xs font-sans origin-bottom-right"
+                    className="absolute bottom-12 right-2 z-40 w-[min(18rem,calc(100vw-1rem))] origin-bottom-right rounded-lg border border-black bg-[#FFFFE1] p-3 font-sans text-xs text-black shadow-xl sm:right-4"
                 >
                     <div className="flex justify-between items-start mb-1">
                         <h3 className="font-bold text-sm">Welcome to {SYSTEM.name}</h3>
@@ -331,7 +337,9 @@ export default function Desktop() {
                       * balloon led with Minesweeper — but the XP balloon styling and voice stay.
                       */}
                     <p>
-                        A faithful XP-inspired desktop. Try right-clicking the desktop, or start here:
+                        {isMobile
+                            ? 'A faithful XP-inspired desktop. Tap an icon to open it, or start here:'
+                            : 'A faithful XP-inspired desktop. Try right-clicking the desktop, or start here:'}
                     </p>
                     <div className="mt-2 text-blue-800 flex gap-2 flex-wrap">
                         <button className="underline hover:text-blue-600" onClick={() => actions.openWindow('resume')}>Resume</button>
@@ -342,9 +350,12 @@ export default function Desktop() {
                         <span>|</span>
                         <button className="underline hover:text-blue-600" onClick={() => actions.openWindow('minesweeper')}>Minesweeper</button>
                     </div>
-                    <p className="mt-2 text-[11px] text-gray-600">
-                        The Command Prompt is real — try <code className="font-mono">ls ~</code>.
-                    </p>
+                    {/* The shell is the reward for exploring, but on a phone it is not the way in. */}
+                    {!isMobile && (
+                        <p className="mt-2 text-[11px] text-gray-600">
+                            The Command Prompt is real — try <code className="font-mono">ls ~</code>.
+                        </p>
+                    )}
 
                     <div className="absolute -bottom-2 right-8 w-4 h-4 bg-[#FFFFE1] border-b border-r border-black transform rotate-45"></div>
                 </motion.div>

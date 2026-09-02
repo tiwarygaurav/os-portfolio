@@ -74,9 +74,9 @@ export default function MyComputerApp() {
             </div>
 
             {/* Body */}
-            <div className="flex-1 flex overflow-hidden">
-                {/* Sidebar */}
-                <div className="w-52 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 overflow-y-auto text-white text-xs">
+            <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+                {/* Sidebar. Stacks above the content on a phone. */}
+                <div className="shrink-0 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 overflow-y-auto text-white text-xs md:w-52">
                     {/* Links that fired `alert('Not implemented')` have been removed, not relabelled. */}
                     <ExplorerPanel title="System Tasks">
                         <SidebarLink label="View system information" onClick={() => actions.openWindow('settings')} />
@@ -99,14 +99,14 @@ export default function MyComputerApp() {
                 {/* Main */}
                 <div className="flex-1 bg-white overflow-y-auto p-3">
                     <h3 className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">Files Stored on This Computer</h3>
-                    <div className="grid grid-cols-4 gap-2 mb-4">
+                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                         {folders.map(f => (
                             <FileTile key={f.id} item={f} onOpen={() => f.onOpen?.()} />
                         ))}
                     </div>
 
                     <h3 className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">Hard Disk Drives</h3>
-                    <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {drives.map(d => (
                             <button
                                 key={d.id}

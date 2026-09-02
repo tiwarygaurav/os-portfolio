@@ -4,6 +4,7 @@ import { useSystemStore, clampIconToViewport } from '@/store/useSystemStore';
 import { AppConfig } from '@/constants/apps';
 import { motion, useMotionValue } from 'framer-motion';
 import { playSound } from '@/utils/sound';
+import { useIsMobile } from '@/utils/viewport';
 import { useEffect, useRef } from 'react';
 import { cn } from '@/utils/cn';
 
@@ -36,6 +37,7 @@ function isOverRecycleBin(point: { x: number; y: number }): boolean {
 export default function DesktopIcon({ appId, app, initialPosition, isSelected, onSelect, onContextMenu }: DesktopIconProps) {
     const actions = useSystemStore((s) => s.actions);
     const saved = useSystemStore((s) => s.desktopIcons[appId]);
+    const isMobile = useIsMobile();
 
     /*
      * Clamped at render, not only on write: a position saved on a wide monitor would otherwise
@@ -69,6 +71,12 @@ export default function DesktopIcon({ appId, app, initialPosition, isSelected, o
             return;
         }
         onSelect();
+        // Touch has no hover to teach "double-tap", and XP's own tablet builds opened on a single
+        // tap. On a pointer device the double-click idiom stays.
+        if (isMobile) {
+            playSound('open');
+            actions.openWindow(appId, app.title);
+        }
     };
 
     return (

@@ -26,9 +26,9 @@ export default function RecycleBinApp() {
             </div>
 
             {/* Body */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
                 {/* Sidebar */}
-                <div className="w-52 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 overflow-y-auto text-white text-xs">
+                <div className="shrink-0 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 overflow-y-auto text-white text-xs md:w-52">
                     <div className="mb-3 bg-white/20 rounded overflow-hidden">
                         <div className="bg-gradient-to-r from-[#f0b765] to-[#cf8b1f] px-2 py-1 font-bold text-[11px] text-white">Recycle Bin Tasks</div>
                         <div className="p-2 space-y-2">

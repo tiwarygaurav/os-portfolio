@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { APPS } from '@/constants/apps';
 import { PERSISTED_KEYS, type PersistedKey } from '@/store/persistence';
+import { isMobileViewport } from '@/utils/viewport';
 
 /**
  * Launch argument passed to an app when it is opened, e.g. `{ projectId: 'os-portfolio' }` from the
@@ -278,6 +279,13 @@ export const useSystemStore = create<SystemState>()(
                     // Registry size, capped to the viewport; cascade the position, then clamp
                     // it with the same rule a drag obeys.
                     const size = initialSize(appId);
+                    /*
+                     * On a phone a floating window is wider than the screen and the body cannot
+                     * scroll, so the part that overflows is simply unreachable. Windows open
+                     * maximised there and the taskbar becomes the app switcher: the same window
+                     * manager, one window at a time. See `utils/viewport.ts`.
+                     */
+                    const mobile = isMobileViewport();
                     const newWindow: AppWindow = {
                         id: nextPid(),
                         appId,
@@ -285,7 +293,7 @@ export const useSystemStore = create<SystemState>()(
                         // drifted out of sync with `constants/apps.ts` in the first place.
                         title: title || APPS[appId]?.title || appId,
                         isMinimized: false,
-                        isMaximized: false,
+                        isMaximized: mobile,
                         position: clampToViewport({
                             x: 60 + (windows.length * 24) % 200,
                             y: 40 + (windows.length * 24) % 150

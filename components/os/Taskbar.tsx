@@ -110,7 +110,7 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                             : 'inset 0 1px 0 rgba(255,255,255,0.4)',
                         borderTopRightRadius: 16,
                         borderBottomRightRadius: 16,
-                        minWidth: 95,
+                        minWidth: 78,
                     }}
                 >
                     <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center shadow-sm border border-green-700">
@@ -125,7 +125,7 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                 </button>
 
                 {/* Quick Launch */}
-                <div className="flex items-center gap-1 px-2 h-full border-r border-black/20">
+                <div className="hidden h-full items-center gap-1 border-r border-black/20 px-2 sm:flex">
                     {quickLaunch.map(appId => {
                         const app = APPS[appId];
                         return (
@@ -163,7 +163,7 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                                         actions.focusWindow(win.id);
                                     }
                                 }}
-                                className="flex items-center gap-2 px-2 py-1 min-w-[140px] max-w-[180px] h-7 text-xs truncate transition-all rounded-sm"
+                                className="flex h-7 min-w-0 max-w-[180px] shrink items-center gap-2 truncate rounded-sm px-2 py-1 text-xs transition-all sm:min-w-[140px]"
                                 style={{
                                     background: isActive
                                         ? 'linear-gradient(to bottom, #1746a3, #2059ce 50%, #1746a3)'

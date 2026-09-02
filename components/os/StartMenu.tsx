@@ -93,7 +93,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 20, opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed bottom-9 left-0 w-[380px] bg-white overflow-visible z-[9999] flex flex-col font-sans"
+            className="fixed bottom-9 left-0 z-[9999] flex max-h-[calc(100vh-2.25rem)] w-full max-w-[380px] flex-col overflow-y-auto bg-white font-sans sm:overflow-visible"
             style={{
                 boxShadow: "2px 2px 12px rgba(0,0,0,0.5), -1px -1px 3px rgba(255,255,255,0.3)",
                 borderTopLeftRadius: 8,
@@ -154,7 +154,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
 
                         {allProgramsOpen && (
                             <div
-                                className="absolute bottom-0 left-full ml-0 w-56 bg-white border border-gray-500 shadow-2xl py-1 z-[10000]"
+                                className="absolute bottom-0 left-0 z-[10000] w-56 border border-gray-500 bg-white py-1 shadow-2xl sm:left-full"
                                 onMouseLeave={() => setAllProgramsOpen(false)}
                             >
                                 {PROGRAM_GROUPS.map((group) => (
@@ -164,7 +164,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
                                             <ChevronRight size={12} />
                                         </div>
                                         <div
-                                            className="absolute top-0 left-full bg-white border border-gray-500 shadow-2xl py-1 w-52 hidden group-hover:block"
+                                            className="absolute top-0 left-0 hidden w-52 border border-gray-500 bg-white py-1 shadow-2xl group-hover:block sm:left-full"
                                         >
                                             {group.apps.map(a => (
                                                 <button

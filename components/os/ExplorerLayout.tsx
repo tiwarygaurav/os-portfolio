@@ -37,15 +37,23 @@ export default function ExplorerLayout({ path, sidebarSections, children }: Expl
     return (
         <div className="flex h-full flex-col bg-[#f1f1f1] font-sans">
             <div className="flex shrink-0 items-center gap-2 border-b border-[#d0cfc4] bg-[#ece9d8] px-2 py-1 text-xs">
-                <span className="text-gray-500">Location</span>
-                <div className="flex-1 border border-[#c8c6b8] bg-white px-2 py-0.5 font-mono text-black">
+                <span className="hidden text-gray-500 sm:inline">Location</span>
+                <div className="min-w-0 flex-1 truncate border border-[#c8c6b8] bg-white px-2 py-0.5 font-mono text-black">
                     {path}
                 </div>
-                <span className="text-[10px] text-gray-500">also reachable from the terminal</span>
+                <span className="hidden text-[10px] text-gray-500 lg:inline">also reachable from the terminal</span>
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
-                <div className="w-48 shrink-0 space-y-3 overflow-y-auto bg-gradient-to-b from-[#748aff] to-[#4057d2] p-3">
+            {/*
+              * On a phone this becomes one scrolling column with the content first and the task
+              * panes beneath it: a 192px sidebar beside content on a 390px screen leaves neither
+              * readable, and putting the panes on top buries what the visitor came for.
+              * `order` moves them visually while the DOM keeps the sidebar first for screen
+              * readers. `flex-col-reverse` would do the same but starts the scroll at the visual
+              * bottom, so the window opened showing the end of the content.
+              */}
+            <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+                <div className="order-2 shrink-0 space-y-3 bg-gradient-to-b from-[#748aff] to-[#4057d2] p-3 md:order-none md:w-48 md:overflow-y-auto">
                     {sidebarSections.map((section) => (
                         <CollapsibleSection
                             key={section.title}
@@ -56,7 +64,7 @@ export default function ExplorerLayout({ path, sidebarSections, children }: Expl
                     ))}
                 </div>
 
-                <div className="flex-1 overflow-y-auto bg-white p-6">{children}</div>
+                <div className="order-1 flex-1 bg-white p-4 md:order-none md:overflow-y-auto md:p-6">{children}</div>
             </div>
         </div>
     );

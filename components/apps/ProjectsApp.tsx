@@ -55,8 +55,8 @@ export default function ProjectsApp({ payload }: ProjectsAppProps) {
     const visible = filter === 'all' ? PROJECTS : PROJECTS.filter((p) => p.kind === filter);
 
     return (
-        <div className="flex h-full bg-white font-sans text-black">
-            <nav className="w-48 shrink-0 border-r border-gray-300 bg-[#f5f5f0] p-2" aria-label="Project filters">
+        <div className="flex h-full flex-col bg-white font-sans text-black md:flex-row">
+            <nav className="shrink-0 border-b border-gray-300 bg-[#f5f5f0] p-2 md:w-48 md:border-b-0 md:border-r" aria-label="Project filters">
                 <div className="mb-2 px-2 pt-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">
                     Categories
                 </div>

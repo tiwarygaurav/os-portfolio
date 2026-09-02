@@ -10,6 +10,9 @@ is wrong.
 
 ---
 
+> **Status, 2026-09-03.** Sections 1, 2, 4 and 9 are built and verified. What remains open is
+> marked below. Read this together with the decision log in `CLAUDE.md` §8.
+
 ## 0. What already exists (do not rebuild)
 
 | Primitive | Where | Status |
@@ -19,12 +22,17 @@ is wrong.
 | Virtual filesystem | `system/vfs.ts` | Complete; `/proc` is live |
 | Headless shell | `system/shell.ts` | 22 commands, returns `ShellLine[]` |
 | Window manager | `store/useSystemStore.ts` | z-order bounded, clamped, minimise/maximise lossless |
-| App registry | `constants/apps.ts` | Metadata only; component map still separate |
+| App registry | `constants/apps.ts` | **Unified.** Metadata + lazy component + surfaces + Run aliases |
+| XP message boxes | `components/os/Dialog.tsx`, `utils/dialog.ts` | Complete; no native dialogs remain |
+| Run dialog | `components/os/RunDialog.tsx` | Complete; resolves apps, paths and URLs |
+| Task Manager | `components/apps/TaskManagerApp.tsx` | Complete; End Task and Switch To are real |
+| Error boundary | `components/os/ErrorBoundary.tsx` | Complete; renders the real exception as a stop screen |
+| Mobile shell | `utils/viewport.ts` + responsive chrome | Complete for phones; tablet is still the desktop model |
 | Launch payloads | `WindowPayload` | Shell -> GUI works today (`open ~/projects/<id>`) |
 
 ---
 
-## 1. Application registry — unify the split
+## 1. Application registry — unify the split  ✅ DONE
 
 **Problem.** An app is defined in two places: `constants/apps.ts` (metadata) and
 `components/os/Window.tsx` (`APP_COMPONENTS`). Forgetting the second fails silently at runtime,
@@ -50,7 +58,7 @@ VFS derive `open` hints from the registry instead of hardcoding `appId` strings 
 
 ---
 
-## 2. Command palette
+## 2. Command palette  ✅ DONE (as the XP Run dialog)
 
 **Requirement.** One keystroke (`Ctrl/Cmd+K`) opens a search over a single index built from:
 app registry entries · every VFS path · project ids · skill names · shell command names.
@@ -96,7 +104,7 @@ a skill selection refers to) · Terminal (echoes events as a log when a `--verbo
 
 ---
 
-## 4. System Monitor
+## 4. System Monitor  ✅ DONE (as the XP Task Manager)
 
 **Requirement.** An app that reads *only* live state — no invented telemetry, ever:
 
@@ -169,21 +177,24 @@ state, workspace *definitions* are not.
 
 ---
 
-## 9. Responsive / mobile shell
+## 9. Responsive / mobile shell  ✅ DONE for phones
 
 **Requirement.** Not a scaled-down desktop. Three deliberate modes:
 
 | Breakpoint | Model |
 | --- | --- |
-| Desktop (>=1024px) | Full window manager as today |
-| Tablet (640–1023px) | Single maximised window at a time, taskbar becomes an app switcher |
-| Mobile (<640px) | No windows. A card stack over the same content, with the terminal available as a full-screen app for those who want it |
+| Desktop (>=768px) | Full window manager as today |
+| Phone (<768px) | **Built.** Windows open maximised and stay that way, so the taskbar is the app switcher. Icons open on a single tap. The login screen, Start menu, task panes and explorer sidebars all stack. |
+
+The card-stack idea was rejected: it would have been a second presentation of the same content,
+which §9's own constraint forbids, and it would have thrown away the XP identity on the device
+where most visitors arrive. One window at a time *is* the XP answer to a small screen.
 
 **Constraint.** All three read the same `content/` and the same registry. A mobile-only copy of
 any content is a defect.
 
-**Prerequisite.** `body { overflow: hidden }` and the `user-select: none` global must become
-desktop-scoped first.
+**Still open:** a genuine tablet tier between the two, and touch gestures beyond tap (long-press
+opens the context menu on Android but not reliably on iOS).
 
 ---
 
