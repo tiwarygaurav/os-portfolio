@@ -1,8 +1,8 @@
 "use client";
 
 import { useSystemStore } from '@/store/useSystemStore';
-import { APPS } from '@/constants/apps';
-import { Power, LogOut, ChevronRight, Music, Instagram, Github, Linkedin, Mail, Calculator, StickyNote, HardDrive, TerminalSquare, Image as ImageIcon, Monitor, FolderOpen, Globe } from 'lucide-react';
+import { APPS, CATEGORY_LABELS, appList, type AppConfig } from '@/constants/apps';
+import { Power, LogOut, ChevronRight, Music, Instagram, Github, Linkedin, Mail, Calculator, StickyNote, HardDrive, TerminalSquare, Image as ImageIcon, Monitor, FolderOpen, Globe, Play, Cpu } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
 import { playSound } from '@/utils/sound';
@@ -10,6 +10,8 @@ import { LINKS, PROFILE } from '@/content';
 
 interface StartMenuProps {
     onClose: () => void;
+    /** Opens the Run dialog, which the desktop owns. */
+    onOpenRun: () => void;
     /**
      * The element that opened the menu (the Start button). A mousedown on it is not "outside":
      * the button toggles the menu itself, and closing here first made the toggle re-open it.
@@ -25,7 +27,22 @@ function SOCIAL_ICONS({ l }: { l: string }) {
     return <Globe size={16} />;
 }
 
-export default function StartMenu({ onClose, triggerRef }: StartMenuProps) {
+/**
+ * All Programs, grouped from the registry rather than a hand-written list.
+ *
+ * The previous version repeated every app id and label here, so a new app silently failed to
+ * appear -- and two of the labels had already drifted from the registry titles.
+ */
+const PROGRAM_GROUPS: { title: string; apps: AppConfig[] }[] = (
+    ['accessory', 'game', 'portfolio', 'system'] as const
+)
+    .map((category) => ({
+        title: CATEGORY_LABELS[category],
+        apps: appList().filter((a) => a.category === category && a.surfaces.includes('start')),
+    }))
+    .filter((g) => g.apps.length > 0);
+
+export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuProps) {
     const actions = useSystemStore((s) => s.actions);
     const [allProgramsOpen, setAllProgramsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -68,41 +85,6 @@ export default function StartMenu({ onClose, triggerRef }: StartMenuProps) {
         onClose();
     };
 
-    const programGroups: { title: string; apps: { id: string; label: string }[] }[] = [
-        {
-            title: 'Accessories',
-            apps: [
-                { id: 'notepad', label: 'Notepad' },
-                { id: 'calculator', label: 'Calculator' },
-                { id: 'paint', label: 'Paint' },
-                { id: 'terminal', label: 'Command Prompt' },
-                { id: 'imageviewer', label: 'Picture Viewer' },
-            ]
-        },
-        {
-            title: 'Games',
-            apps: [{ id: 'minesweeper', label: 'Minesweeper' }]
-        },
-        {
-            title: 'Portfolio',
-            apps: [
-                { id: 'about', label: 'About Me' },
-                { id: 'projects', label: 'My Projects' },
-                { id: 'skills', label: 'Skills' },
-                { id: 'resume', label: 'Resume' },
-                { id: 'contact', label: 'Contact Me' },
-            ]
-        },
-        {
-            title: 'System',
-            apps: [
-                { id: 'mycomputer', label: 'My Computer' },
-                { id: 'settings', label: 'Display Properties' },
-                { id: 'trash', label: 'Recycle Bin' },
-                { id: 'music', label: 'Media Player' },
-            ]
-        },
-    ];
 
     return (
         <motion.div
@@ -175,7 +157,7 @@ export default function StartMenu({ onClose, triggerRef }: StartMenuProps) {
                                 className="absolute bottom-0 left-full ml-0 w-56 bg-white border border-gray-500 shadow-2xl py-1 z-[10000]"
                                 onMouseLeave={() => setAllProgramsOpen(false)}
                             >
-                                {programGroups.map((group, gi) => (
+                                {PROGRAM_GROUPS.map((group) => (
                                     <div key={group.title} className="relative group">
                                         <div className="flex items-center justify-between px-3 py-1.5 text-xs font-bold hover:bg-[#316ac5] hover:text-white cursor-pointer">
                                             <span>{group.title}</span>
@@ -190,10 +172,10 @@ export default function StartMenu({ onClose, triggerRef }: StartMenuProps) {
                                                     onClick={() => { handleAppClick(a.id); setAllProgramsOpen(false); }}
                                                     className="w-full text-left px-3 py-1 text-xs hover:bg-[#316ac5] hover:text-white flex items-center gap-2"
                                                 >
-                                                    {APPS[a.id]?.iconAsset && (
-                                                        <img src={APPS[a.id].iconAsset!} alt="" className="w-4 h-4 object-contain" />
+                                                    {a.iconAsset && (
+                                                        <img src={a.iconAsset} alt="" className="w-4 h-4 object-contain" />
                                                     )}
-                                                    {a.label}
+                                                    {a.title}
                                                 </button>
                                             ))}
                                         </div>
@@ -215,6 +197,25 @@ export default function StartMenu({ onClose, triggerRef }: StartMenuProps) {
                     <StartMenuLink fallback={<Monitor size={16} />} icon="/icons/control-panel.png" label="Control Panel" onClick={() => handleAppClick('settings')} />
                     <StartMenuLink fallback={<TerminalSquare size={16} />} icon="/icons/278.ico" label="Command Prompt" onClick={() => handleAppClick('terminal')} />
                     <StartMenuLink fallback={<ImageIcon size={16} />} icon="/icons/Display.ico" label="Picture Viewer" onClick={() => handleAppClick('imageviewer')} />
+
+                    <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
+
+                    {/*
+                      * Run. XP's own command palette, and the fastest route to anything on this
+                      * desktop -- it resolves app names, filesystem paths and URLs.
+                      */}
+                    <StartMenuLink
+                        fallback={<Play size={16} />}
+                        icon="/icons/run.png"
+                        label="Run..."
+                        onClick={() => { onOpenRun(); onClose(); }}
+                    />
+                    <StartMenuLink
+                        fallback={<Cpu size={16} />}
+                        icon="/icons/control-panel.png"
+                        label="Task Manager"
+                        onClick={() => handleAppClick('taskmgr')}
+                    />
 
                     <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
 

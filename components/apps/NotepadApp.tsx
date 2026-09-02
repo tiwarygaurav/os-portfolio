@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { PROFILE, SYSTEM } from '@/content';
 import { useSystemStore } from '@/store/useSystemStore';
+import { xpAlert, xpConfirm } from '@/utils/dialog';
 
 const MENU = ['File', 'Edit', 'Format', 'View', 'Help'];
 
@@ -62,10 +63,17 @@ export default function NotepadApp({ windowId }: NotepadAppProps) {
         setOpenMenu(null);
     };
 
-    const newDoc = () => {
-        if (text && !confirm('Discard current contents?')) return;
-        setText('');
+    const newDoc = async () => {
         setOpenMenu(null);
+        if (text) {
+            const discard = await xpConfirm(
+                'Notepad',
+                ['The text in the Untitled file has changed.', 'Do you want to discard the changes?'],
+                { confirmLabel: 'Discard', cancelLabel: 'Cancel', icon: 'warning' },
+            );
+            if (!discard) return;
+        }
+        setText('');
     };
 
     const insertDateTime = () => {
@@ -89,7 +97,14 @@ export default function NotepadApp({ windowId }: NotepadAppProps) {
             const clip = await navigator.clipboard.readText();
             insertAtCursor(clip);
         } catch {
-            alert('Paste is not available here: the browser refused clipboard access. Use Ctrl+V in the editor instead.');
+            void xpAlert(
+                'Notepad',
+                [
+                    'Paste is not available here: the browser refused clipboard access.',
+                    'Use Ctrl+V in the editor instead.',
+                ],
+                'warning',
+            );
         }
     };
 
@@ -101,13 +116,13 @@ export default function NotepadApp({ windowId }: NotepadAppProps) {
     // Items the build does not have: say so plainly and consistently (native alert() for now —
     // an in-world XP dialog is planned).
     const notAvailable = (what: string) => () => {
-        alert(`${what} is not available in this build.`);
+        void xpAlert('Notepad', `${what} is not available in this build.`);
         setOpenMenu(null);
     };
 
     const menus: Record<string, { label: string; action?: () => void; shortcut?: string; divider?: boolean; checked?: boolean }[]> = {
         File: [
-            { label: 'New', action: newDoc, shortcut: 'Ctrl+N' },
+            { label: 'New', action: () => { void newDoc(); }, shortcut: 'Ctrl+N' },
             { label: 'Open...', action: notAvailable('The Open dialog'), shortcut: 'Ctrl+O' },
             { label: 'Save', action: downloadAs, shortcut: 'Ctrl+S' },
             { label: 'Save As...', action: downloadAs },
@@ -138,7 +153,13 @@ export default function NotepadApp({ windowId }: NotepadAppProps) {
             { label: 'Help Topics', action: notAvailable('Help') },
             // Owner and system name come from content/ — nothing personal is hardcoded here, and no
             // year is claimed because none is known.
-            { label: 'About Notepad', action: () => { alert(`Notepad — ${SYSTEM.name}\n${PROFILE.name}`); setOpenMenu(null); } },
+            {
+                label: 'About Notepad',
+                action: () => {
+                    void xpAlert('About Notepad', ['Notepad', SYSTEM.name, PROFILE.name]);
+                    setOpenMenu(null);
+                },
+            },
         ],
     };
 

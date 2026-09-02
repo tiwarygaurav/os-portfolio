@@ -9,7 +9,29 @@ import { playSound } from '@/utils/sound';
 import { useEffect, useState } from 'react';
 import DesktopIcon from './DesktopIcon';
 import ContextMenu from '@/components/ui/ContextMenu';
+import DialogLayer from './Dialog';
+import { RunDialogLayer } from './RunDialog';
+import { xpAlert, xpConfirm } from '@/utils/dialog';
 import { PROFILE, SYSTEM } from '@/content';
+import type { AppConfig } from '@/constants/apps';
+
+/**
+ * Send an icon to the Recycle Bin, asking first.
+ *
+ * Module scope on purpose: the Delete-key handler and the context menu both need it, and the
+ * store is read imperatively so this does not have to be a hook.
+ */
+async function confirmDelete(appId: string, app: AppConfig): Promise<boolean> {
+    const ok = await xpConfirm(
+        'Confirm File Delete',
+        `Are you sure you want to send "${app.title}" to the Recycle Bin?`,
+        { confirmLabel: 'Yes', cancelLabel: 'No' },
+    );
+    if (!ok) return false;
+    useSystemStore.getState().actions.deleteIcon(appId, app.title, app.iconAsset || '');
+    playSound('close');
+    return true;
+}
 
 /** Desktop icon grid cell, in px. Icons are 80x88 with a little air around them. */
 const CELL_WIDTH = 90;
@@ -26,6 +48,7 @@ export default function Desktop() {
     const [desktopMenu, setDesktopMenu] = useState({ isOpen: false, x: 0, y: 0 });
     const [iconMenu, setIconMenu] = useState<{ isOpen: boolean; x: number; y: number; appId: string | null }>({ isOpen: false, x: 0, y: 0, appId: null });
     const [showBalloon, setShowBalloon] = useState(true);
+    const [runOpen, setRunOpen] = useState(false);
     // Desktop is only mounted client-side (page.tsx renders null until mounted), so `window`
     // is safe here; the fallback keeps the initialiser total.
     const [viewportHeight, setViewportHeight] = useState(() =>
@@ -94,10 +117,9 @@ export default function Desktop() {
             if (e.key === 'Delete' && selectedIconId && !inForm) {
                 const app = APPS[selectedIconId];
                 if (app && selectedIconId !== 'trash') {
-                    if (confirm(`Send "${app.title}" to the Recycle Bin?`)) {
-                        actions.deleteIcon(selectedIconId, app.title, app.iconAsset || '');
-                        setSelectedIconId(null);
-                    }
+                    void confirmDelete(selectedIconId, app).then((deleted) => {
+                        if (deleted) setSelectedIconId(null);
+                    });
                 }
             }
 
@@ -108,6 +130,24 @@ export default function Desktop() {
                     playSound('open');
                     actions.openWindow(selectedIconId, app.title);
                 }
+            }
+
+            /*
+             * XP's own shortcuts, attempted but never advertised.
+             *
+             * On Windows the OS claims Win+R and Ctrl+Shift+Esc before a web page ever sees the
+             * event, so these fire only where the host lets them through. They are therefore a
+             * bonus, not a route: the documented ways in are Start > Run and the taskbar's
+             * right-click menu, both of which always work. Nothing in the UI promises otherwise.
+             */
+            if (e.key.toLowerCase() === 'r' && e.metaKey && !e.ctrlKey && !inForm) {
+                e.preventDefault();
+                setRunOpen(true);
+            }
+            if (e.key === 'Escape' && !inForm) setRunOpen(false);
+            if (e.ctrlKey && e.shiftKey && e.key === 'Escape') {
+                e.preventDefault();
+                actions.openWindow('taskmgr');
             }
         };
 
@@ -131,10 +171,13 @@ export default function Desktop() {
                 cursor++;
                 if (cursor === konamiCode.length) {
                     playSound('tada');
-                    alert(
-                        `🎉 Easter Egg Unlocked!\n\nThanks for exploring ${SYSTEM.name}.\n\n` +
-                        'Try the Command Prompt next — it runs on a real filesystem. Start with `ls ~`.',
-                    );
+                    void xpAlert(`${SYSTEM.name}`, [
+                        'Easter egg unlocked.',
+                        `Thanks for exploring ${SYSTEM.name}.`,
+                        'Try the Command Prompt next. It runs on a real filesystem, and the windows on this desktop are real processes:',
+                        '  ls ~',
+                        '  ps',
+                    ]);
                     cursor = 0;
                 }
             } else {
@@ -231,9 +274,7 @@ export default function Desktop() {
                             disabled: id === 'trash',
                             action: () => {
                                 if (id === 'trash') return;
-                                if (confirm(`Send "${app.title}" to the Recycle Bin?`)) {
-                                    actions.deleteIcon(id, app.title, app.iconAsset || '');
-                                }
+                                void confirmDelete(id, app);
                             }
                         },
                         { label: "Rename", disabled: true },
@@ -244,14 +285,15 @@ export default function Desktop() {
                             // previous version asserted "Size: 0 bytes" for every app — a
                             // fabricated file-metadata readout of the same class as the drive
                             // capacities removed from My Computer.
-                            action: () => alert(
+                            action: () => void xpAlert(
+                                `${app.title} Properties`,
                                 [
                                     app.title,
                                     'Type: Application',
                                     `Opens at: ${app.width ?? 800} x ${app.height ?? 600}`,
                                     `Resizable: ${app.canResize ? 'Yes' : 'No'}`,
                                     `Maximizable: ${app.canMaximize ? 'Yes' : 'No'}`,
-                                ].join('\n'),
+                                ],
                             ),
                         },
                     ];
@@ -308,8 +350,14 @@ export default function Desktop() {
                 </motion.div>
             )}
 
+            {/* Run: XP's own command palette, over the app registry and the filesystem. */}
+            <RunDialogLayer isOpen={runOpen} onClose={() => setRunOpen(false)} />
+
+            {/* XP message boxes: above the windows, never over the taskbar. */}
+            <DialogLayer />
+
             {/* Taskbar */}
-            <Taskbar />
+            <Taskbar onOpenRun={() => setRunOpen(true)} />
         </div>
     );
 }

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { MotionConfig } from 'framer-motion';
 import { useSystemStore } from '@/store/useSystemStore';
 import BootScreen from '@/components/os/BootScreen';
 import LoginScreen from '@/components/os/LoginScreen';
 import Desktop from '@/components/os/Desktop';
+import ErrorBoundary from '@/components/os/ErrorBoundary';
 import { SYSTEM } from '@/content';
 
 export default function Home() {
@@ -27,6 +29,14 @@ export default function Home() {
     if (!mounted) return null;
 
     return (
+        /*
+         * `reducedMotion="user"` makes every Framer animation in the tree honour the visitor's
+         * "reduce motion" setting: transform and opacity animations become instant rather than
+         * being removed, so nothing loses meaning. The boot progress bar, which is the one thing
+         * that loops, already checks the preference itself.
+         */
+        <MotionConfig reducedMotion="user">
+        <ErrorBoundary>
         <main className="h-screen w-screen overflow-hidden bg-black text-white selection:bg-win-blue selection:text-white relative">
             {isBooting && <BootScreen onComplete={actions.bootComplete} />}
             {!isBooting && !isLoggedIn && !isShuttingDown && <LoginScreen onLogin={actions.login} />}
@@ -44,5 +54,7 @@ export default function Home() {
                 </div>
             )}
         </main>
+        </ErrorBoundary>
+        </MotionConfig>
     );
 }

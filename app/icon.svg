@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    Favicon: a window on the XP taskbar blue. Drawn rather than borrowed, so it carries no
+    Microsoft artwork while still reading as "an operating system" at 16px.
+  -->
+  <rect width="32" height="32" rx="6" fill="#245edb"/>
+  <rect x="6" y="7" width="20" height="16" rx="2" fill="#ffffff"/>
+  <rect x="6" y="7" width="20" height="4.5" rx="2" fill="#0058ee"/>
+  <rect x="21.5" y="8.6" width="3" height="1.4" rx="0.7" fill="#ffffff"/>
+  <rect x="8.5" y="14" width="12" height="1.6" rx="0.8" fill="#c9d6ea"/>
+  <rect x="8.5" y="17.4" width="8" height="1.6" rx="0.8" fill="#c9d6ea"/>
+  <rect x="4" y="25" width="24" height="3.5" rx="1.2" fill="#1941a5"/>
+  <rect x="5.6" y="26" width="6" height="1.6" rx="0.8" fill="#5cbf52"/>
+</svg>

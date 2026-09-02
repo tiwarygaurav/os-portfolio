@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { PROFILE, SYSTEM } from '@/content';
+import { xpAlert } from '@/utils/dialog';
 
 type Op = '+' | '-' | '*' | '/' | null;
 
@@ -70,8 +71,13 @@ export default function CalculatorApp() {
             { label: 'Standard', action: () => setOpenMenu(null), checked: true },
         ],
         Help: [
-            // Native alert() for now — the in-world XP dialog system is next phase.
-            { label: 'About Calculator', action: () => { alert(`Calculator — ${SYSTEM.name}\n${PROFILE.name}`); setOpenMenu(null); } },
+            {
+                label: 'About Calculator',
+                action: () => {
+                    void xpAlert('About Calculator', ['Calculator', SYSTEM.name, PROFILE.name]);
+                    setOpenMenu(null);
+                },
+            },
         ],
     };
 

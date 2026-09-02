@@ -255,10 +255,13 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
             }
 
             if (node && isDir(node)) {
-                if (target.endsWith('/projects') || target.includes('/projects/')) {
-                    const id = target.split('/projects/')[1]?.split('/')[0];
-                    ctx.openApp('projects', id ? { projectId: id } : undefined);
-                    return out(success('Opening Projects…'));
+                // A directory can carry the same `open` hint a file does, so this no longer
+                // guesses from a hardcoded '/projects/' substring — the VFS says what a path
+                // represents, and every surface that resolves paths agrees by construction.
+                if (node.open) {
+                    return ctx.openApp(node.open.appId, node.open.payload)
+                        ? out(success(`Opening ${node.open.appId}…`))
+                        : out(error(`open: no app registered as "${node.open.appId}"`));
                 }
                 return out(muted(`${prettyPath(target)} is a directory. Use \`ls\` or \`tree\`.`));
             }

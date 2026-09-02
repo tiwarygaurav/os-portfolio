@@ -75,7 +75,7 @@ impressive.
 | Layer | Choice | Notes |
 | --- | --- | --- |
 | Framework | Next.js 14.1.0, App Router | Single route: `app/page.tsx` |
-| Rendering | Effectively 100% client | `page.tsx` returns `null` until `mounted` — see §5 debt |
+| Rendering | Effectively 100% client | `page.tsx` returns `null` until `mounted`; a `<noscript>` block in the layout still gives the name, the summary and the links |
 | Language | TypeScript 5, `strict: true` | `any` still present in several contracts |
 | State | Zustand 4 + `persist` (localStorage) | `store/useSystemStore.ts`, key `gaurav-xp-os` |
 | Styling | Tailwind 3 + inline `style` for gradients | `utils/cn.ts` = clsx + tailwind-merge |
@@ -92,12 +92,12 @@ components/
   os/         shell chrome: BootScreen, LoginScreen, Desktop, Window, Taskbar,
               StartMenu, DesktopIcon, ExplorerLayout
   apps/       one component per application window
-  ui/         shared primitives (currently only ContextMenu)
+  ui/         shared primitives (ContextMenu, Disclosure)
 constants/    apps.ts — the app registry (id, title, icon, default size, capabilities)
 content/      Typed source of truth for all portfolio facts. No JSX, no styling.
 system/       Headless runtime: virtual filesystem, shell. No React.
 store/        Zustand store + window manager
-utils/        cn, sound
+utils/        cn, sound, dialog (XP message boxes), processes (window -> ProcEntry)
 public/       icons, wallpapers, sounds, profile image, resume
 docs/         AUDIT.md (standing audit) + ROADMAP.md (forward plan)
 ```
@@ -139,10 +139,16 @@ not tied to real loading. Shutdown is a 2.4 s overlay that returns to the login 
 
 ### App registry (`constants/apps.ts`)
 
-`APPS: Record<string, AppConfig>` is the single source for id/title/icon/size/capabilities, and
-`DESKTOP_ICONS` orders the desktop. **The component mapping lives separately** in
-`components/os/Window.tsx` (`APP_COMPONENTS`) — two places to edit per app. Consolidating these
-is a known task.
+`APPS: Record<string, AppConfig>` is the **single** place an app is declared: id, title, icon,
+size, capabilities, the `category` that groups it in All Programs, the `surfaces` it appears on
+(desktop / start / run), the Run-dialog `aliases` (`calc`, `cmd`, `mspaint`), and `load` — a
+`next/dynamic` import of the window body.
+
+The component map used to be a second table in `components/os/Window.tsx`, so an app added to one
+file and not the other failed silently at runtime. `Window` now resolves the body from the
+registry and caches it by app id (never build a `dynamic()` during render: it returns a new
+component type each call, so the app would remount and lose its state). Because every body is a
+dynamic import, the fifteen apps are code-split rather than all landing in the first paint.
 
 ### Terminal / shell
 
@@ -279,11 +285,11 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | --- | --- |
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | Paint | Still an `<iframe>` to `jspaint.app` — not the owner's work, blockable by the host. |
-| `alert()` / `confirm()` | Remaining uses (icon delete, Konami, Notepad/Calculator menus). They work, but a native browser dialog breaks the XP illusion — an in-world XP-styled dialog is the next task. |
 | `deletedAppIds` | Still persisted — a visitor can permanently lose the Projects icon (A10). The Recycle Bin restores it, but nothing signposts that. |
-| Bundle | All 15 apps still statically imported into the initial bundle (P4). |
+| Explorer | The VFS still has no GUI. A non-technical visitor cannot see the filesystem the shell exposes. |
 | Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~3 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
-| Not implemented | Mobile/touch model · desktop keyboard navigation · focus trapping · reduced motion · SEO metadata / OG image / favicon · error boundary · tests. |
+| Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
+| Not implemented | Mobile/touch model · desktop keyboard navigation · focus trapping · tests. |
 
 ---
 
@@ -385,6 +391,60 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-03 - The Run dialog is the command palette
+
+**Why:** Layer A's worst problem is wayfinding — thirteen equally-weighted desktop icons give a
+recruiter no route to "resume" except reading all of them. The obvious fix is a Ctrl+K palette,
+but that is a 2020s affordance on a 2001 desktop, and the XP identity is settled. XP already
+shipped the same idea: Start > Run, which took a program name or a path.
+**Consequences:** `components/os/RunDialog.tsx` resolves, in order, a registered app id or alias
+(`calc`, `cmd`, `mspaint`, `winmine`), a path in the virtual filesystem, or a URL. Its suggestion
+list is derived from the app registry and `allPaths()`, never hand-maintained, so it cannot offer
+something that does not open. An unknown name reports itself in XP's own wording instead of
+failing silently.
+**Consequence for the VFS:** `VDir` gained the `open` hint that `VFile` already had. The shell's
+`open` command used to detect project directories with a hardcoded `'/projects/'` substring test,
+which the Run dialog would have had to re-implement. It is data now, so both surfaces resolve a
+path identically — and so will the explorer when it lands.
+**Known limit, deliberately unadvertised:** Win+R and Ctrl+Shift+Esc are claimed by the host OS
+before a web page sees them. The handlers exist for environments that pass them through, but no
+text anywhere promises those keys work. The routes that always work are Start > Run and the
+taskbar's right-click menu.
+
+### 2026-09-03 - XP message boxes replace every native dialog
+
+**Why:** `alert()` and `confirm()` fired at exactly the moments the desktop was most convincing —
+deleting an icon, finishing the Konami code, an About box — and a browser chrome dialog announces
+"this is a web page" louder than any missing feature announces "this is unfinished".
+**Consequences:** `store` holds a `dialogs` queue; `utils/dialog.ts` exposes `xpAlert` and
+`xpConfirm`, which are callable from outside React so they drop in where the native calls were.
+The one behavioural difference is that they return promises rather than blocking, so a couple of
+call sites became `async`. The resolvers live in a module-level Map, not in the store, so the
+state stays plain data. Focus is trapped, Enter takes the default, Escape cancels.
+**Consequence:** dialogs unblocked the Task Manager's End Task confirmation, and they are what
+the future in-world Properties windows will be built on.
+
+### 2026-09-03 - Task Manager, built only on measurable state
+
+**Why:** the roadmap called this a "System Monitor", but XP already had the app, and the process
+table it would display is real — the same rows `ps` prints and `/proc` contains. Naming it
+anything else would have been inventing a program XP did not ship.
+**Rule it enforces:** nothing is drawn that the browser cannot measure. The Performance tab shows
+the JavaScript heap where `performance.memory` exists and says plainly that it does not elsewhere;
+there is no CPU graph, because a web page cannot measure CPU, and the tab says so. This is the
+app that most directly disproves the fabricated `867 Mbps` readout the P1 pass removed.
+
+### 2026-09-03 - One registry, lazily loaded
+
+**Why:** an app was declared in two files — metadata in `constants/apps.ts`, component in a table
+inside `Window.tsx` — and forgetting the second failed silently at runtime. The same static import
+list also forced all fifteen apps into the first paint.
+**Consequences:** `AppConfig` gained `load` (a `next/dynamic` import), `category`, `surfaces` and
+`aliases`. The Start menu's All Programs flyout and the desktop icon list are now derived from
+`surfaces` rather than hand-written, which removed two more copies of the app list. First-load JS
+went from 182 kB to 169 kB while gaining two new apps. `Window` caches the dynamic component by
+app id — building one during render returns a fresh component type each time and remounts the app.
 
 ### 2026-09-03 - Verify with both a headless probe and a real browser
 

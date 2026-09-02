@@ -13,6 +13,7 @@ import {
     type ShellLine,
 } from '@/system/shell';
 import { HOME_PATH, type ProcEntry } from '@/system/vfs';
+import { useProcesses } from '@/utils/processes';
 
 /**
  * Terminal — a *renderer* for `system/shell`.
@@ -29,6 +30,7 @@ export default function TerminalApp() {
     const openWindow = useSystemStore((s) => s.actions.openWindow);
     const closeWindow = useSystemStore((s) => s.actions.closeWindow);
     const windows = useSystemStore((s) => s.windows);
+    const procs = useProcesses();
 
     const [entries, setEntries] = useState<Entry[]>(() =>
         WELCOME.map((line) => ({ kind: 'output', line })),
@@ -42,17 +44,7 @@ export default function TerminalApp() {
     const scrollRef = useRef<HTMLDivElement>(null);
 
     /** Live windows, projected as processes for `ps` / `kill` / `/proc`. */
-    const processes = useCallback(
-        (): ProcEntry[] =>
-            windows.map((w) => ({
-                pid: w.id,
-                appId: w.appId,
-                title: w.title,
-                state: w.isMinimized ? 'minimized' : w.isMaximized ? 'maximized' : 'running',
-                zIndex: w.zIndex,
-            })),
-        [windows],
-    );
+    const processes = useCallback((): ProcEntry[] => procs, [procs]);
 
     const ctx: ShellContext = useMemo(
         () => ({

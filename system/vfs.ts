@@ -56,6 +56,14 @@ export interface VDir {
     children: VNode[];
     /** Shown by `ls -l` style output and in the file browser. */
     description?: string;
+    /**
+     * Launch hint, exactly as on a file. A directory can represent a window too — `~/projects/<id>`
+     * is the Projects window focused on that project. The shell's `open` command used to infer
+     * this from a hardcoded `'/projects/'` substring test, which meant the Run dialog and any
+     * future explorer would each have had to re-implement the same guess. It is data now, so
+     * every surface resolves a path the same way.
+     */
+    open?: { appId: string; payload?: Record<string, string> };
 }
 
 export type VNode = VFile | VDir;
@@ -291,11 +299,17 @@ const link = (name: string, href: string, label: string): VFile => ({
     content: `${label}\n${href}`,
 });
 
-const dir = (name: string, children: VNode[], description?: string): VDir => ({
+const dir = (
+    name: string,
+    children: VNode[],
+    description?: string,
+    open?: VDir['open'],
+): VDir => ({
     kind: 'dir',
     name,
     children,
     description,
+    open,
 });
 
 const projectDir = (p: Project): VDir => {
@@ -319,6 +333,7 @@ const projectDir = (p: Project): VDir => {
             ...(disclosure ? [file('DISCLOSURE.txt', disclosure, 'text/plain')] : []),
         ],
         `${isConfidential(p) ? '[confidential] ' : ''}${p.summary}`,
+        { appId: 'projects', payload: { projectId: p.id } },
     );
 };
 
@@ -338,8 +353,14 @@ const buildRoot = (): VDir =>
                             file(`${r.id}.md`, renderRole(r), 'text/markdown', { appId: 'about' }),
                         ),
                         'Employment history',
+                        { appId: 'about' },
                     ),
-                    dir('projects', PROJECTS.map(projectDir), 'Things built, with sources where they exist'),
+                    dir(
+                        'projects',
+                        PROJECTS.map(projectDir),
+                        'Things built, with sources where they exist',
+                        { appId: 'projects' },
+                    ),
                     file('skills.md', renderSkills(), 'text/markdown', { appId: 'skills' }),
                     file('education.md', renderEducation(), 'text/markdown', { appId: 'about' }),
                     file('contact.md', renderContact(), 'text/markdown', { appId: 'contact' }),

@@ -5,9 +5,15 @@ import { APPS } from '@/constants/apps';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Monitor, Volume2, VolumeX, Volume1, Wifi } from 'lucide-react';
 import StartMenu from './StartMenu';
+import ContextMenu from '@/components/ui/ContextMenu';
 import { playSound } from '@/utils/sound';
 
-export default function Taskbar() {
+interface TaskbarProps {
+    /** Opens the Run dialog, which the desktop owns. */
+    onOpenRun: () => void;
+}
+
+export default function Taskbar({ onOpenRun }: TaskbarProps) {
     const windows = useSystemStore((s) => s.windows);
     const activeWindowId = useSystemStore((s) => s.activeWindowId);
     const actions = useSystemStore((s) => s.actions);
@@ -17,6 +23,8 @@ export default function Taskbar() {
     const [time, setTime] = useState(new Date());
     const [trayOpen, setTrayOpen] = useState<'volume' | 'wifi' | 'clock' | null>(null);
     const trayRef = useRef<HTMLDivElement>(null);
+    // XP put Task Manager, Tile Windows and Show the Desktop on the taskbar's own context menu.
+    const [barMenu, setBarMenu] = useState({ isOpen: false, x: 0, y: 0 });
     // Handed to StartMenu so its outside-click handler leaves the Start button to `toggleStart`.
     const startButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -52,9 +60,34 @@ export default function Taskbar() {
 
     return (
         <>
-            {startOpen && <StartMenu onClose={closeStart} triggerRef={startButtonRef} />}
+            {startOpen && <StartMenu onClose={closeStart} triggerRef={startButtonRef} onOpenRun={onOpenRun} />}
+
+            <ContextMenu
+                x={barMenu.x}
+                y={barMenu.y}
+                isOpen={barMenu.isOpen}
+                onClose={() => setBarMenu({ ...barMenu, isOpen: false })}
+                items={[
+                    {
+                        label: 'Cascade Windows',
+                        disabled: windows.length === 0,
+                        action: () => actions.cascadeWindows(),
+                    },
+                    {
+                        label: 'Show the Desktop',
+                        disabled: windows.length === 0,
+                        action: () => actions.minimizeAll(),
+                    },
+                    { divider: true },
+                    { label: 'Task Manager', action: () => actions.openWindow('taskmgr') },
+                ]}
+            />
 
             <div
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    setBarMenu({ isOpen: true, x: e.clientX, y: e.clientY });
+                }}
                 className="fixed bottom-0 left-0 right-0 h-9 flex items-center justify-between shadow-lg z-50 text-white select-none"
                 style={{
                     background: 'linear-gradient(to bottom, #245edb 0%, #3c83f6 8%, #245edb 25%, #1941a5 100%)',

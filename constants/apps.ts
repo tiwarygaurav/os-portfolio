@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
     User,
@@ -16,6 +17,17 @@ import {
     Image as ImageIcon,
     Monitor,
 } from 'lucide-react';
+import type { WindowPayload } from '@/store/useSystemStore';
+
+/** Every app window body takes the same two props. See `components/apps/CLAUDE.md`. */
+export type AppComponent = ComponentType<{ windowId?: string; payload?: WindowPayload }>;
+
+/**
+ * Where an app can be launched from. The Start menu, the desktop and the Run dialog all read
+ * this rather than keeping their own hand-written lists, so a new app appears in the right places
+ * by declaring where it belongs.
+ */
+export type AppSurface = 'desktop' | 'start' | 'run';
 
 export interface AppConfig {
     id: string;
@@ -27,6 +39,20 @@ export interface AppConfig {
     canMaximize?: boolean;
     canResize?: boolean;
     iconAsset?: string;
+    /** Groups the app in the Start menu's All Programs flyout. */
+    category: 'portfolio' | 'accessory' | 'system' | 'game';
+    surfaces: AppSurface[];
+    /**
+     * The window body, loaded on demand.
+     *
+     * This is what makes the registry the *single* place an app is declared. It used to live in a
+     * second table inside `components/os/Window.tsx`, so forgetting one of the two files failed
+     * silently at runtime with "App not found". It also means the fifteen app bundles are no
+     * longer all pulled into the first paint.
+     */
+    load: () => Promise<{ default: AppComponent }>;
+    /** Command names the Run dialog accepts, beyond the id itself. XP names where they exist. */
+    aliases?: string[];
 }
 
 export const APPS: Record<string, AppConfig> = {
@@ -39,6 +65,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 540,
         canMaximize: true,
         canResize: true,
+        category: 'portfolio',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/AboutApp'),
     },
     projects: {
         id: 'projects',
@@ -49,6 +78,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 600,
         canMaximize: true,
         canResize: true,
+        category: 'portfolio',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/ProjectsApp'),
     },
     skills: {
         id: 'skills',
@@ -59,6 +91,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 560,
         canMaximize: true,
         canResize: true,
+        category: 'portfolio',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/SkillsApp'),
     },
     resume: {
         id: 'resume',
@@ -69,6 +104,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 700,
         canMaximize: true,
         canResize: true,
+        category: 'portfolio',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/ResumeApp'),
     },
     contact: {
         id: 'contact',
@@ -79,6 +117,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 440,
         canMaximize: false,
         canResize: true,
+        category: 'portfolio',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/ContactApp'),
     },
     terminal: {
         id: 'terminal',
@@ -89,6 +130,10 @@ export const APPS: Record<string, AppConfig> = {
         height: 420,
         canMaximize: true,
         canResize: true,
+        category: 'accessory',
+        surfaces: ['desktop', 'start', 'run'],
+        aliases: ['cmd', 'cmd.exe', 'command'],
+        load: () => import('@/components/apps/TerminalApp'),
     },
     trash: {
         id: 'trash',
@@ -99,6 +144,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 460,
         canMaximize: true,
         canResize: true,
+        category: 'system',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/RecycleBinApp'),
     },
     music: {
         id: 'music',
@@ -109,6 +157,10 @@ export const APPS: Record<string, AppConfig> = {
         height: 480,
         canMaximize: false,
         canResize: false,
+        category: 'accessory',
+        surfaces: ['desktop', 'start', 'run'],
+        aliases: ['wmplayer', 'mplayer'],
+        load: () => import('@/components/apps/MusicPlayerApp'),
     },
     paint: {
         id: 'paint',
@@ -119,6 +171,10 @@ export const APPS: Record<string, AppConfig> = {
         height: 600,
         canMaximize: true,
         canResize: true,
+        category: 'accessory',
+        surfaces: ['desktop', 'start', 'run'],
+        aliases: ['mspaint'],
+        load: () => import('@/components/apps/PaintApp'),
     },
     mycomputer: {
         id: 'mycomputer',
@@ -129,6 +185,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 500,
         canMaximize: true,
         canResize: true,
+        category: 'system',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/MyComputerApp'),
     },
     notepad: {
         id: 'notepad',
@@ -139,6 +198,9 @@ export const APPS: Record<string, AppConfig> = {
         height: 460,
         canMaximize: true,
         canResize: true,
+        category: 'accessory',
+        surfaces: ['desktop', 'start', 'run'],
+        load: () => import('@/components/apps/NotepadApp'),
     },
     calculator: {
         id: 'calculator',
@@ -146,9 +208,13 @@ export const APPS: Record<string, AppConfig> = {
         icon: CalcIcon,
         iconAsset: '/icons/Display.ico',
         width: 240,
-        height: 320,
+        height: 340,
         canMaximize: false,
         canResize: false,
+        category: 'accessory',
+        surfaces: ['desktop', 'start', 'run'],
+        aliases: ['calc'],
+        load: () => import('@/components/apps/CalculatorApp'),
     },
     minesweeper: {
         id: 'minesweeper',
@@ -159,6 +225,10 @@ export const APPS: Record<string, AppConfig> = {
         height: 420,
         canMaximize: false,
         canResize: false,
+        category: 'game',
+        surfaces: ['desktop', 'start', 'run'],
+        aliases: ['winmine'],
+        load: () => import('@/components/apps/MinesweeperApp'),
     },
     settings: {
         id: 'settings',
@@ -169,6 +239,10 @@ export const APPS: Record<string, AppConfig> = {
         height: 540,
         canMaximize: false,
         canResize: false,
+        category: 'system',
+        surfaces: ['start', 'run'],
+        aliases: ['control', 'desk.cpl'],
+        load: () => import('@/components/apps/SettingsApp'),
     },
     imageviewer: {
         id: 'imageviewer',
@@ -179,10 +253,28 @@ export const APPS: Record<string, AppConfig> = {
         height: 520,
         canMaximize: true,
         canResize: true,
+        category: 'accessory',
+        surfaces: ['start', 'run'],
+        load: () => import('@/components/apps/ImageViewerApp'),
+    },
+    taskmgr: {
+        id: 'taskmgr',
+        title: 'Windows Task Manager',
+        icon: Cpu,
+        iconAsset: '/icons/control-panel.png',
+        width: 460,
+        height: 520,
+        canMaximize: true,
+        canResize: true,
+        category: 'system',
+        surfaces: ['start', 'run'],
+        aliases: ['taskmgr.exe', 'taskman'],
+        load: () => import('@/components/apps/TaskManagerApp'),
     },
 };
 
-export const DESKTOP_ICONS = [
+/** Desktop icon order. Derived from the registry so an app cannot be listed here and nowhere else. */
+export const DESKTOP_ICONS: string[] = [
     'mycomputer',
     'about',
     'projects',
@@ -196,4 +288,17 @@ export const DESKTOP_ICONS = [
     'minesweeper',
     'terminal',
     'trash',
-];
+].filter((id) => APPS[id]?.surfaces.includes('desktop'));
+
+/** Only ids actually present in the registry. Safe against `constructor` and friends. */
+export const isAppId = (id: string): boolean => Object.prototype.hasOwnProperty.call(APPS, id);
+
+export const appList = (): AppConfig[] => Object.values(APPS);
+
+/** Apps grouped for the Start menu's All Programs flyout, in a stable order. */
+export const CATEGORY_LABELS: Record<AppConfig['category'], string> = {
+    accessory: 'Accessories',
+    game: 'Games',
+    portfolio: 'Portfolio',
+    system: 'System',
+};

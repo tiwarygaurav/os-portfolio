@@ -1,48 +1,48 @@
 "use client";
 
-import { useSystemStore, type AppWindow, type WindowPayload } from '@/store/useSystemStore';
-import { APPS } from '@/constants/apps';
+import { useSystemStore, type AppWindow } from '@/store/useSystemStore';
+import { APPS, isAppId, type AppComponent } from '@/constants/apps';
 import { X, Square } from 'lucide-react';
 import { motion, useDragControls, useMotionValue } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { playSound } from '@/utils/sound';
 
-import AboutApp from '@/components/apps/AboutApp';
-import ProjectsApp from '@/components/apps/ProjectsApp';
-import SkillsApp from '@/components/apps/SkillsApp';
-import ContactApp from '@/components/apps/ContactApp';
-import TerminalApp from '@/components/apps/TerminalApp';
-import ResumeApp from '@/components/apps/ResumeApp';
-import MusicPlayerApp from '@/components/apps/MusicPlayerApp';
-import PaintApp from '@/components/apps/PaintApp';
-import NotepadApp from '@/components/apps/NotepadApp';
-import CalculatorApp from '@/components/apps/CalculatorApp';
-import MinesweeperApp from '@/components/apps/MinesweeperApp';
-import MyComputerApp from '@/components/apps/MyComputerApp';
-import RecycleBinApp from '@/components/apps/RecycleBinApp';
-import SettingsApp from '@/components/apps/SettingsApp';
-import ImageViewerApp from '@/components/apps/ImageViewerApp';
+/**
+ * App bodies, code-split and loaded on first open.
+ *
+ * The cache matters: `dynamic()` returns a *new* component type each call, so building one during
+ * render would remount the app — and wipe its state — on every parent render. Keyed by app id, the
+ * same component identity comes back every time.
+ *
+ * The registry is the only place an app is declared. There used to be a second table here, and
+ * forgetting it failed silently at runtime with "App not found".
+ */
+const bodyCache = new Map<string, AppComponent>();
 
-type AppComponent = React.ComponentType<{ windowId?: string; payload?: WindowPayload }>;
+function bodyFor(appId: string): AppComponent {
+    const cached = bodyCache.get(appId);
+    if (cached) return cached;
 
-/** id -> component. Must stay in sync with `constants/apps.ts`; see components/apps/CLAUDE.md. */
-const APP_COMPONENTS: Record<string, AppComponent> = {
-    about: AboutApp,
-    projects: ProjectsApp,
-    skills: SkillsApp,
-    contact: ContactApp,
-    terminal: TerminalApp,
-    resume: ResumeApp,
-    music: MusicPlayerApp,
-    paint: PaintApp,
-    notepad: NotepadApp,
-    calculator: CalculatorApp,
-    minesweeper: MinesweeperApp,
-    mycomputer: MyComputerApp,
-    trash: RecycleBinApp,
-    settings: SettingsApp,
-    imageviewer: ImageViewerApp,
-};
+    const config = isAppId(appId) ? APPS[appId] : undefined;
+    const Body: AppComponent = config
+        ? dynamic(config.load, {
+            ssr: false,
+            loading: () => (
+                <div className="flex h-full items-center justify-center bg-[#ece9d8] text-xs text-gray-600">
+                    Opening…
+                </div>
+            ),
+        })
+        : () => (
+            <div className="p-4 text-xs">
+                No application is registered under the id <span className="font-mono">{appId}</span>.
+            </div>
+        );
+
+    bodyCache.set(appId, Body);
+    return Body;
+}
 
 interface WindowProps {
     win: AppWindow;
@@ -53,7 +53,7 @@ export default function Window({ win }: WindowProps) {
     const activeWindowId = useSystemStore((s) => s.activeWindowId);
     const isActive = activeWindowId === win.id;
     const appConfig = APPS[win.appId];
-    const AppBody = APP_COMPONENTS[win.appId] || (() => <div className="p-4">App not found</div>);
+    const AppBody = bodyFor(win.appId);
 
     const controls = useDragControls();
     const winRef = useRef<HTMLDivElement>(null);
@@ -176,7 +176,7 @@ export default function Window({ win }: WindowProps) {
                     handlePointerDown();
                 }}
                 onDoubleClick={() => {
-                    if (!appConfig.canMaximize) return;
+                    if (!appConfig?.canMaximize) return;
                     if (win.isMaximized) actions.unmaximizeWindow(win.id);
                     else actions.maximizeWindow(win.id);
                 }}
@@ -185,10 +185,10 @@ export default function Window({ win }: WindowProps) {
                     : 'bg-gradient-to-b from-[#7a96df] via-[#9bb4ea] to-[#7a96df]'} text-white border-b border-[#003da8] ${win.isMaximized ? '' : 'rounded-t-lg'}`}
             >
                 <div className="flex items-center gap-2 min-w-0">
-                    {appConfig.iconAsset ? (
+                    {appConfig?.iconAsset ? (
                         <img src={appConfig.iconAsset} alt={win.title} className="w-4 h-4 drop-shadow-md shrink-0" />
                     ) : (
-                        appConfig.icon && <appConfig.icon size={16} className="filter drop-shadow-md shrink-0" />
+                        appConfig?.icon && <appConfig.icon size={16} className="filter drop-shadow-md shrink-0" />
                     )}
                     <span className="text-xs font-bold tracking-wide drop-shadow-md truncate">{win.title}</span>
                 </div>
@@ -202,7 +202,7 @@ export default function Window({ win }: WindowProps) {
                         <span className="block w-2 h-0.5 bg-white" />
                     </button>
 
-                    {appConfig.canMaximize && (
+                    {appConfig?.canMaximize && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();

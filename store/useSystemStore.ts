@@ -30,6 +30,24 @@ export interface RecycledItem {
     deletedAt: number;
 }
 
+export interface DialogButton {
+    id: string;
+    label: string;
+    /** Focused on open; Enter chooses it. */
+    primary?: boolean;
+    /** Escape and the title-bar close button choose it. */
+    cancel?: boolean;
+}
+
+export interface DialogRequest {
+    id: string;
+    title: string;
+    /** One paragraph per entry. A line starting with two spaces renders monospaced. */
+    body: string[];
+    icon: 'info' | 'warning' | 'error' | 'question';
+    buttons: DialogButton[];
+}
+
 export const WALLPAPERS = [
     { id: 'bliss', name: 'Bliss', url: '/wallpapers/Bliss.jpg' },
     { id: 'bliss-png', name: 'Bliss (Alt)', url: '/wallpapers/bliss.png' },
@@ -55,6 +73,9 @@ interface SystemState {
     recycleBin: RecycledItem[];
     deletedAppIds: string[];
 
+    /** Open XP message boxes, newest last. Never persisted. */
+    dialogs: DialogRequest[];
+
     actions: {
         bootComplete: () => void;
         login: () => void;
@@ -78,14 +99,32 @@ interface SystemState {
         moveWindow: (id: string, position: { x: number; y: number }) => void;
         resizeWindow: (id: string, size: { width: number; height: number }) => void;
 
+        /** Minimise everything. XP's "Show the Desktop". */
+        minimizeAll: () => void;
+        /** Re-lay the open windows in an XP cascade from the top-left. */
+        cascadeWindows: () => void;
+
         setDesktopIconPosition: (id: string, x: number, y: number) => void;
         resetDesktopIcons: () => void;
 
         deleteIcon: (appId: string, name: string, icon: string) => void;
         restoreItem: (id: string) => void;
         emptyRecycleBin: () => void;
+
+        /** Show an XP message box. Resolves with the id of the button chosen. */
+        openDialog: (request: Omit<DialogRequest, 'id'>) => Promise<string>;
+        resolveDialog: (id: string, buttonId: string) => void;
     };
 }
+
+/**
+ * Dialog resolvers, keyed by dialog id.
+ *
+ * Kept beside the store rather than inside it: the state stays plain data (which is what makes it
+ * inspectable and safe to log), while the promise each caller is awaiting lives here.
+ */
+const dialogResolvers = new Map<string, (buttonId: string) => void>();
+let dialogCounter = 0;
 
 /** Fallback for app ids missing from the registry; every registered app declares its own size. */
 const DEFAULT_WINDOW_SIZE = { width: 800, height: 600 };
@@ -208,6 +247,7 @@ export const useSystemStore = create<SystemState>()(
 
             recycleBin: [],
             deletedAppIds: [],
+            dialogs: [],
 
             actions: {
                 bootComplete: () => set({ isBooting: false }),
@@ -328,6 +368,30 @@ export const useSystemStore = create<SystemState>()(
                     windows: state.windows.map(w => w.id === id ? { ...w, size } : w)
                 })),
 
+                minimizeAll: () => set(state => ({
+                    windows: state.windows.map(w => ({ ...w, isMinimized: true })),
+                    activeWindowId: null,
+                })),
+
+                /**
+                 * Cascade, un-minimising and un-maximising as XP did, and clamped so a long
+                 * cascade cannot push the last window off a short screen.
+                 */
+                cascadeWindows: () => set(state => {
+                    const ordered = byZ(state.windows);
+                    return {
+                        windows: renormalize(
+                            ordered.map((w, i) => ({
+                                ...w,
+                                isMinimized: false,
+                                isMaximized: false,
+                                position: clampToViewport({ x: 30 + i * 26, y: 24 + i * 26 }, w.size),
+                            })),
+                        ),
+                        activeWindowId: ordered.length ? ordered[ordered.length - 1].id : null,
+                    };
+                }),
+
                 /** Persisted, so clamped on write: a position under the taskbar must never be saved. */
                 setDesktopIconPosition: (id, x, y) => set(state => ({
                     desktopIcons: { ...state.desktopIcons, [id]: clampIconToViewport({ x, y }) }
@@ -352,6 +416,23 @@ export const useSystemStore = create<SystemState>()(
                 })),
 
                 emptyRecycleBin: () => set({ recycleBin: [] }),
+
+                openDialog: (request) => {
+                    const id = `dlg${++dialogCounter}`;
+                    set(state => ({ dialogs: [...state.dialogs, { ...request, id }] }));
+                    return new Promise<string>((resolve) => {
+                        dialogResolvers.set(id, resolve);
+                    });
+                },
+
+                resolveDialog: (id, buttonId) => {
+                    const resolve = dialogResolvers.get(id);
+                    dialogResolvers.delete(id);
+                    set(state => ({ dialogs: state.dialogs.filter(d => d.id !== id) }));
+                    // After the state update, so a caller that opens another dialog in response
+                    // does not race the removal of this one.
+                    resolve?.(buttonId);
+                },
             }
         }),
         {
