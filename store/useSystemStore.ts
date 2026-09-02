@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { APPS } from '@/constants/apps';
+import { PERSISTED_KEYS, type PersistedKey } from '@/store/persistence';
 
 /**
  * Launch argument passed to an app when it is opened, e.g. `{ projectId: 'os-portfolio' }` from the
@@ -49,7 +50,6 @@ interface SystemState {
 
     windows: AppWindow[];
     activeWindowId: string | null;
-    nextZIndex: number;
     desktopIcons: Record<string, { x: number; y: number }>;
 
     recycleBin: RecycledItem[];
@@ -87,6 +87,7 @@ interface SystemState {
     };
 }
 
+/** Fallback for app ids missing from the registry; every registered app declares its own size. */
 const DEFAULT_WINDOW_SIZE = { width: 800, height: 600 };
 
 /**
@@ -104,20 +105,37 @@ const nextPid = () => `w${++pidCounter}`;
 /** Windows occupy z-indices starting here. The taskbar sits above this band, at z-50. */
 const Z_BASE = 10;
 
-const nextZ = (windowCount: number) => Z_BASE + windowCount;
+/** Height of the taskbar in px; windows and icons must stay above it. */
+const TASKBAR_HEIGHT = 36;
+
+/** Footprint of a desktop icon (`DesktopIcon.tsx`: `w-[80px] h-[88px]`). */
+const ICON_WIDTH = 80;
+const ICON_HEIGHT = 88;
 
 /**
- * Re-stack so `id` is on top and the rest keep their relative order, using a compact
- * `Z_BASE..Z_BASE+n` range. Bounded by design — see `focusWindow`.
+ * Assign every window a z-index from its stack position: the lowest gets `Z_BASE`, the topmost
+ * `Z_BASE + n - 1`. This is the *only* way z-indices are produced, so the invariant
+ * "the n open windows occupy exactly `Z_BASE..Z_BASE+n-1`" holds after every open, close,
+ * focus and restore. There is no free-running counter to ratchet upward — the previous design
+ * kept one, and any open/close path that bypassed `focusWindow` (Alt+F4, `kill`, the Start menu)
+ * grew it until windows drew over the taskbar at z-50.
  */
+const renormalize = (stacked: AppWindow[]): AppWindow[] =>
+    stacked.map((w, i) => (w.zIndex === Z_BASE + i ? w : { ...w, zIndex: Z_BASE + i }));
+
+/** Windows in ascending z order. */
+const byZ = (windows: AppWindow[]): AppWindow[] => [...windows].sort((a, b) => a.zIndex - b.zIndex);
+
+/** Re-stack so `id` is on top and the rest keep their relative order. */
 const raise = (windows: AppWindow[], id: string): AppWindow[] => {
-    const ordered = [...windows].sort((a, b) => a.zIndex - b.zIndex);
-    const rest = ordered.filter(w => w.id !== id);
+    const ordered = byZ(windows);
     const target = ordered.find(w => w.id === id);
-    const stacked = target ? [...rest, target] : rest;
-    const zById = new Map(stacked.map((w, i) => [w.id, Z_BASE + i]));
-    return windows.map(w => ({ ...w, zIndex: zById.get(w.id) ?? w.zIndex }));
+    if (!target) return renormalize(ordered);
+    return renormalize([...ordered.filter(w => w.id !== id), target]);
 };
+
+/** The z-index a window appended on top of `windows` receives. */
+const topZ = (windows: AppWindow[]) => Z_BASE + windows.length;
 
 /** Keep a grabbable strip of every window inside the viewport. */
 const clampToViewport = (
@@ -126,13 +144,51 @@ const clampToViewport = (
 ) => {
     if (typeof window === 'undefined') return position;
     const KEEP_VISIBLE = 80;   // horizontal strip that must remain reachable
-    const TASKBAR_HEIGHT = 36;
     const maxX = window.innerWidth - KEEP_VISIBLE;
     const maxY = window.innerHeight - TASKBAR_HEIGHT - 28; // title bar stays above the taskbar
     return {
         x: Math.min(Math.max(position.x, KEEP_VISIBLE - size.width), maxX),
         y: Math.min(Math.max(position.y, 0), Math.max(0, maxY)),
     };
+};
+
+/**
+ * Keep a desktop icon fully inside the desktop area (above the taskbar, inside both edges).
+ * Icon positions persist, so an unclamped drop under the taskbar used to survive reload;
+ * `DesktopIcon` also applies this at render time so a position saved on a wide monitor is
+ * pulled back on-screen when the same browser opens the site on a narrower one.
+ */
+export const clampIconToViewport = (position: { x: number; y: number }) => {
+    if (typeof window === 'undefined') return position;
+    const maxX = Math.max(0, window.innerWidth - ICON_WIDTH);
+    const maxY = Math.max(0, window.innerHeight - TASKBAR_HEIGHT - ICON_HEIGHT);
+    return {
+        x: Math.min(Math.max(position.x, 0), maxX),
+        y: Math.min(Math.max(position.y, 0), maxY),
+    };
+};
+
+/**
+ * Initial window size: the registry's declared size, capped so the window fits the current
+ * viewport with a margin. Small screens are never handed a window larger than the screen.
+ */
+const initialSize = (appId: string) => {
+    const cfg = APPS[appId];
+    const width = cfg?.width ?? DEFAULT_WINDOW_SIZE.width;
+    const height = cfg?.height ?? DEFAULT_WINDOW_SIZE.height;
+    if (typeof window === 'undefined') return { width, height };
+    const VIEWPORT_MARGIN = 16;
+    return {
+        width: Math.min(width, Math.max(1, window.innerWidth - VIEWPORT_MARGIN)),
+        height: Math.min(height, Math.max(1, window.innerHeight - TASKBAR_HEIGHT - VIEWPORT_MARGIN)),
+    };
+};
+
+/** Pick a typed subset of `obj`. Used to derive the persisted slice from `PERSISTED_KEYS`. */
+const pick = <T, K extends keyof T>(obj: T, keys: readonly K[]): Pick<T, K> => {
+    const out = {} as Pick<T, K>;
+    for (const key of keys) out[key] = obj[key];
+    return out;
 };
 
 export const useSystemStore = create<SystemState>()(
@@ -148,7 +204,6 @@ export const useSystemStore = create<SystemState>()(
 
             windows: [],
             activeWindowId: null,
-            nextZIndex: 10,
             desktopIcons: {},
 
             recycleBin: [],
@@ -166,7 +221,7 @@ export const useSystemStore = create<SystemState>()(
                 setWallpaper: (id) => set({ wallpaperId: id }),
 
                 openWindow: (appId, title, payload) => {
-                    const { windows, nextZIndex } = get();
+                    const { windows } = get();
 
                     const existing = windows.find(w => w.appId === appId);
                     if (existing) {
@@ -180,6 +235,9 @@ export const useSystemStore = create<SystemState>()(
                         return;
                     }
 
+                    // Registry size, capped to the viewport; cascade the position, then clamp
+                    // it with the same rule a drag obeys.
+                    const size = initialSize(appId);
                     const newWindow: AppWindow = {
                         id: nextPid(),
                         appId,
@@ -188,24 +246,26 @@ export const useSystemStore = create<SystemState>()(
                         title: title || APPS[appId]?.title || appId,
                         isMinimized: false,
                         isMaximized: false,
-                        position: {
+                        position: clampToViewport({
                             x: 60 + (windows.length * 24) % 200,
                             y: 40 + (windows.length * 24) % 150
-                        },
-                        size: DEFAULT_WINDOW_SIZE,
-                        zIndex: nextZIndex,
+                        }, size),
+                        size,
+                        // Every open window already sits in `Z_BASE..Z_BASE+n-1` (see
+                        // `renormalize`), so the next slot is the top of the stack.
+                        zIndex: topZ(windows),
                         payload,
                     };
 
                     set({
                         windows: [...windows, newWindow],
                         activeWindowId: newWindow.id,
-                        nextZIndex: nextZIndex + 1,
                     });
                 },
 
+                /** Remove and re-pack the survivors so the z band stays `Z_BASE..Z_BASE+n-1`. */
                 closeWindow: (id) => set(state => ({
-                    windows: state.windows.filter(w => w.id !== id),
+                    windows: renormalize(byZ(state.windows.filter(w => w.id !== id))),
                     activeWindowId: state.activeWindowId === id ? null : state.activeWindowId
                 })),
 
@@ -228,7 +288,6 @@ export const useSystemStore = create<SystemState>()(
                         w.id === id ? { ...w, isMinimized: false } : w
                     ),
                     activeWindowId: id,
-                    nextZIndex: nextZ(state.windows.length),
                 })),
 
                 /** Leave the maximised state only. Split out from `restoreWindow` on purpose. */
@@ -239,20 +298,19 @@ export const useSystemStore = create<SystemState>()(
                 /**
                  * Raise to the top of the stack.
                  *
-                 * z-indices are renormalised to a compact range on every focus rather than
+                 * z-indices are derived from stack position (`renormalize`) rather than
                  * incremented forever. The old version grew without bound while the taskbar sat
                  * at z-50, so after roughly forty focus changes windows began rendering over it.
                  */
                 focusWindow: (id) => set(state => {
                     const win = state.windows.find(w => w.id === id);
                     if (!win) return {};
-                    if (state.activeWindowId === id && win.zIndex === state.windows.length + Z_BASE - 1) {
+                    if (state.activeWindowId === id && win.zIndex === topZ(state.windows) - 1) {
                         return {};
                     }
                     return {
                         activeWindowId: id,
                         windows: raise(state.windows, id),
-                        nextZIndex: nextZ(state.windows.length),
                     };
                 }),
 
@@ -270,8 +328,9 @@ export const useSystemStore = create<SystemState>()(
                     windows: state.windows.map(w => w.id === id ? { ...w, size } : w)
                 })),
 
+                /** Persisted, so clamped on write: a position under the taskbar must never be saved. */
                 setDesktopIconPosition: (id, x, y) => set(state => ({
-                    desktopIcons: { ...state.desktopIcons, [id]: { x, y } }
+                    desktopIcons: { ...state.desktopIcons, [id]: clampIconToViewport({ x, y }) }
                 })),
 
                 resetDesktopIcons: () => set({ desktopIcons: {} }),
@@ -299,15 +358,10 @@ export const useSystemStore = create<SystemState>()(
             name: 'gaurav-xp-os',
             storage: createJSONStorage(() => (typeof window !== 'undefined' ? localStorage : ({
                 getItem: () => null, setItem: () => { }, removeItem: () => { }
-            } as any))),
-            partialize: (state) => ({
-                volume: state.volume,
-                isMuted: state.isMuted,
-                wallpaperId: state.wallpaperId,
-                desktopIcons: state.desktopIcons,
-                recycleBin: state.recycleBin,
-                deletedAppIds: state.deletedAppIds,
-            }),
+            } satisfies StateStorage))),
+            // Derived from `store/persistence.ts`, which `/etc/system.conf` also renders, so the
+            // list the shell shows a visitor cannot drift from what is actually saved.
+            partialize: (state): Pick<SystemState, PersistedKey> => pick(state, PERSISTED_KEYS),
         }
     )
 );

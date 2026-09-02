@@ -4,26 +4,34 @@
 window manager, desktop preferences and the recycle bin. All actions live under `state.actions`,
 which is created once and is therefore referentially stable — safe to select directly.
 
+`persistence.ts` sits beside it and holds nothing but data: `PERSISTED_KEYS` and their human
+labels. It has no imports, so `system/vfs.ts` can read it to generate `/etc/system.conf` without
+`system/` gaining a dependency on the store. Adding a persisted field means editing that list;
+both the middleware and the file the shell shows a visitor follow from it.
+
 ## Shape
 
 | Slice | Fields |
 | --- | --- |
 | Session | `isBooting`, `isLoggedIn`, `isShuttingDown` |
 | Audio | `audioEnabled`, `volume`, `isMuted` |
-| Appearance | `wallpaperId`, `themeColor` |
-| Windows | `windows: AppWindow[]`, `activeWindowId`, `nextZIndex` |
+| Appearance | `wallpaperId` |
+| Windows | `windows: AppWindow[]`, `activeWindowId` |
 | Desktop | `desktopIcons: Record<id, {x,y}>`, `deletedAppIds` |
 | Recycle bin | `recycleBin: RecycledItem[]` |
 
-`AppWindow.id` doubles as the pid in `/proc` and in `ps`. Keep it opaque and stable.
+`AppWindow.id` doubles as the pid in `/proc` and in `ps`. Keep it **short and human-typable**: a
+visitor reads one off the screen and types it into `kill`. It used to be nine random characters,
+which both overflowed the `ps` column and made the pid impossible to identify.
 
 ## Persistence
 
-`persist` under the key `gaurav-xp-os`, with `partialize` allowing **only** preferences through:
-volume, mute, wallpaper, theme, icon positions, recycle bin, deleted app ids. Windows, focus and
-session state are deliberately not persisted — a reload should return to a clean desktop.
+`persist` under the key `gaurav-xp-os`. `partialize` is derived from `PERSISTED_KEYS`, so the
+persisted slice is exactly: volume, mute, wallpaper, icon positions, recycle bin, deleted app ids.
+Windows, focus and session state are deliberately not persisted — a reload should return to a
+clean desktop.
 
-Adding a field? Decide explicitly whether it belongs in `partialize`. Anything persisted is a
+Adding a field? Decide explicitly whether it belongs in `PERSISTED_KEYS`. Anything persisted is a
 promise you are making to a visitor's browser for the next year.
 
 ## Rules
@@ -34,40 +42,57 @@ promise you are making to a visitor's browser for the next year.
    const open    = useSystemStore((s) => s.actions.openWindow); // yes
    const { windows, actions } = useSystemStore();               // no — re-renders on any change
    ```
-   Nine components currently use the bare form (including `DesktopIcon`, so all 13 icons re-render
-   on every window focus). Migrate them opportunistically; never add a new one.
 2. **Window geometry lives here, not in components.** `Window.tsx` mirrors size into local state
    only for the duration of a resize drag, then commits. Do not add a second source of truth.
 3. **Actions must be total.** `closeProcess`-style callers rely on actions being safe to call with
    a stale id.
 4. **No content in the store.** Names, links and job titles come from `content/`. The store holds
    *session* state only.
-5. **No `any` in new fields.** `AppWindow.payload` is currently `any` and is a known debt item —
-   type it as a per-app discriminated union when the apps that use payloads land.
+5. **No `any`.** `AppWindow.payload` is `WindowPayload` (`Record<string, string>`) because payloads
+   cross the shell boundary and must stay serialisable. Typing it as a per-app discriminated union
+   is the remaining debt.
 
 ## Window manager internals
 
-`Z_BASE = 10` is the bottom of the window band; the taskbar sits above it at `z-50`.
-`raise(windows, id)` re-stacks so the target is on top and everything else keeps its relative
-order, renormalised into a compact `Z_BASE..Z_BASE+n` range. **z-indices never grow without
-bound** — the previous version incremented forever, and windows began drawing over the taskbar
-after roughly forty focus changes.
+`Z_BASE = 10` is the bottom of the window band; the taskbar sits above it at `z-50`. **Every
+z-index is derived from stack position** by `renormalize`, so the invariant "the n open windows
+occupy exactly `Z_BASE..Z_BASE+n-1`" holds after every open, close, focus and restore. There is no
+free-running counter: the previous design kept one, and any path that bypassed `focusWindow`
+(Alt+F4, `kill`, opening from the Start menu) ratcheted it upward until windows drew over the
+taskbar.
 
-`clampToViewport` keeps a grabbable strip of every window on screen. Icon positions persist, so
-an unclamped drag used to lose an icon permanently.
+`clampToViewport` keeps a grabbable strip of every window on screen; `clampIconToViewport` keeps a
+desktop icon fully inside the desktop area. Icon positions persist, so the icon clamp is applied
+both on write **and** at render in `DesktopIcon` — a position saved on a wide monitor would
+otherwise put the icon off-screen forever on a laptop.
+
+`openWindow` reads the size from `constants/apps.ts` and caps it to the viewport. For a long time
+it ignored the registry entirely and opened everything at 800x600, which stretched the Calculator's
+button grid across a window it was also forbidden to resize.
 
 `restoreWindow` and `unmaximizeWindow` are deliberately separate: restore un-minimises **without**
-clearing `isMaximized`, so a minimise/restore round-trip is lossless.
+clearing `isMaximized`.
+
+**A minimised window is hidden, not unmounted.** `Window.tsx` sets `display: none` rather than
+returning null. Returning null destroyed every app's local state on minimise — a Minesweeper game,
+unsaved Notepad text, the terminal's scrollback and working directory, and the media player's
+`<audio>` element mid-track. The store round-trip was always lossless; the rendered app was not.
+
+**Clamped positions must be written back into the motion values.** `Window` and `DesktopIcon` own
+their `x`/`y` as `useMotionValue`s. Framer-motion diffs an `animate` target against the previous
+*target*, not against where a drag actually left the element, so dragging off the same edge twice
+produced an identical clamped value, framer skipped it, and the element stayed off-screen while
+the store believed otherwise.
 
 ## Fixed in P1 (2026-08-20)
 
-C4 lossy restore · C5 unbounded z-index · C6 restore not raising · C8 off-screen drag ·
-A11 dead `themeColor` state (removed entirely — the Themes tab now says theming is not built).
+C4 lossy restore · C5 unbounded z-index · C6 restore not raising · C8 off-screen drag (windows
+*and* icons) · A11 dead `themeColor` state (removed entirely — the Themes tab now says theming is
+not built).
 
 ## Known defects still open
 
 | Id | Issue |
 | --- | --- |
-| A10 | `deletedAppIds` persists, so a visitor can permanently lose the Projects icon with no obvious way back. Consider protecting core portfolio apps from deletion. |
-| A3 | `Desktop`, `Taskbar`, `StartMenu`, `DesktopIcon` and `RecycleBinApp` still subscribe with the bare `useSystemStore()`. `Window`, `Settings`, `MyComputer`, `Skills`, `Projects` and `Terminal` have been migrated to selectors. |
+| A10 | `deletedAppIds` persists, so a visitor can permanently lose the Projects icon. The Recycle Bin restores it, but nothing signposts that. Consider protecting core portfolio apps from deletion. |
 | — | `AppWindow` has no `openedAt`, so the future System Monitor cannot show process uptime. Add it when that app lands (`docs/ROADMAP.md` §4). |

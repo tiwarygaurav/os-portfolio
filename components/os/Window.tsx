@@ -3,7 +3,7 @@
 import { useSystemStore, type AppWindow, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
 import { X, Square } from 'lucide-react';
-import { motion, useDragControls } from 'framer-motion';
+import { motion, useDragControls, useMotionValue } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { playSound } from '@/utils/sound';
 
@@ -60,9 +60,34 @@ export default function Window({ win }: WindowProps) {
     const [size, setSize] = useState(win.size);
     const [isResizing, setIsResizing] = useState(false);
 
+    /*
+     * Drag position, owned here rather than left to `animate`.
+     *
+     * The store clamps a dragged window back inside the viewport, and that correction used to be
+     * rendered only because `animate.x` changed value. Drag off the same edge twice and the
+     * clamped result is identical to last time, so framer sees an unchanged target, marks the key
+     * protected and skips it — leaving the element wherever the drag dropped it while the store
+     * believed otherwise. Owning the motion values lets us write the clamped position back
+     * unconditionally.
+     */
+    const x = useMotionValue(win.position.x);
+    const y = useMotionValue(win.position.y);
+
     useEffect(() => {
         setSize(win.size);
     }, [win.size]);
+
+    // Follow the store whenever it moves the window (clamp, restore, un-maximise), including the
+    // case where the clamped value equals the previous one.
+    useEffect(() => {
+        if (win.isMaximized) {
+            x.set(0);
+            y.set(0);
+        } else {
+            x.set(win.position.x);
+            y.set(win.position.y);
+        }
+    }, [win.position.x, win.position.y, win.isMaximized, x, y]);
 
     const handlePointerDown = () => {
         actions.focusWindow(win.id);
@@ -96,12 +121,18 @@ export default function Window({ win }: WindowProps) {
         document.addEventListener('pointerup', onUp);
     };
 
-    if (win.isMinimized) return null;
-
+    /*
+     * A minimised window is hidden, never unmounted.
+     *
+     * Returning null here destroyed the whole app subtree: a Minesweeper game in progress, unsaved
+     * Notepad text, the Command Prompt's scrollback and working directory, and — because the
+     * <audio> element left the document — whatever the media player was playing. `display: none`
+     * keeps all of it alive, which is also what XP did.
+     */
     return (
         <motion.div
             ref={winRef}
-            drag={!win.isMaximized && !isResizing}
+            drag={!win.isMaximized && !isResizing && !win.isMinimized}
             dragControls={controls}
             dragListener={false}
             dragMomentum={false}
@@ -110,13 +141,17 @@ export default function Window({ win }: WindowProps) {
                     x: win.position.x + info.offset.x,
                     y: win.position.y + info.offset.y,
                 });
+                // Render the store's clamped answer, even when it matches the last one.
+                const moved = useSystemStore.getState().windows.find((w) => w.id === win.id);
+                if (moved && !moved.isMaximized) {
+                    x.set(moved.position.x);
+                    y.set(moved.position.y);
+                }
             }}
             initial={{ scale: 0.92, opacity: 0 }}
             animate={{
                 width: win.isMaximized ? '100%' : size.width,
                 height: win.isMaximized ? 'calc(100% - 36px)' : size.height,
-                x: win.isMaximized ? 0 : win.position.x,
-                y: win.isMaximized ? 0 : win.position.y,
                 top: win.isMaximized ? 0 : undefined,
                 left: win.isMaximized ? 0 : undefined,
                 opacity: 1,
@@ -125,8 +160,12 @@ export default function Window({ win }: WindowProps) {
             transition={{ duration: 0.18, ease: 'easeOut' }}
             style={{
                 position: 'absolute',
-                zIndex: win.zIndex
+                zIndex: win.zIndex,
+                x,
+                y,
+                display: win.isMinimized ? 'none' : undefined,
             }}
+            aria-hidden={win.isMinimized}
             className={`flex flex-col shadow-2xl overflow-visible ${win.isMaximized ? '' : 'rounded-t-xl rounded-b-md'} ${isActive ? '' : 'opacity-95'}`}
             onPointerDown={handlePointerDown}
         >
