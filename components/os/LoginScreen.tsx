@@ -26,7 +26,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
     return (
         <div
-            className={`w-screen h-screen bg-[#345ea8] text-white flex flex-col font-tahoma relative overflow-hidden transition-all duration-500`}
+            className={`h-viewport w-screen bg-[#345ea8] text-white flex flex-col font-tahoma relative overflow-hidden transition-all duration-500`}
         >
 
 

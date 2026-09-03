@@ -28,6 +28,35 @@ body {
   user-select: none; /* OS-like feel */
 }
 
+/*
+ * The root shell's height, in units that actually match what a mobile browser shows.
+ *
+ * Tailwind's `h-screen` is `100vh`, which on a mobile browser with a collapsing address/toolbar
+ * (Safari, Chrome for Android) is the *largest* the viewport ever gets — with the toolbars
+ * showing, the real visible area is shorter, so the bottom of every maximised window sat behind
+ * the browser chrome and was unreachable (the desktop's own `overflow: hidden` rules out
+ * scrolling to it). `100dvh` tracks the viewport that is actually visible; the `100vh` line above
+ * it is the fallback for the handful of browsers that do not support `dvh` yet.
+ */
+.h-viewport {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/*
+ * Hides the scrollbar on the taskbar's task-button row while leaving it scrollable. It used to be
+ * referenced as `no-scrollbar` with no rule defined anywhere, so it was a no-op; the row was left
+ * to Tailwind's default scrollbar, which is fine functionally, but a task-button strip with a
+ * visible horizontal scrollbar under the icons is not what XP looked like.
+ */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge/IE */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Custom Scrollbar for Windows */
 ::-webkit-scrollbar {
   width: 8px;

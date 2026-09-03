@@ -192,7 +192,7 @@ Until that migration lands, do not add new hardcoded hex values to components; r
 ones. Any new surface must adopt the XP grammar so it looks like it shipped with the rest.
 
 **Motion:** 120–200 ms, ease-out, transform/opacity only. Nothing loops forever. Motion states a
-change; it never decorates. All of it must respect `prefers-reduced-motion` (not yet implemented).
+change; it never decorates. `prefers-reduced-motion` is honoured via `MotionConfig reducedMotion="user"` in `app/page.tsx`, plus `useReducedMotion()` directly in `BootScreen` for its looping progress bar.
 
 ---
 
@@ -286,10 +286,9 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | Paint | Still an `<iframe>` to `jspaint.app` — not the owner's work, blockable by the host. |
 | `deletedAppIds` | Still persisted — a visitor can permanently lose the Projects icon (A10). The Recycle Bin restores it, but nothing signposts that. |
-| Explorer | The VFS still has no GUI. A non-technical visitor cannot see the filesystem the shell exposes. |
 | Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~3 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Mobile/touch model · desktop keyboard navigation · focus trapping · tests. |
+| Not implemented | Desktop keyboard navigation · focus trapping · tests. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. |
 
 ---
 
@@ -391,6 +390,44 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-03 - Windows Explorer, and folders navigate rather than launch
+
+**Why:** the shell had proven the filesystem was real, but a non-technical visitor will never type
+`ls`. Explorer over `system/vfs.ts` is the bridge — the same tree, the same live `/proc`.
+**A real decision point:** several directories (`~`, `~/projects`, a specific project) carry an
+`open` launch hint for the shell's `open <path>` command and the Run dialog. The first draft of
+Explorer honoured that hint on directories too, so double-clicking a project folder launched the
+Projects window instead of browsing into it — which meant a visitor could never see the individual
+files (`README.md`, `stack.txt`, `links.txt`) inside. Real Windows Explorer always navigates into a
+folder on double-click; it does not have folders that launch something else instead. Explorer now
+does exactly that, unconditionally. The `open` hint keeps meaning what it always meant for the
+shell and Run — "jump straight to the window for this path" — and a visitor gets the identical
+jump from inside Explorer by opening the project's own `README.md`, which already carries the
+same file-level hint. The two behaviours were never actually in conflict; the first draft applied
+the wrong one to directories.
+**Consequences:** `constants/apps.ts` gained `explorer`; `My Computer`'s drives and sidebar link
+into it; the Run dialog hands off to it for any path with no owning app.
+
+### 2026-09-03 - A message box must swallow every key it sees, immediately
+
+**Why:** an adversarial review of the dialog work found that Enter answered the message box *and*
+reached Desktop's own keydown listener underneath, because the handler returned early on Enter
+when the default button already had focus (which the mount effect guarantees) — without calling
+`stopPropagation` first. Deleting a desktop icon and pressing Enter also launched the app the
+confirmation was about, and Alt+F4 still closed the window behind an open dialog.
+**Fix:** every branch of the dialog's key handler now stops propagation before doing anything else,
+a stacked dialog checks it is the topmost before acting, and Desktop's own shortcut handlers bail
+out immediately when `dialogs.length > 0` as a second line of defence. Also fixed in the same pass:
+Task Manager reported every minimised window as "Not Responding", a value nothing measures, when
+`Minimized` is what `ps` and `/proc` already say; a window opened wide on a desktop browser was
+stranded once the viewport crossed into the mobile breakpoint (rotation, or a resize) with no
+maximise control left to recover it — `Desktop` now calls a `syncViewportBreakpoint` action on that
+crossing; Cascade Windows on a phone dropped every window into an unmanageable floating box, so it
+is now a no-op on layout below the mobile breakpoint; and the shell root used `100vh`, which is the
+*largest* a mobile browser's viewport ever gets with its toolbar showing, so the bottom of a
+maximised window sat behind the browser chrome — a `.h-viewport` utility uses `100dvh` with a
+`100vh` fallback.
 
 ### 2026-09-03 - The Run dialog is the command palette
 

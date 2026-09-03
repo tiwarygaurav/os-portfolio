@@ -163,7 +163,7 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                                         actions.focusWindow(win.id);
                                     }
                                 }}
-                                className="flex h-7 min-w-0 max-w-[180px] shrink items-center gap-2 truncate rounded-sm px-2 py-1 text-xs transition-all sm:min-w-[140px]"
+                                className="flex h-7 min-w-[104px] max-w-[180px] shrink-0 items-center gap-2 truncate rounded-sm px-2 py-1 text-xs transition-all sm:min-w-[140px]"
                                 style={{
                                     background: isActive
                                         ? 'linear-gradient(to bottom, #1746a3, #2059ce 50%, #1746a3)'

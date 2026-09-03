@@ -70,6 +70,16 @@ function DialogBox({ request, index }: { request: DialogRequest; index: number }
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
+            /*
+             * A message box is modal: nothing behind it may see a keystroke it handles, and only
+             * the topmost of a stack should act at all. Every key branch below must swallow the
+             * event *before* deciding what to do with it — the previous version returned early on
+             * Enter when a default button already had focus (which the mount effect guarantees),
+             * so the event reached Desktop's own listener underneath and fired whatever shortcut
+             * that key means there (opening the icon a Delete confirmation was about, for one).
+             */
+            if (useSystemStore.getState().dialogs.at(-1)?.id !== request.id) return;
+
             if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -77,23 +87,32 @@ function DialogBox({ request, index }: { request: DialogRequest; index: number }
                 return;
             }
             if (e.key === 'Enter') {
-                // Let a focused non-default button answer for itself.
-                const active = document.activeElement as HTMLElement | null;
-                if (active?.tagName === 'BUTTON' && ref.current?.contains(active)) return;
                 e.preventDefault();
+                e.stopPropagation();
+                // A focused non-default button answers for itself via its own onClick.
+                const active = document.activeElement as HTMLElement | null;
+                if (active?.tagName === 'BUTTON' && ref.current?.contains(active) && active.dataset.default !== 'true') {
+                    active.click();
+                    return;
+                }
                 resolveDialog(request.id, defaultButton.id);
                 return;
             }
             if (e.key === 'Tab') {
                 // Trap focus: a message box is modal, so Tab must not wander onto the desktop.
+                e.preventDefault();
+                e.stopPropagation();
                 const focusable = ref.current?.querySelectorAll<HTMLButtonElement>('button');
                 if (!focusable?.length) return;
                 const list = Array.from(focusable);
                 const i = list.indexOf(document.activeElement as HTMLButtonElement);
-                e.preventDefault();
                 const next = e.shiftKey ? (i <= 0 ? list.length - 1 : i - 1) : (i === list.length - 1 ? 0 : i + 1);
                 list[next].focus();
+                return;
             }
+            // Every other key (arrows, letters, ...) is swallowed too: with a dialog open, the
+            // desktop underneath must not react to anything, including the Konami sequence.
+            e.stopPropagation();
         };
         document.addEventListener('keydown', onKey, true);
         return () => document.removeEventListener('keydown', onKey, true);

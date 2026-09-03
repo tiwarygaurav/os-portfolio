@@ -37,7 +37,7 @@ export default function Home() {
          */
         <MotionConfig reducedMotion="user">
         <ErrorBoundary>
-        <main className="h-screen w-screen overflow-hidden bg-black text-white selection:bg-win-blue selection:text-white relative">
+        <main className="h-viewport w-screen overflow-hidden bg-black text-white selection:bg-win-blue selection:text-white relative">
             {isBooting && <BootScreen onComplete={actions.bootComplete} />}
             {!isBooting && !isLoggedIn && !isShuttingDown && <LoginScreen onLogin={actions.login} />}
             {!isBooting && isLoggedIn && !isShuttingDown && <Desktop />}

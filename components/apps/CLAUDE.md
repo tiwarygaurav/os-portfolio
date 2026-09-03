@@ -69,7 +69,8 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 | `SettingsApp` | Partial, honest | Wallpaper + icon reset work. Themes / Screen Saver / Appearance now state plainly that they are not built. |
 | `MyComputerApp` | Partial, honest | Inert toolbar removed; volumes report real counts from `content/`. |
 | `NotepadApp` | Works | Exit, Status Bar and a real caret readout; Paste uses the async Clipboard API and says so when refused. |
-| `TaskManagerApp` | **New** | Applications / Processes / Performance over the live window list. End Task really closes. No metric is drawn that the browser cannot supply. |
+| `TaskManagerApp` | **New** | Applications / Processes / Performance over the live window list. End Task really closes. No metric is drawn that the browser cannot supply — a minimised window shows "Minimized", never a fabricated "Not Responding". |
 | `ImageViewerApp` | Works | Zoom/rotate/navigate. Image list still hardcoded. |
 | `RecycleBinApp` | Works | Real state, restore + empty. |
 | `PaintApp` | **Third-party** | An `<iframe>` to `jspaint.app`. Not the owner's work, and blockable by the host. Unresolved. |
+| `ExplorerApp` | **New** | Windows Explorer over `system/vfs.ts`. Folders navigate, the way real Explorer does; a file's `open` hint launches its app, same as the shell. Back/Forward/Up/address bar are real. |

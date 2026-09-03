@@ -103,9 +103,9 @@ export default function RunDialog({ onClose }: RunDialogProps) {
             onClose();
             return;
         }
-        // Nothing owns this path: hand it to the shell, which can at least show it.
+        // Nothing owns this path: show it in the Explorer, which browses the same tree.
         playSound('open');
-        actions.openWindow('terminal', APPS.terminal.title);
+        actions.openWindow('explorer', APPS.explorer.title, { path: prettyPath(abs) });
         onClose();
     }
 

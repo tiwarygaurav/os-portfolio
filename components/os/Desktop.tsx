@@ -61,6 +61,17 @@ export default function Desktop() {
         if (windows.length > 0) setShowBalloon(false);
     }, [windows.length]);
 
+    /*
+     * Force every open window maximised the moment the viewport crosses into the mobile
+     * breakpoint — a phone rotation, or a desktop browser dragged narrower. `openWindow` only
+     * decided this once, at open time; without this a window opened wide and left floating would
+     * end up wider than the screen with no maximise button, no drag and no resize grip once the
+     * breakpoint crossed under it, and no route back except closing it.
+     */
+    useEffect(() => {
+        if (isMobile) actions.syncViewportBreakpoint(true);
+    }, [isMobile, actions]);
+
     const visibleIcons = DESKTOP_ICONS.filter(id => !deletedAppIds.includes(id));
     const wallpaper = WALLPAPERS.find(w => w.id === wallpaperId) || WALLPAPERS[0];
 
@@ -97,6 +108,15 @@ export default function Desktop() {
     // Keyboard shortcuts
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
+            /*
+             * A message box is modal and swallows the keys it handles itself (see Dialog.tsx),
+             * but it stops propagation on `document`, not on `window` — belt and suspenders here
+             * in case any future dialog variant skips that. With one open, Delete/Enter/Alt+F4
+             * acting on the desktop underneath is exactly the bug an XP message box exists to
+             * prevent (deleting an icon and having Enter also launch the app it just described).
+             */
+            if (useSystemStore.getState().dialogs.length > 0) return;
+
             // Konami
             // (handled separately below)
             const target = e.target as HTMLElement;
@@ -166,6 +186,9 @@ export default function Desktop() {
         let cursor = 0;
 
         const onKey = (e: KeyboardEvent) => {
+            // A message box is modal; the desktop underneath must not advance on its keystrokes.
+            if (useSystemStore.getState().dialogs.length > 0) return;
+
             // Ignore keystrokes aimed at an input — typing "…b, a" in the terminal used to fire this.
             const target = e.target as HTMLElement;
             if (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable) {

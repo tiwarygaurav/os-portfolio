@@ -104,6 +104,8 @@ interface SystemState {
         minimizeAll: () => void;
         /** Re-lay the open windows in an XP cascade from the top-left. */
         cascadeWindows: () => void;
+        /** Force every window maximised when the viewport crosses into the mobile breakpoint. */
+        syncViewportBreakpoint: (mobile: boolean) => void;
 
         setDesktopIconPosition: (id: string, x: number, y: number) => void;
         resetDesktopIcons: () => void;
@@ -384,9 +386,21 @@ export const useSystemStore = create<SystemState>()(
                 /**
                  * Cascade, un-minimising and un-maximising as XP did, and clamped so a long
                  * cascade cannot push the last window off a short screen.
+                 *
+                 * On a phone this is a no-op on layout: the shell's whole model below the mobile
+                 * breakpoint is one maximised window at a time (see `openWindow` and
+                 * `Window.tsx`, which hides the controls that would let a visitor recover from a
+                 * floating window there). Cascading into floating boxes with no maximise button,
+                 * no drag and no resize grip would strand every one of them.
                  */
                 cascadeWindows: () => set(state => {
                     const ordered = byZ(state.windows);
+                    if (isMobileViewport()) {
+                        return {
+                            windows: ordered.map(w => ({ ...w, isMinimized: false, isMaximized: true })),
+                            activeWindowId: ordered.length ? ordered[ordered.length - 1].id : null,
+                        };
+                    }
                     return {
                         windows: renormalize(
                             ordered.map((w, i) => ({
@@ -398,6 +412,23 @@ export const useSystemStore = create<SystemState>()(
                         ),
                         activeWindowId: ordered.length ? ordered[ordered.length - 1].id : null,
                     };
+                }),
+
+                /**
+                 * Reconcile every window's geometry with the mobile breakpoint.
+                 *
+                 * A window's `isMaximized` was previously decided only at open time. Crossing the
+                 * breakpoint afterwards — rotating a phone, or resizing a desktop browser across
+                 * 768px — left an already-open window with the wrong shape and no way back: on the
+                 * mobile side of the crossing, `Window.tsx` hides the maximise control, the resize
+                 * grip and dragging, so a window that was floating and desktop-sized when the
+                 * crossing happened became permanently stranded, wider than the screen with no
+                 * route to fix it. Called from the one resize/orientation listener in `Desktop`.
+                 */
+                syncViewportBreakpoint: (mobile) => set(state => {
+                    if (!mobile) return {};
+                    if (state.windows.every(w => w.isMaximized)) return {};
+                    return { windows: state.windows.map(w => ({ ...w, isMaximized: true })) };
                 }),
 
                 /** Persisted, so clamped on write: a position under the taskbar must never be saved. */

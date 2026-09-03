@@ -257,6 +257,20 @@ export const APPS: Record<string, AppConfig> = {
         surfaces: ['start', 'run'],
         load: () => import('@/components/apps/ImageViewerApp'),
     },
+    explorer: {
+        id: 'explorer',
+        title: 'Windows Explorer',
+        icon: FolderOpen,
+        iconAsset: '/icons/Folder Closed.ico',
+        width: 760,
+        height: 520,
+        canMaximize: true,
+        canResize: true,
+        category: 'system',
+        surfaces: ['desktop', 'start', 'run'],
+        aliases: ['explorer.exe', 'files'],
+        load: () => import('@/components/apps/ExplorerApp'),
+    },
     taskmgr: {
         id: 'taskmgr',
         title: 'Windows Task Manager',
@@ -276,6 +290,7 @@ export const APPS: Record<string, AppConfig> = {
 /** Desktop icon order. Derived from the registry so an app cannot be listed here and nowhere else. */
 export const DESKTOP_ICONS: string[] = [
     'mycomputer',
+    'explorer',
     'about',
     'projects',
     'skills',

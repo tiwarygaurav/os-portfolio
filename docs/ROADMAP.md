@@ -121,7 +121,7 @@ class of decoration is what this app exists to disprove.
 
 ---
 
-## 5. Filesystem explorer
+## 5. Filesystem explorer  ✅ DONE
 
 **Requirement.** A GUI over `system/vfs.ts` — tree pane, file pane, breadcrumb — with the
 property that **anything visible in the explorer is reachable by the same path in the shell**,

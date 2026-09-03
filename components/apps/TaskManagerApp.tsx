@@ -126,7 +126,7 @@ export default function TaskManagerApp({ windowId }: { windowId?: string }) {
                                                     {w.title}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    {w.isMinimized ? 'Not Responding' : activeWindowId === w.id ? 'Running (active)' : 'Running'}
+                                                    {w.isMinimized ? 'Minimized' : activeWindowId === w.id ? 'Running (active)' : 'Running'}
                                                 </td>
                                             </tr>
                                         );

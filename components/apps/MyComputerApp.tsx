@@ -30,7 +30,7 @@ export default function MyComputerApp() {
             icon: '/icons/My Computer.ico',
             type: 'drive',
             info: SYSTEM.name,
-            onOpen: () => actions.openWindow('terminal'),
+            onOpen: () => actions.openWindow('explorer', undefined, { path: '/' }),
         },
         {
             id: 'd',
@@ -81,6 +81,7 @@ export default function MyComputerApp() {
                     <ExplorerPanel title="System Tasks">
                         <SidebarLink label="View system information" onClick={() => actions.openWindow('settings')} />
                         <SidebarLink label="Change a setting" onClick={() => actions.openWindow('settings')} />
+                        <SidebarLink label="Browse the filesystem" onClick={() => actions.openWindow('explorer')} />
                         <SidebarLink label="Open a terminal" onClick={() => actions.openWindow('terminal')} />
                     </ExplorerPanel>
 

@@ -12,6 +12,10 @@ declare module 'lucide-react' {
     export const User: Icon;
     export const FolderOpen: Icon;
     export const Cpu: Icon;
+    export const ArrowUp: Icon;
+    export const FolderClosed: Icon;
+    export const Link2: Icon;
+    export const AppWindow: Icon;
     export const FileText: Icon;
     export const Mail: Icon;
     export const TerminalSquare: Icon;
