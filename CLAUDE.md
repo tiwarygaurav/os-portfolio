@@ -351,7 +351,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no drag-and-drop between folders, no copy of a folder, and deleted files do not go to the Recycle Bin. |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no drag-and-drop between folders, no copy of a folder, no right-click menu on a file. |
 
 ---
 
@@ -455,6 +455,28 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Deleted files go to the Recycle Bin; XP's task pane on My Computer, the bin and Explorer
+
+**Why:** XP's Delete never destroyed a file: it went to the Recycle Bin, which could put it back
+where it came from; Shift+Delete was the way to skip it. Here a deleted file was gone at once, and
+the bin only ever held desktop icons.
+**Design:** a bin entry is now either a desktop icon or a `RecycledTree` — the file, or the folder
+with everything that was in it, keyed by the paths they had. Taking and restoring are pure VFS
+functions (`planRecycle`, `planRestore`). A restore makes again any folder on the way that has gone
+since, as XP did, and refuses — naming what is in the way — rather than overwrite anything. What
+the bin holds counts toward the same storage quota, and `df` says how much of it is the bin.
+Explorer and the picture viewer delete to the bin; Shift+Delete and the shell's `rm` do not (`del`
+never did). Display Properties' Restore Deleted Icons still brings back only icons.
+**Also:** My Computer, the Recycle Bin and Explorer drew their own blue task panes with lucide
+glyphs. They now use the `.xp-taskpane` / `.xp-addressbar` / `.xp-toolbar` classes through
+`components/ui/TaskPane.tsx`, and XP's own icons: `constants/fileIcons.ts` is the one place a file,
+folder or drive gets its icon. My Computer selects on a click and opens on a double-click (a tap on
+a phone), as XP did. The bin selects a row and restores from the task pane; its per-row Restore
+buttons are gone. The store's window and icon clamps read the live taskbar height. The shell's `cp`
+gained `-r` and now goes through the pure `planCopy` (a visitor's folder with its contents, or a
+portfolio text file; never overwriting), with `copyUserPath` in the store. The e2e `win()` helper
+matches the title bar only.
 
 ### 2026-09-24 - Folders: New Folder, Rename, and a shell that can move things
 

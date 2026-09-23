@@ -59,7 +59,9 @@ test('dropping an icon on the Recycle Bin deletes it, and the bin gives it back'
     await openFromDesktop(page, 'trash');
     const bin = win(page, 'Recycle Bin');
     await expect(bin).toContainText('Notepad');
-    await bin.locator('button[title="Restore"]').first().click();
+    // XP's way: select the item, then Restore this item in the task pane.
+    await bin.locator('tr[data-bin-item]', { hasText: 'Notepad' }).click();
+    await bin.getByRole('button', { name: 'Restore this item' }).click();
     await expect(page.locator('[data-desktop-icon="notepad"]')).toHaveCount(1);
 });
 

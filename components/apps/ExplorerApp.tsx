@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ArrowUp, FolderClosed, FileText, Link2, AppWindow, Image as ImageIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowUp } from 'lucide-react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
 import { DOCUMENTS_PATH, GUEST_PATH, HOME_PATH, PICTURES_PATH, isDir, isFile, isWritableDir, listDir, lookup, resolvePath, type VNode } from '@/system/vfs';
@@ -11,6 +11,9 @@ import { playSound } from '@/utils/sound';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 import { makeNewFolder, renameUserPath, useFsRevision } from '@/utils/fs';
 import RenameField from '@/components/ui/RenameField';
+import XpIcon from '@/components/ui/XpIcon';
+import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
+import { FILE_ICONS, fileIconFor } from '@/constants/fileIcons';
 
 /**
  * Windows Explorer, over the same virtual filesystem the Command Prompt walks.
@@ -36,13 +39,9 @@ interface ExplorerAppProps {
     payload?: WindowPayload;
 }
 
-/** Icon for a node, by kind. */
-function NodeIcon({ node, size = 16 }: { node: VNode; size?: number }) {
-    if (isDir(node)) return <FolderClosed size={size} className="shrink-0 text-[#f0b765]" aria-hidden />;
-    if (node.mime === 'application/x-link') return <Link2 size={size} className="shrink-0 text-[#7a5cd6]" aria-hidden />;
-    if (node.mime === 'application/x-app') return <AppWindow size={size} className="shrink-0 text-[#2f8b19]" aria-hidden />;
-    if (node.src) return <ImageIcon size={size} className="shrink-0 text-[#2f8b19]" aria-hidden />;
-    return <FileText size={size} className="shrink-0 text-[#5a8ac6]" aria-hidden />;
+/** XP's icon for a node: a special folder's own, a program's, or the one for its kind. */
+function NodeIcon({ node, path, size = 16 }: { node: VNode; path: string; size?: number }) {
+    return <XpIcon src={fileIconFor(node, path)} size={size} className="shrink-0" />;
 }
 
 export default function ExplorerApp({ payload }: ExplorerAppProps) {
@@ -137,10 +136,11 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const selectedPath = selectedNode ? `${path === '/' ? '' : path}/${selectedNode.name}` : null;
 
     /**
-     * Delete `target` — the item the key was pressed on, or the one the task pane refers to. Only
-     * the visitor's own files can go; anything else gets XP's refusal with the actual reason.
+     * Delete `target` — the item the key was pressed on, or the one the task pane refers to — to
+     * the Recycle Bin, or for good with Shift+Delete, as XP did. Only the visitor's own files and
+     * folders can go; anything else gets XP's refusal with the actual reason.
      */
-    const deleteNode = async (target: VNode, targetPath: string) => {
+    const deleteNode = async (target: VNode, targetPath: string, permanently = false) => {
         if (!target.writable) {
             await xpAlert('Error Deleting File or Folder', [
                 `Cannot delete ${target.name}: ${isDir(target) ? 'it is a system folder.' : 'it is read-only.'}`,
@@ -149,15 +149,25 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             return;
         }
         const folder = isDir(target);
-        const ok = await xpConfirm(
-            folder ? 'Confirm Folder Delete' : 'Confirm File Delete',
-            folder
+        const question = permanently
+            ? folder
                 ? `Are you sure you want to remove the folder '${target.name}' and all its contents?`
-                : `Are you sure you want to delete '${target.name}'?`,
-            { confirmLabel: 'Yes', cancelLabel: 'No', icon: 'warning' },
-        );
+                : `Are you sure you want to delete '${target.name}'?`
+            : folder
+                ? `Are you sure you want to remove the folder '${target.name}' and move all its contents to the Recycle Bin?`
+                : `Are you sure you want to send '${target.name}' to the Recycle Bin?`;
+        const ok = await xpConfirm(folder ? 'Confirm Folder Delete' : 'Confirm File Delete', question, {
+            confirmLabel: 'Yes',
+            cancelLabel: 'No',
+            icon: 'warning',
+        });
         if (!ok) return;
-        const problem = folder ? actions.deleteUserFolder(targetPath, true) : actions.deleteUserFile(targetPath);
+        const problem = !permanently
+            ? actions.recycleUserPath(targetPath)
+            : folder
+                ? actions.deleteUserFolder(targetPath, true)
+                : actions.deleteUserFile(targetPath);
+        if (!problem) playSound('recycle');
         if (problem) void xpAlert('Windows Explorer', [problem], 'error');
         else setSelected(null);
     };
@@ -205,7 +215,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     return (
         <div className="flex h-full flex-col bg-[#ece9d8] font-sans text-black">
             {/* Toolbar. Every control here is wired to real history. */}
-            <div className="flex shrink-0 items-center gap-1 border-b border-[#aca899] px-2 py-1">
+            <div className="xp-toolbar shrink-0">
                 <ToolButton label="Back" disabled={!canBack} onClick={() => step(-1)}>
                     <ChevronLeft size={16} />
                 </ToolButton>
@@ -215,37 +225,64 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                 <ToolButton label="Up one level" disabled={!parent} onClick={() => parent && navigate(parent)}>
                     <ArrowUp size={16} />
                 </ToolButton>
-                <div className="mx-1 h-5 w-px bg-[#aca899]" />
-                <label htmlFor="explorer-address" className="hidden text-xs sm:inline">
+            </div>
+            <div className="xp-addressbar shrink-0">
+                <label htmlFor="explorer-address" className="hidden sm:inline">
                     Address
                 </label>
-                <input
-                    id="explorer-address"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') { e.preventDefault(); submitAddress(); }
-                        if (e.key === 'Escape') setAddress(prettyPath(path));
-                    }}
-                    onBlur={() => setAddress(prettyPath(path))}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="min-w-0 flex-1 border border-[#7f9db9] bg-white px-2 py-0.5 font-mono text-xs outline-none focus:border-[#0058ee]"
-                    aria-label="Address"
-                />
+                <div className="xp-addressbar-field">
+                    <XpIcon src={FILE_ICONS.folderOpen} size={16} />
+                    <input
+                        id="explorer-address"
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); submitAddress(); }
+                            if (e.key === 'Escape') setAddress(prettyPath(path));
+                        }}
+                        onBlur={() => setAddress(prettyPath(path))}
+                        spellCheck={false}
+                        autoComplete="off"
+                        className="min-w-0 flex-1 bg-transparent text-[11px] outline-none"
+                        aria-label="Address"
+                    />
+                </div>
                 <ToolButton label="Go" onClick={submitAddress}>
                     <span className="px-1 text-xs">Go</span>
                 </ToolButton>
             </div>
 
             <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-                {/* Task pane */}
-                <div className="order-2 shrink-0 space-y-3 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 text-xs text-white md:order-none md:w-52 md:overflow-y-auto">
-                    <Panel title="Details">
+                {/* Task pane, in XP's order: tasks, places, details. */}
+                <TaskPane className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
+                    {(canWriteHere || selectedNode?.writable) && (
+                        <TaskSection title="File and Folder Tasks" special>
+                            {canWriteHere && <TaskLink label="Make a new folder" onClick={() => void newFolder()} />}
+                            {selectedNode?.writable && (
+                                <>
+                                    <TaskLink label={`Rename this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={() => startRename(selectedNode)} />
+                                    <TaskLink label={`Delete this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={deleteSelected} />
+                                </>
+                            )}
+                        </TaskSection>
+                    )}
+
+                    <TaskSection title="Other Places">
+                        <TaskLink label="My Documents" icon={<XpIcon src={FILE_ICONS.userFolder} size={16} />} onClick={() => navigate(DOCUMENTS_PATH)} />
+                        <TaskLink label="My Pictures" icon={<XpIcon src={FILE_ICONS.pictures} size={16} />} onClick={() => navigate(PICTURES_PATH)} />
+                        <TaskLink label="Home" icon={<XpIcon src={FILE_ICONS.folder} size={16} />} onClick={() => navigate(HOME_PATH)} />
+                        <TaskLink label="Projects" icon={<XpIcon src={FILE_ICONS.folder} size={16} />} onClick={() => navigate(`${HOME_PATH}/projects`)} />
+                        <TaskLink label="Experience" icon={<XpIcon src={FILE_ICONS.folder} size={16} />} onClick={() => navigate(`${HOME_PATH}/experience`)} />
+                        <TaskLink label="Processes (/proc)" icon={<XpIcon src={FILE_ICONS.folder} size={16} />} onClick={() => navigate('/proc')} />
+                        <TaskLink label="System (/etc)" icon={<XpIcon src={FILE_ICONS.folder} size={16} />} onClick={() => navigate('/etc')} />
+                        <TaskLink label="Recycle Bin" icon={<XpIcon src={FILE_ICONS.binEmpty} size={16} />} onClick={() => actions.openWindow('trash')} />
+                    </TaskSection>
+
+                    <TaskSection title="Details">
                         {selectedNode ? (
                             <>
-                                <p className="font-bold">{selectedNode.name}</p>
-                                <p className="mt-1 text-[10px] text-blue-100">
+                                <TaskText strong>{selectedNode.name}</TaskText>
+                                <TaskText>
                                     {isDir(selectedNode)
                                         ? `Folder — ${(listDir(`${path === '/' ? '' : path}/${selectedNode.name}`, procs) ?? []).length} items`
                                         : selectedNode.mime === 'application/x-link'
@@ -253,63 +290,33 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                             : selectedNode.src
                                                 ? 'Picture'
                                                 : `${selectedNode.content.split('\n').length} lines`}
-                                </p>
+                                </TaskText>
                                 {isFile(selectedNode) && selectedNode.modified !== undefined && (
-                                    <p className="mt-1 text-[10px] text-blue-100">
-                                        Date Modified: {new Date(selectedNode.modified).toLocaleString()}
-                                    </p>
+                                    <TaskText>Date Modified: {new Date(selectedNode.modified).toLocaleString()}</TaskText>
                                 )}
-                                {isFile(selectedNode) && !selectedNode.writable && !isDir(selectedNode) && (
-                                    <p className="mt-1 text-[10px] text-blue-100">Read-only</p>
-                                )}
-                                {isDir(selectedNode) && selectedNode.description && (
-                                    <p className="mt-1 text-[10px] text-blue-100">{selectedNode.description}</p>
-                                )}
+                                {!selectedNode.writable && <TaskText>Read-only</TaskText>}
+                                {isDir(selectedNode) && selectedNode.description && <TaskText>{selectedNode.description}</TaskText>}
                             </>
                         ) : (
                             <>
-                                <p className="font-bold">{node && isDir(node) ? node.name || '/' : prettyPath(path)}</p>
-                                <p className="mt-1 text-[10px] text-blue-100">
+                                <TaskText strong>{node && isDir(node) ? node.name || '/' : prettyPath(path)}</TaskText>
+                                <TaskText>
                                     {children.length} object{children.length === 1 ? '' : 's'}
-                                </p>
-                                {node && isDir(node) && node.description && (
-                                    <p className="mt-1 text-[10px] text-blue-100">{node.description}</p>
-                                )}
+                                </TaskText>
+                                {node && isDir(node) && node.description && <TaskText>{node.description}</TaskText>}
                             </>
                         )}
-                    </Panel>
+                    </TaskSection>
 
-                    {(canWriteHere || selectedNode?.writable) && (
-                        <Panel title="File and Folder Tasks">
-                            {canWriteHere && <PlaceLink label="Make a new folder" onClick={() => void newFolder()} />}
-                            {selectedNode?.writable && (
-                                <>
-                                    <PlaceLink label={`Rename this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={() => startRename(selectedNode)} />
-                                    <PlaceLink label={`Delete this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={deleteSelected} />
-                                </>
-                            )}
-                        </Panel>
-                    )}
-
-                    <Panel title="Other Places">
-                        <PlaceLink label="My Documents" onClick={() => navigate(DOCUMENTS_PATH)} />
-                        <PlaceLink label="My Pictures" onClick={() => navigate(PICTURES_PATH)} />
-                        <PlaceLink label="Home" onClick={() => navigate(HOME_PATH)} />
-                        <PlaceLink label="Projects" onClick={() => navigate(`${HOME_PATH}/projects`)} />
-                        <PlaceLink label="Experience" onClick={() => navigate(`${HOME_PATH}/experience`)} />
-                        <PlaceLink label="Processes (/proc)" onClick={() => navigate('/proc')} />
-                        <PlaceLink label="System (/etc)" onClick={() => navigate('/etc')} />
-                    </Panel>
-
-                    <Panel title="This is real">
-                        <p className="text-[10px] leading-relaxed text-blue-100">
+                    <TaskSection title="This is real">
+                        <TaskText>
                             {path === GUEST_PATH || path.startsWith(GUEST_PATH + '/')
                                 ? 'This is your folder. What you save here stays in this browser, and the Command Prompt sees the same files — try '
                                 : 'Everything here is generated from the same typed content the windows render. The Command Prompt walks this exact tree — try '}
                             <span className="font-mono">ls {prettyPath(path).includes(' ') ? `"${prettyPath(path)}"` : prettyPath(path)}</span> there.
-                        </p>
-                    </Panel>
-                </div>
+                        </TaskText>
+                    </TaskSection>
+                </TaskPane>
 
                 {/* File list */}
                 <div className="order-1 flex-1 bg-white p-2 md:order-none md:overflow-y-auto">
@@ -326,7 +333,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                     return (
                                         <li key={child.name}>
                                             <div className="flex w-full items-center gap-2 rounded bg-[#316ac5] px-2 py-1 text-xs">
-                                                <NodeIcon node={child} size={18} />
+                                                <NodeIcon node={child} path={childPath} size={18} />
                                                 <RenameField
                                                     name={child.name}
                                                     isFolder={isDir(child)}
@@ -352,7 +359,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                                     e.stopPropagation();
                                                 }
                                                 if (e.key === 'Enter') activate(child, childPath);
-                                                if (e.key === 'Delete') void deleteNode(child, childPath);
+                                                if (e.key === 'Delete') void deleteNode(child, childPath, e.shiftKey);
                                                 if (e.key === 'F2') startRename(child);
                                             }}
                                             className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
@@ -366,7 +373,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                                         : child.name
                                             }
                                         >
-                                            <NodeIcon node={child} size={18} />
+                                            <NodeIcon node={child} path={childPath} size={18} />
                                             <span className="truncate">{child.name}</span>
                                         </button>
                                     </li>
@@ -399,21 +406,3 @@ function ToolButton({ children, onClick, disabled, label }: { children: React.Re
     );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-    return (
-        <div className="overflow-hidden rounded bg-white/20">
-            <div className="bg-gradient-to-r from-[#f0b765] to-[#cf8b1f] px-2 py-1 text-[11px] font-bold text-white">
-                {title}
-            </div>
-            <div className="space-y-1 bg-white/10 p-2">{children}</div>
-        </div>
-    );
-}
-
-function PlaceLink({ label, onClick }: { label: string; onClick: () => void }) {
-    return (
-        <button onClick={onClick} className="block w-full text-left text-[11px] hover:underline">
-            {label}
-        </button>
-    );
-}

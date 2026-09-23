@@ -133,7 +133,7 @@ test('the viewer keeps its folder when its last picture is deleted, and Delete w
     await viewer.locator('img[alt="dot.png"]').click();
     await page.keyboard.press('Delete');
     const confirm = page.getByRole('dialog', { name: 'Confirm File Delete' });
-    await expect(confirm).toContainText("delete 'dot.png'");
+    await expect(confirm).toContainText("send 'dot.png' to the Recycle Bin");
     await expect(page.getByRole('dialog')).toHaveCount(1);
     await confirm.getByRole('button', { name: 'Yes' }).click();
 
@@ -149,7 +149,7 @@ const savedTree = (page: Page) =>
         return { files: Object.keys(state.userFiles).sort(), folders: state.userFolders as string[] };
     });
 
-test('Explorer makes a folder, renames with F2 (asking before an extension changes), and deletes it', async ({ page }) => {
+test('Explorer makes a folder, renames with F2 (asking before an extension changes), and deletes it to the Recycle Bin', async ({ page }) => {
     await run(page, 'cmd');
     await shell(page, 'echo hi > "/home/guest/My Documents/a.txt"');
     await run(page, 'explorer');
@@ -191,15 +191,33 @@ test('Explorer makes a folder, renames with F2 (asking before an extension chang
     await expect(page.getByRole('dialog', { name: 'Error Renaming File or Folder' })).toContainText('it is a system folder');
     await page.getByRole('dialog').getByRole('button', { name: 'OK' }).click();
 
-    // Deleting a folder takes what is in it.
+    // Delete sends the folder, and what is in it, to the Recycle Bin; the bin puts it back.
     await item('My Documents').dblclick();
     await item('Letters').click();
     await ex.getByRole('button', { name: 'Delete this folder' }).click();
     const confirm = page.getByRole('dialog', { name: 'Confirm Folder Delete' });
-    await expect(confirm).toContainText("remove the folder 'Letters' and all its contents");
+    await expect(confirm).toContainText("remove the folder 'Letters' and move all its contents to the Recycle Bin");
     await confirm.getByRole('button', { name: 'Yes' }).click();
     await expect(item('Letters')).toHaveCount(0);
     await expect.poll(async () => (await savedTree(page)).folders).toEqual([]);
+
+    await ex.getByRole('button', { name: 'Recycle Bin', exact: true }).click();
+    const bin = win(page, 'Recycle Bin');
+    await bin.locator('tr[data-bin-item="Letters"]').click();
+    await expect(bin).toContainText('/home/guest/My Documents');
+    await bin.getByRole('button', { name: 'Restore this item' }).click();
+    await expect.poll(async () => (await savedTree(page)).folders).toEqual(['/home/guest/My Documents/Letters']);
+    await expect(bin.locator('tr[data-bin-item]')).toHaveCount(0);
+
+    // Shift+Delete skips the bin.
+    await ex.locator('span:text-is("Windows Explorer")').click();
+    await item('Letters').click();
+    await page.keyboard.press('Shift+Delete');
+    const gone = page.getByRole('dialog', { name: 'Confirm Folder Delete' });
+    await expect(gone).toContainText("remove the folder 'Letters' and all its contents?");
+    await gone.getByRole('button', { name: 'Yes' }).click();
+    await expect.poll(async () => (await savedTree(page)).folders).toEqual([]);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.recycleBin.length)).toBe(0);
 });
 
 test('Save As makes a folder and saves into it; the shell moves it; a reload keeps it', async ({ page }) => {

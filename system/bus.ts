@@ -46,6 +46,7 @@ export type SystemEvent =
     | { type: 'fs:delete'; path: string; folder?: boolean; items?: number }
     | { type: 'fs:mkdir'; path: string }
     | { type: 'fs:move'; from: string; to: string }
+    | { type: 'fs:copy'; from: string; to: string }
     // Settings
     | { type: 'setting:changed'; key: string; value: string }
     // Recycle bin
@@ -53,6 +54,7 @@ export type SystemEvent =
     /** `fromBin` is false when the icon had already been emptied from the bin and was put back anyway. */
     | { type: 'recycle:restored'; name: string; fromBin: boolean }
     | { type: 'recycle:emptied'; count: number }
+    | { type: 'recycle:purged'; name: string }
     // Dialogs
     | { type: 'dialog:shown'; title: string }
     | { type: 'dialog:answered'; title: string; button: string }
@@ -149,6 +151,8 @@ export function describe(e: SystemEvent): Description {
         }
         case 'fs:mkdir':
             return { log: 'System', level: 'information', source: 'Filesystem', category: 'Create', code: 3105, message: `Created the folder ${e.path}.` };
+        case 'fs:copy':
+            return { log: 'System', level: 'information', source: 'Filesystem', category: 'Copy', code: 3107, message: `Copied ${e.from} to ${e.to}.` };
         case 'fs:move': {
             const cut = (p: string) => p.slice(0, p.lastIndexOf('/'));
             // Same folder: a rename, and XP's words for it name only the new name.
@@ -163,6 +167,8 @@ export function describe(e: SystemEvent): Description {
 
         case 'recycle:deleted':
             return { log: 'Application', level: 'information', source: 'RecycleBin', category: 'Delete', code: 5001, message: `"${e.name}" was sent to the Recycle Bin.` };
+        case 'recycle:purged':
+            return { log: 'Application', level: 'warning', source: 'RecycleBin', category: 'Delete', code: 5004, message: `"${e.name}" was deleted from the Recycle Bin for good.` };
         case 'recycle:restored':
             return {
                 log: 'Application',

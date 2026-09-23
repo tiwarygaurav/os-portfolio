@@ -85,7 +85,8 @@ export default function ImageViewerApp({ windowId, payload }: ImageViewerAppProp
         setRotation(0);
     };
 
-    const remove = async () => {
+    /** To the Recycle Bin, as XP's viewer did; with Shift held, for good. */
+    const remove = async (permanently = false) => {
         if (!img || !current) return;
         if (!img.writable) {
             await xpAlert('Error Deleting File or Folder', [
@@ -94,14 +95,17 @@ export default function ImageViewerApp({ windowId, payload }: ImageViewerAppProp
             ], 'error');
             return;
         }
-        const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to delete '${img.name}'?`, {
+        const question = permanently
+            ? `Are you sure you want to delete '${img.name}'?`
+            : `Are you sure you want to send '${img.name}' to the Recycle Bin?`;
+        const ok = await xpConfirm('Confirm File Delete', question, {
             confirmLabel: 'Yes',
             cancelLabel: 'No',
             icon: 'warning',
         });
         if (!ok) return;
         const remaining = pictures.filter((p) => p !== img);
-        const problem = actions.deleteUserFile(current);
+        const problem = permanently ? actions.deleteUserFile(current) : actions.recycleUserPath(current);
         if (problem) {
             void xpAlert('Windows Picture and Fax Viewer', [problem], 'error');
             return;
@@ -123,7 +127,7 @@ export default function ImageViewerApp({ windowId, payload }: ImageViewerAppProp
                 if (!handled) return;
                 e.preventDefault();
                 e.stopPropagation();
-                if (e.key === 'Delete') void remove();
+                if (e.key === 'Delete') void remove(e.shiftKey);
                 else if (pictures.length > 1) show(index + (e.key === 'ArrowLeft' ? -1 : 1));
             }}
             className="flex h-full select-none flex-col bg-[#ece9d8] font-sans outline-none"

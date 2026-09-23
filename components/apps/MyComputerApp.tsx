@@ -1,168 +1,140 @@
 "use client";
 
-
+import { useState } from 'react';
 import { useSystemStore } from '@/store/useSystemStore';
-import { HardDrive } from 'lucide-react';
+import { APPS } from '@/constants/apps';
+import { FILE_ICONS } from '@/constants/fileIcons';
 import { PROJECTS, ROLES, SYSTEM } from '@/content';
 import { DOCUMENTS_PATH, PICTURES_PATH } from '@/system/vfs';
+import { useIsMobile } from '@/utils/viewport';
+import XpIcon from '@/components/ui/XpIcon';
+import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
 
-interface Drive {
+interface Item {
     id: string;
     label: string;
     icon: string;
-    type: 'drive' | 'folder' | 'app';
     /** Real count of what the volume holds, e.g. "4 projects". Never a fabricated capacity. */
     info?: string;
-    onOpen?: () => void;
+    /** What Details says it is. */
+    kind: string;
+    onOpen: () => void;
 }
 
+/**
+ * My Computer: the visitor's folders and the portfolio's "drives".
+ *
+ * It selects on a click and opens on a double-click (or Enter), as XP did — a tap on a phone — and
+ * Details describes the selection. Capacity bars ("18 GB free of 40 GB") were invented numbers on a
+ * panel that claims to report storage; volumes report what they actually contain, counted from
+ * `@/content`.
+ */
 export default function MyComputerApp() {
     const actions = useSystemStore((s) => s.actions);
-    const currentPath = 'My Computer';
+    const [selected, setSelected] = useState<string | null>(null);
+    // A phone has no double-click: a tap opens, as it does for the desktop icons.
+    const isMobile = useIsMobile();
+    const open = (appId: string, payload?: Record<string, string>) => actions.openWindow(appId, undefined, payload);
 
-    /*
-     * Capacity bars ("18 GB free of 40 GB") were invented numbers on a panel that claims to
-     * report storage. Volumes now report what they actually contain, counted from `@/content`.
-     */
-    const drives: Drive[] = [
-        {
-            id: 'c',
-            label: 'Local Disk (C:)',
-            icon: '/icons/My Computer.ico',
-            type: 'drive',
-            info: SYSTEM.name,
-            onOpen: () => actions.openWindow('explorer', undefined, { path: '/' }),
-        },
-        {
-            id: 'd',
-            label: 'Projects (D:)',
-            icon: '/icons/Folder Closed.ico',
-            type: 'drive',
-            info: `${PROJECTS.length} projects`,
-            onOpen: () => actions.openWindow('projects'),
-        },
-        {
-            id: 'e',
-            label: 'Experience (E:)',
-            icon: '/icons/List File.ico',
-            type: 'drive',
-            info: `${ROLES.length} roles`,
-            onOpen: () => actions.openWindow('about'),
-        },
+    const folders: Item[] = [
+        // Real folders: what a visitor saves in Notepad lands in My Documents.
+        { id: 'docs', label: 'My Documents', icon: FILE_ICONS.userFolder, kind: 'File Folder', onOpen: () => open('explorer', { path: DOCUMENTS_PATH }) },
+        { id: 'pictures', label: 'My Pictures', icon: FILE_ICONS.pictures, kind: 'File Folder', onOpen: () => open('explorer', { path: PICTURES_PATH }) },
+        { id: 'music', label: 'My Music', icon: FILE_ICONS.music, kind: 'The media player\'s playlist', onOpen: () => open('music') },
+        { id: 'resume', label: 'Resume', icon: APPS.resume?.iconAsset ?? FILE_ICONS.text, kind: 'Document', onOpen: () => open('resume') },
+        { id: 'profile', label: 'My Profile', icon: APPS.about?.iconAsset ?? FILE_ICONS.userFolder, kind: 'About the owner', onOpen: () => open('about') },
     ];
 
-    const folders: Drive[] = [
-        // Real folders now: what a visitor saves in Notepad lands in My Documents.
-        { id: 'docs', label: 'My Documents', icon: '/icons/documents.png', type: 'folder', onOpen: () => actions.openWindow('explorer', undefined, { path: DOCUMENTS_PATH }) },
-        { id: 'pictures', label: 'My Pictures', icon: '/icons/Display.ico', type: 'folder', onOpen: () => actions.openWindow('explorer', undefined, { path: PICTURES_PATH }) },
-        { id: 'resume', label: 'Resume', icon: '/icons/List File.ico', type: 'folder', onOpen: () => actions.openWindow('resume') },
-        { id: 'music', label: 'My Music', icon: '/icons/Music.ico', type: 'folder', onOpen: () => actions.openWindow('music') },
-        { id: 'profile', label: 'My Profile', icon: '/icons/User Personalization.ico', type: 'folder', onOpen: () => actions.openWindow('about') },
+    const drives: Item[] = [
+        { id: 'c', label: 'Local Disk (C:)', icon: FILE_ICONS.drive, info: SYSTEM.name, kind: 'Local Disk', onOpen: () => open('explorer', { path: '/' }) },
+        { id: 'd', label: 'Projects (D:)', icon: FILE_ICONS.folder, info: `${PROJECTS.length} projects`, kind: 'Local Disk', onOpen: () => open('projects') },
+        { id: 'e', label: 'Experience (E:)', icon: FILE_ICONS.folder, info: `${ROLES.length} roles`, kind: 'Local Disk', onOpen: () => open('about') },
     ];
 
-    const allItems = [...folders, ...drives];
+    const all = [...folders, ...drives];
+    const current = all.find((i) => i.id === selected);
+
+    const tile = (item: Item, wide: boolean) => (
+        <button
+            key={item.id}
+            type="button"
+            onClick={() => {
+                setSelected(item.id);
+                if (isMobile) item.onOpen();
+            }}
+            onFocus={() => setSelected(item.id)}
+            onDoubleClick={item.onOpen}
+            onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                // Enter opens here; it must not also reach the desktop and open a desktop icon.
+                e.preventDefault();
+                e.stopPropagation();
+                item.onOpen();
+            }}
+            className={`flex gap-2 rounded-sm p-1.5 text-left text-xs outline-none focus-visible:outline-dotted focus-visible:outline-1 ${
+                wide ? 'items-center' : 'flex-col items-center text-center'
+            } ${selected === item.id ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'}`}
+        >
+            <XpIcon src={item.icon} size={wide ? 40 : 32} />
+            <span className="min-w-0">
+                <span className="block truncate">{item.label}</span>
+                {wide && item.info && (
+                    <span className={`block text-[10px] ${selected === item.id ? 'text-blue-100' : 'text-gray-500'}`}>{item.info}</span>
+                )}
+            </span>
+        </button>
+    );
 
     return (
-        <div className="h-full flex flex-col bg-[#ece9d8] font-sans select-none">
+        <div className="flex h-full select-none flex-col bg-white font-sans">
             {/*
               * The toolbar here was six inert controls — Back, Forward, Up, Refresh, Search,
               * Folders — plus an address field and a Go button that went nowhere. This window
               * has no navigation history to move through, so they are gone rather than faked.
-              * What remains is a read-only location display.
+              * What remains is the address, read-only.
               */}
-            <div className="flex items-center gap-2 border-b border-gray-400 bg-[#ece9d8] px-2 py-1">
-                <HardDrive size={12} aria-hidden />
-                <span className="text-xs">Location</span>
-                <div className="flex-1 border border-gray-500 bg-white px-2 py-0.5 text-xs">{currentPath}</div>
-            </div>
-
-            {/* Body */}
-            <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-                {/* Sidebar. Stacks above the content on a phone. */}
-                <div className="shrink-0 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 overflow-y-auto text-white text-xs md:w-52">
-                    {/* Links that fired `alert('Not implemented')` have been removed, not relabelled. */}
-                    <ExplorerPanel title="System Tasks">
-                        <SidebarLink label="View system information" onClick={() => actions.openWindow('settings')} />
-                        <SidebarLink label="Change a setting" onClick={() => actions.openWindow('settings')} />
-                        <SidebarLink label="Browse the filesystem" onClick={() => actions.openWindow('explorer')} />
-                        <SidebarLink label="Open a terminal" onClick={() => actions.openWindow('terminal')} />
-                    </ExplorerPanel>
-
-                    <ExplorerPanel title="Other Places">
-                        <SidebarLink label="My Documents" onClick={() => actions.openWindow('explorer', undefined, { path: DOCUMENTS_PATH })} />
-                        <SidebarLink label="My Projects" onClick={() => actions.openWindow('projects')} />
-                        <SidebarLink label="Control Panel" onClick={() => actions.openWindow('settings')} />
-                    </ExplorerPanel>
-
-                    <ExplorerPanel title="Details">
-                        <p className="font-bold mb-1">My Computer</p>
-                        <p className="text-blue-100 text-[10px]">System Folder</p>
-                    </ExplorerPanel>
-                </div>
-
-                {/* Main */}
-                <div className="flex-1 bg-white overflow-y-auto p-3">
-                    <h3 className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">Files Stored on This Computer</h3>
-                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                        {folders.map(f => (
-                            <FileTile key={f.id} item={f} onOpen={() => f.onOpen?.()} />
-                        ))}
-                    </div>
-
-                    <h3 className="font-bold text-sm mb-2 border-b border-gray-300 pb-1">Hard Disk Drives</h3>
-                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {drives.map(d => (
-                            <button
-                                key={d.id}
-                                className="flex cursor-pointer gap-2 rounded p-2 text-left hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                onClick={() => d.onOpen?.()}
-                            >
-                                <img src={d.icon} alt="" className="h-10 w-10 object-contain" />
-                                <div className="min-w-0 flex-1">
-                                    <div className="truncate text-xs font-medium">{d.label}</div>
-                                    {d.info && <div className="text-[10px] text-gray-500">{d.info}</div>}
-                                </div>
-                            </button>
-                        ))}
-                    </div>
+            <div className="xp-addressbar">
+                <span className="hidden sm:inline">Address</span>
+                <div className="xp-addressbar-field">
+                    <XpIcon src={APPS.mycomputer?.iconAsset ?? FILE_ICONS.drive} size={16} />
+                    <span>My Computer</span>
                 </div>
             </div>
 
-            {/* Status Bar */}
-            <div className="bg-[#ece9d8] border-t border-gray-400 px-2 py-0.5 text-xs flex justify-between text-gray-700">
-                <span>{allItems.length} objects</span>
+            <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+                <TaskPane className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
+                    {/* Links that fired `alert('Not implemented')` were removed, not relabelled. */}
+                    <TaskSection title="System Tasks" special>
+                        <TaskLink label="View system information" onClick={() => open('settings')} />
+                        <TaskLink label="Change a setting" onClick={() => open('settings')} />
+                        <TaskLink label="Browse the filesystem" onClick={() => open('explorer')} />
+                        <TaskLink label="Open a command prompt" onClick={() => open('terminal')} />
+                    </TaskSection>
+                    <TaskSection title="Other Places">
+                        <TaskLink label="My Documents" icon={<XpIcon src={FILE_ICONS.userFolder} size={16} />} onClick={() => open('explorer', { path: DOCUMENTS_PATH })} />
+                        <TaskLink label="My Projects" icon={<XpIcon src={APPS.projects?.iconAsset ?? FILE_ICONS.folder} size={16} />} onClick={() => open('projects')} />
+                        <TaskLink label="Control Panel" icon={<XpIcon src={APPS.settings?.iconAsset ?? FILE_ICONS.program} size={16} />} onClick={() => open('settings')} />
+                    </TaskSection>
+                    <TaskSection title="Details">
+                        <TaskText strong>{current?.label ?? 'My Computer'}</TaskText>
+                        <TaskText>{current ? current.kind : 'System Folder'}</TaskText>
+                        {current?.info && <TaskText>{current.info}</TaskText>}
+                    </TaskSection>
+                </TaskPane>
+
+                <div className="order-1 flex-1 p-3 md:order-none md:overflow-y-auto" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
+                    <h3 className="mb-2 border-b border-[#aca899] pb-1 text-xs font-bold text-[#0b3aa4]">Files Stored on This Computer</h3>
+                    <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">{folders.map((f) => tile(f, false))}</div>
+
+                    <h3 className="mb-2 border-b border-[#aca899] pb-1 text-xs font-bold text-[#0b3aa4]">Hard Disk Drives</h3>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{drives.map((d) => tile(d, true))}</div>
+                </div>
+            </div>
+
+            <div className="flex justify-between border-t border-[#aca899] bg-[#ece9d8] px-2 py-0.5 text-xs text-gray-700">
+                <span>{current ? `1 object selected` : `${all.length} objects`}</span>
                 <span>My Computer</span>
             </div>
         </div>
-    );
-}
-
-function ExplorerPanel({ title, children }: { title: string; children: React.ReactNode }) {
-    return (
-        <div className="mb-3 bg-white/20 rounded overflow-hidden">
-            <div className="bg-gradient-to-r from-[#f0b765] to-[#cf8b1f] px-2 py-1 font-bold text-[11px] text-white">{title}</div>
-            <div className="p-2 bg-white/10 space-y-1">{children}</div>
-        </div>
-    );
-}
-
-function SidebarLink({ label, onClick }: { label: string; onClick: () => void }) {
-    return (
-        <button onClick={onClick} className="text-left text-[11px] hover:underline w-full">
-            🔧 {label}
-        </button>
-    );
-}
-
-function FileTile({ item, onOpen }: { item: Drive; onOpen: () => void }) {
-    return (
-        <button
-            onDoubleClick={onOpen}
-            onClick={onOpen}
-            className="flex flex-col items-center p-2 hover:bg-blue-100 rounded text-xs"
-        >
-            <img src={item.icon} alt={item.label} className="w-10 h-10 object-contain mb-1" />
-            <span className="text-center leading-tight">{item.label}</span>
-        </button>
     );
 }

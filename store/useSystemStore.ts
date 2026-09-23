@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { APPS } from '@/constants/apps';
 import { PERSISTED_KEYS, type PersistedKey } from '@/store/persistence';
-import { isMobileViewport } from '@/utils/viewport';
+import { isMobileViewport, taskbarHeight } from '@/utils/viewport';
 import { publish } from '@/system/bus';
 import {
     USER_FILES_QUOTA,
@@ -10,12 +10,17 @@ import {
     lookup,
     mimeForName,
     mountUserFiles,
+    planCopy,
     planMove,
+    planRecycle,
     planRemoveFolder,
+    planRestore,
+    recycledSize,
     sanitizeFolders,
     userFilesSize,
     validateUserContent,
     validateUserPath,
+    type RecycledTree,
     type UserFile,
     type UserTree,
 } from '@/system/vfs';
@@ -50,13 +55,25 @@ export interface AppWindow {
     payload?: WindowPayload;
 }
 
-export interface RecycledItem {
+interface RecycledBase {
     id: string;
     name: string;
-    icon: string;
+    /** Where it was deleted from, as the bin's Original Location column shows it. */
     origin: string;
     deletedAt: number;
 }
+
+/**
+ * What the Recycle Bin holds: a desktop icon (`kind` absent in saves from before files could be
+ * recycled), or a visitor's file or folder with everything that was in it.
+ */
+export type RecycledItem =
+    | (RecycledBase & { kind?: 'icon'; icon: string })
+    | (RecycledBase & { kind: 'file'; item: RecycledTree });
+
+const recycledTrees = (bin: readonly RecycledItem[]): RecycledTree[] =>
+    bin.flatMap((r) => (r.kind === 'file' ? [r.item] : []));
+let recycleCounter = 0;
 
 export interface DialogButton {
     id: string;
@@ -165,8 +182,16 @@ interface SystemState {
         resetDesktopIcons: () => void;
 
         deleteIcon: (appId: string, name: string, icon: string) => void;
-        restoreItem: (id: string) => void;
-        /** Put every deleted desktop icon back. */
+        /** Put a Recycle Bin item back where it was. Returns why it cannot go back, or null. */
+        restoreItem: (id: string) => string | null;
+        /** Delete one Recycle Bin item for good. */
+        purgeRecycledItem: (id: string) => void;
+        /**
+         * Send a visitor's file, or a folder and everything in it, to the Recycle Bin — what
+         * Explorer's Delete does. Returns why it cannot, or null. (`rm` deletes outright.)
+         */
+        recycleUserPath: (path: string) => string | null;
+        /** Put every deleted desktop icon back. Files in the bin stay there. */
         restoreAllItems: () => void;
 
         /**
@@ -184,6 +209,11 @@ interface SystemState {
          * failed, or null. A picture wallpaper inside it follows it to the new path.
          */
         moveUserPath: (from: string, to: string) => string | null;
+        /**
+         * Copy a file (the visitor's, or one of the portfolio's) or a visitor's folder with everything
+         * in it. Returns why it cannot, or null. Never overwrites.
+         */
+        copyUserPath: (from: string, to: string) => string | null;
         /**
          * Delete a folder the visitor made. Without `recursive`, only an empty one (`rmdir`); with
          * it, everything inside goes too (Explorer's Delete, `rm -r`). Returns why it failed, or null.
@@ -283,6 +313,29 @@ function commitTree(set: StoreSet, next: UserTree, before: UserTree): string | n
     return 'This browser refused to store the change, so it was not made. Site data may be blocked, or storage is full.';
 }
 
+/**
+ * Recycle Bin entries from storage that are still well-formed. A file entry is only checked for
+ * shape here; putting it back re-validates every path, as a live restore does.
+ */
+function sanitizeRecycleBin(v: unknown): RecycledItem[] {
+    if (!Array.isArray(v)) return [];
+    const str = (x: unknown): x is string => typeof x === 'string';
+    return v.flatMap((r): RecycledItem[] => {
+        if (!r || typeof r !== 'object') return [];
+        const { id, name, origin, deletedAt, kind } = r as Record<string, unknown>;
+        if (!str(id) || !str(name) || !str(origin) || typeof deletedAt !== 'number') return [];
+        const base = { id, name, origin, deletedAt };
+        if (kind === 'file') {
+            const item = (r as { item?: Partial<RecycledTree> }).item;
+            if (!item || !str(item.path) || !Array.isArray(item.folders) || !item.folders.every(str)) return [];
+            const files = sanitizeUserFiles(item.files, [], true);
+            return [{ ...base, kind: 'file', item: { path: item.path, files, folders: item.folders } }];
+        }
+        const icon = (r as { icon?: unknown }).icon;
+        return str(icon) ? [{ ...base, icon }] : [];
+    });
+}
+
 /** A saved picture wallpaper, if it is still well-formed. Whether the file exists is checked at draw time. */
 function sanitizeWallpaperFile(v: unknown): WallpaperFile | null {
     if (!v || typeof v !== 'object') return null;
@@ -292,7 +345,7 @@ function sanitizeWallpaperFile(v: unknown): WallpaperFile | null {
 }
 
 /** Keep only well-formed visitor files from whatever localStorage handed back. */
-function sanitizeUserFiles(v: unknown, folders: readonly string[]): Record<string, UserFile> {
+function sanitizeUserFiles(v: unknown, folders: readonly string[], shapeOnly = false): Record<string, UserFile> {
     if (!v || typeof v !== 'object') return {};
     const out: Record<string, UserFile> = {};
     const mimes: UserFile['mime'][] = ['text/plain', 'text/markdown', 'image/png', 'image/jpeg'];
@@ -301,7 +354,7 @@ function sanitizeUserFiles(v: unknown, folders: readonly string[]): Record<strin
         const { content, mime, modified } = f as Partial<UserFile>;
         if (typeof content !== 'string' || !mimes.includes(mime as UserFile['mime'])) continue;
         // The same two rules a live write obeys: a visitor can edit localStorage by hand.
-        if (validateUserPath(path, folders) || validateUserContent(path, content)) continue;
+        if (!shapeOnly && (validateUserPath(path, folders) || validateUserContent(path, content))) continue;
         out[path] = { content, mime: mime as UserFile['mime'], modified: typeof modified === 'number' ? modified : 0 };
     }
     return out;
@@ -324,9 +377,6 @@ const nextPid = () => `w${++pidCounter}`;
 
 /** Windows occupy z-indices starting here. The taskbar sits above this band, at z-50. */
 const Z_BASE = 10;
-
-/** Height of the taskbar in px; windows and icons must stay above it. */
-const TASKBAR_HEIGHT = 36;
 
 /** Footprint of a desktop icon (`DesktopIcon.tsx`: `w-[80px] h-[88px]`). */
 const ICON_WIDTH = 80;
@@ -365,7 +415,7 @@ const clampToViewport = (
     if (typeof window === 'undefined') return position;
     const KEEP_VISIBLE = 80;   // horizontal strip that must remain reachable
     const maxX = window.innerWidth - KEEP_VISIBLE;
-    const maxY = window.innerHeight - TASKBAR_HEIGHT - 28; // title bar stays above the taskbar
+    const maxY = window.innerHeight - taskbarHeight() - 28; // title bar stays above the taskbar
     return {
         x: Math.min(Math.max(position.x, KEEP_VISIBLE - size.width), maxX),
         y: Math.min(Math.max(position.y, 0), Math.max(0, maxY)),
@@ -381,7 +431,7 @@ const clampToViewport = (
 export const clampIconToViewport = (position: { x: number; y: number }) => {
     if (typeof window === 'undefined') return position;
     const maxX = Math.max(0, window.innerWidth - ICON_WIDTH);
-    const maxY = Math.max(0, window.innerHeight - TASKBAR_HEIGHT - ICON_HEIGHT);
+    const maxY = Math.max(0, window.innerHeight - taskbarHeight() - ICON_HEIGHT);
     return {
         x: Math.min(Math.max(position.x, 0), maxX),
         y: Math.min(Math.max(position.y, 0), maxY),
@@ -400,7 +450,7 @@ const initialSize = (appId: string) => {
     const VIEWPORT_MARGIN = 16;
     return {
         width: Math.min(width, Math.max(1, window.innerWidth - VIEWPORT_MARGIN)),
-        height: Math.min(height, Math.max(1, window.innerHeight - TASKBAR_HEIGHT - VIEWPORT_MARGIN)),
+        height: Math.min(height, Math.max(1, window.innerHeight - taskbarHeight() - VIEWPORT_MARGIN)),
     };
 };
 
@@ -771,11 +821,58 @@ export const useSystemStore = create<SystemState>()(
 
                 restoreItem: (id) => {
                     const item = get().recycleBin.find(r => r.id === id);
+                    if (item?.kind === 'file') {
+                        const before: UserTree = { files: get().userFiles, folders: get().userFolders };
+                        const plan = planRestore(before, item.item);
+                        if (typeof plan === 'string') return plan;
+                        const refused = commitTree(set, plan, before);
+                        if (refused) return refused;
+                        set(state => ({ recycleBin: state.recycleBin.filter(r => r.id !== id) }));
+                        publish({ type: 'recycle:restored', name: item.name, fromBin: true });
+                        return null;
+                    }
                     set(state => ({
                         deletedAppIds: state.deletedAppIds.filter(a => a !== id),
                         recycleBin: state.recycleBin.filter(r => r.id !== id)
                     }));
                     if (item) publish({ type: 'recycle:restored', name: item.name, fromBin: true });
+                    return null;
+                },
+
+                purgeRecycledItem: (id) => {
+                    const item = get().recycleBin.find(r => r.id === id);
+                    if (!item) return;
+                    set(state => ({ recycleBin: state.recycleBin.filter(r => r.id !== id) }));
+                    publish({ type: 'recycle:purged', name: item.name });
+                },
+
+                recycleUserPath: (path) => {
+                    const before: UserTree = { files: get().userFiles, folders: get().userFolders };
+                    const plan = planRecycle(before, path);
+                    if (typeof plan === 'string') return plan;
+                    const name = path.slice(path.lastIndexOf('/') + 1);
+                    const entry: RecycledItem = {
+                        kind: 'file',
+                        id: `file-${Date.now().toString(36)}-${++recycleCounter}`,
+                        name,
+                        origin: path.slice(0, path.lastIndexOf('/')),
+                        deletedAt: Date.now(),
+                        item: plan.taken,
+                    };
+                    const bin = get().recycleBin;
+                    // One write: the file leaves the tree and lands in the bin together, so a refusal
+                    // by the browser can put both back as they were.
+                    set({ userFiles: plan.tree.files, userFolders: [...plan.tree.folders], recycleBin: [...bin, entry] });
+                    if (persistFailed) {
+                        set({ userFiles: before.files, userFolders: [...before.folders], recycleBin: bin });
+                        return 'This browser refused to store the change, so nothing was deleted. Site data may be blocked, or storage is full.';
+                    }
+                    const wallpaper = get().wallpaperFile;
+                    const tookWallpaper = !!wallpaper && (wallpaper.path === path || wallpaper.path.startsWith(path + '/'));
+                    if (tookWallpaper) set({ wallpaperFile: null });
+                    publish({ type: 'recycle:deleted', name });
+                    if (tookWallpaper) publish({ type: 'setting:changed', key: 'wallpaper', value: get().wallpaperId });
+                    return null;
                 },
 
                 /**
@@ -787,8 +884,9 @@ export const useSystemStore = create<SystemState>()(
                     // Publish per *deleted icon*, not per bin entry: an icon whose bin entry was
                     // already emptied still comes back, and the log used to say nothing about it.
                     const { recycleBin, deletedAppIds } = get();
-                    if (recycleBin.length === 0 && deletedAppIds.length === 0) return;
-                    set({ deletedAppIds: [], recycleBin: [] });
+                    if (deletedAppIds.length === 0 && !recycleBin.some(r => r.kind !== 'file')) return;
+                    // Only icons: a file in the bin is not a desktop icon, and must not vanish with them.
+                    set({ deletedAppIds: [], recycleBin: recycleBin.filter(r => r.kind === 'file') });
                     deletedAppIds.forEach((id) => {
                         const item = recycleBin.find(r => r.id === id);
                         publish({ type: 'recycle:restored', name: item?.name ?? APPS[id]?.title ?? id, fromBin: Boolean(item) });
@@ -801,7 +899,7 @@ export const useSystemStore = create<SystemState>()(
                     const current = get().userFiles;
                     const created = current[path] === undefined;
                     const next = { ...current, [path]: { content, mime: mime ?? mimeForName(path), modified: Date.now() } };
-                    if (userFilesSize(next, get().userFolders) > USER_FILES_QUOTA) {
+                    if (userFilesSize(next, get().userFolders) + recycledSize(recycledTrees(get().recycleBin)) > USER_FILES_QUOTA) {
                         return 'There is not enough space left in this browser to save that file. Delete something from /home/guest first.';
                     }
                     set({ userFiles: next });
@@ -837,7 +935,7 @@ export const useSystemStore = create<SystemState>()(
                     const invalid = validateUserPath(path, folders);
                     if (invalid) return invalid;
                     const next = [...folders, path].sort();
-                    if (userFilesSize(files, next) > USER_FILES_QUOTA) {
+                    if (userFilesSize(files, next) + recycledSize(recycledTrees(get().recycleBin)) > USER_FILES_QUOTA) {
                         return 'There is not enough space left in this browser. Delete something from /home/guest first.';
                     }
                     const refused = commitTree(set, { files, folders: next }, { files, folders });
@@ -859,6 +957,19 @@ export const useSystemStore = create<SystemState>()(
                         set({ wallpaperFile: { ...wallpaper, path: to + wallpaper.path.slice(from.length) } });
                     }
                     publish({ type: 'fs:move', from, to });
+                    return null;
+                },
+
+                copyUserPath: (from, to) => {
+                    const before: UserTree = { files: get().userFiles, folders: get().userFolders };
+                    const plan = planCopy(before, from, to);
+                    if (typeof plan === 'string') return plan;
+                    if (userFilesSize(plan.files, plan.folders) + recycledSize(recycledTrees(get().recycleBin)) > USER_FILES_QUOTA) {
+                        return 'There is not enough space left in this browser for the copy. Delete something from /home/guest first.';
+                    }
+                    const refused = commitTree(set, plan, before);
+                    if (refused) return refused;
+                    publish({ type: 'fs:copy', from, to });
                     return null;
                 },
 
@@ -940,6 +1051,7 @@ export const useSystemStore = create<SystemState>()(
                     screenSaver: sanitizeScreenSaver(saved.screenSaver),
                     userFiles: sanitizeUserFiles(saved.userFiles, folders),
                     userFolders: folders,
+                    recycleBin: sanitizeRecycleBin(saved.recycleBin),
                     wallpaperFile: sanitizeWallpaperFile(saved.wallpaperFile),
                 };
             },
@@ -952,10 +1064,11 @@ export const useSystemStore = create<SystemState>()(
  * and must not import the store, so the store pushes to it: once now, and on every change —
  * including the rehydration from localStorage, which arrives as an ordinary state change.
  */
-mountUserFiles(useSystemStore.getState().userFiles, useSystemStore.getState().userFolders);
+const mount = (s: SystemState) => mountUserFiles(s.userFiles, s.userFolders, recycledSize(recycledTrees(s.recycleBin)));
+mount(useSystemStore.getState());
 useSystemStore.subscribe((state, prev) => {
-    if (state.userFiles !== prev.userFiles || state.userFolders !== prev.userFolders) {
-        mountUserFiles(state.userFiles, state.userFolders);
+    if (state.userFiles !== prev.userFiles || state.userFolders !== prev.userFolders || state.recycleBin !== prev.recycleBin) {
+        mount(state);
     }
 });
 

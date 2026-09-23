@@ -451,13 +451,17 @@ export const isUserPath = (absPath: string): boolean => userFiles[absPath] !== u
 
 let userFiles: Record<string, UserFile> = {};
 let userFolders: readonly string[] = [];
+/** Characters the Recycle Bin's files hold. Not in the tree, but in the same storage. */
+let recycledChars = 0;
 let guestCache: VDir | null = null;
 
 /**
  * Mount the visitor's files and folders. Called by the store whenever either changes, and by
  * tests. Both are kept by reference — the store replaces them on every write, never mutates them.
+ * `recycled` is what the Recycle Bin holds, so `df` can report the space it takes.
  */
-export function mountUserFiles(files: Record<string, UserFile>, folders: readonly string[] = []): void {
+export function mountUserFiles(files: Record<string, UserFile>, folders: readonly string[] = [], recycled = 0): void {
+    recycledChars = recycled;
     if (files === userFiles && folders === userFolders) return;
     userFiles = files;
     userFolders = folders;
@@ -481,6 +485,58 @@ export function nextFolderName(parent: string, tree: UserTree, base = 'New Folde
     };
     if (!taken(base)) return base;
     for (let n = 2; ; n++) if (!taken(`${base} (${n})`)) return `${base} (${n})`;
+}
+
+/**
+ * The name a pasted copy takes in \`parent\` if its own is taken there, as XP named them:
+ * "Copy of notes.txt", then "Copy (2) of notes.txt".
+ */
+export function copyName(parent: string, name: string, tree: UserTree): string {
+    const free = (n: string) => {
+        const path = `${parent === '/' ? '' : parent}/${n}`;
+        return tree.files[path] === undefined && !tree.folders.includes(path) && !lookup(path);
+    };
+    if (free(name)) return name;
+    if (free(`Copy of ${name}`)) return `Copy of ${name}`;
+    for (let n = 2; ; n++) if (free(`Copy (${n}) of ${name}`)) return `Copy (${n}) of ${name}`;
+}
+
+/**
+ * Copy a file — the visitor's, or one of the portfolio's — or a folder the visitor made, with
+ * everything in it, to \`to\`. Pure, like \`planMove\`. A built-in picture is a file on the site, which
+ * the browser's storage cannot hold a copy of, and a built-in folder is the portfolio itself: both
+ * are refused with the reason rather than half-copied.
+ */
+export function planCopy(tree: UserTree, from: string, to: string): UserTree | string {
+    const node = lookup(from);
+    if (!node) return `Cannot find ${from}.`;
+    if (tree.files[to] !== undefined || tree.folders.includes(to) || lookup(to)) return 'A file or folder with that name already exists.';
+    const invalid = validateUserPath(to, tree.folders);
+    if (invalid) return invalid;
+
+    if (isDir(node)) {
+        if (!tree.folders.includes(from)) {
+            return `${node.name} is part of the portfolio. Its files can be copied one at a time; the folder cannot.`;
+        }
+        if (inside(to, from)) return `Cannot copy ${node.name}: the destination folder is inside the folder being copied.`;
+        const files = { ...tree.files };
+        for (const [p, f] of Object.entries(tree.files)) if (inside(p, from)) files[rebase(p, from, to)] = f;
+        const added = tree.folders.filter((p) => p === from || inside(p, from)).map((p) => rebase(p, from, to));
+        if ([...added, ...Object.keys(files)].some((p) => p.length > MAX_PATH)) {
+            return 'The path would be too long. Use a shorter name, or a folder nearer the top.';
+        }
+        return { files, folders: [...tree.folders, ...added].sort() };
+    }
+
+    if (node.mime === 'application/x-link' || node.mime === 'application/x-app') {
+        return `${node.name} is a shortcut. Shortcuts cannot be copied here.`;
+    }
+    if (node.src && !node.src.startsWith('data:')) return `${node.name} is a built-in picture. It can be viewed, not copied.`;
+    const own = tree.files[from];
+    const content = own ? own.content : (node.src ?? node.content);
+    const problem = validateUserContent(to, content);
+    if (problem) return problem;
+    return { files: { ...tree.files, [to]: { content, mime: own?.mime ?? mimeForName(to), modified: own?.modified ?? Date.now() } }, folders: tree.folders };
 }
 
 /**
@@ -539,6 +595,77 @@ export function planRemoveFolder(tree: UserTree, path: string, recursive: boolea
         tree: { files: nextFiles, folders: tree.folders.filter((p) => p !== path && !inside(p, path)) },
         removed,
     };
+}
+
+/** What a Recycle Bin entry keeps of the visitor's tree: a file, or a folder and everything in it. */
+export interface RecycledTree {
+    /** Where it was: the file, or the top folder. */
+    path: string;
+    /** Keyed by the paths they had. */
+    files: Record<string, UserFile>;
+    folders: string[];
+}
+
+/** Characters a set of Recycle Bin entries holds in storage. */
+export const recycledSize = (entries: readonly RecycledTree[]): number =>
+    entries.reduce((n, e) => n + e.path.length + userFilesSize(e.files, e.folders), 0);
+
+/**
+ * Take a visitor's file, or a folder with everything in it, out of the tree for the Recycle Bin.
+ * Pure: returns the tree without it and what was taken, or why it cannot be.
+ */
+export function planRecycle(tree: UserTree, path: string): { tree: UserTree; taken: RecycledTree } | string {
+    const isFolder = tree.folders.includes(path);
+    const file = tree.files[path];
+    if (!isFolder && !file) {
+        return lookup(path)
+            ? `${baseName(path)} cannot be deleted. Only files and folders you made in /home/guest can be.`
+            : `Cannot find ${path}.`;
+    }
+    if (!isFolder) {
+        const files = { ...tree.files };
+        delete files[path];
+        return { tree: { files, folders: tree.folders }, taken: { path, files: { [path]: file }, folders: [] } };
+    }
+    const files: Record<string, UserFile> = {};
+    const takenFiles: Record<string, UserFile> = {};
+    for (const [p, f] of Object.entries(tree.files)) (inside(p, path) ? takenFiles : files)[p] = f;
+    const takenFolders = tree.folders.filter((p) => p === path || inside(p, path));
+    return {
+        tree: { files, folders: tree.folders.filter((p) => !takenFolders.includes(p)) },
+        taken: { path, files: takenFiles, folders: takenFolders },
+    };
+}
+
+/**
+ * Put a Recycle Bin entry back where it was. Folders on the way that have gone since are made
+ * again, as XP did. Anything now standing at one of its paths stops it — nothing is overwritten —
+ * and the reason names what is in the way.
+ */
+export function planRestore(tree: UserTree, taken: RecycledTree): UserTree | string {
+    const name = baseName(taken.path);
+    const folders = [...tree.folders];
+    const inTheWay = (p: string) =>
+        `Cannot restore ${name}: there is already a file or folder named ${baseName(p)} in ${parentOf(p)}. Rename or move it, then try again.`;
+
+    const missing: string[] = [];
+    for (let up = parentOf(taken.path); up.startsWith(GUEST_PATH + '/') && !isWritableDir(up, folders); up = parentOf(up)) {
+        missing.unshift(up);
+    }
+    for (const p of [...missing, ...[...taken.folders].sort((a, b) => a.length - b.length)]) {
+        if (tree.files[p] !== undefined || folders.includes(p)) return inTheWay(p);
+        const invalid = validateUserPath(p, folders);
+        if (invalid) return `Cannot restore ${name}: ${invalid}`;
+        folders.push(p);
+    }
+    const files = { ...tree.files };
+    for (const [p, f] of Object.entries(taken.files)) {
+        if (files[p] !== undefined) return inTheWay(p);
+        const invalid = validateUserPath(p, folders);
+        if (invalid) return `Cannot restore ${name}: ${invalid}`;
+        files[p] = f;
+    }
+    return { files, folders: folders.sort() };
 }
 
 /**
@@ -624,8 +751,11 @@ function guestDir(): VDir {
     return guestCache;
 }
 
-/** Characters the mounted visitor files and folders take now; what `df` reports. */
-export const guestUsage = (): number => userFilesSize(userFiles, userFolders);
+/** Characters the mounted visitor files and folders take now, with the Recycle Bin; what `df` reports. */
+export const guestUsage = (): number => userFilesSize(userFiles, userFolders) + recycledChars;
+
+/** Of `guestUsage()`, the characters the Recycle Bin holds. */
+export const recycledUsage = (): number => recycledChars;
 
 /** Total characters the visitor's files (and folders) would take if they were saved. */
 export const userFilesSize = (files: Record<string, UserFile>, folders: readonly string[] = []): number =>

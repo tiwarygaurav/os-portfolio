@@ -73,13 +73,23 @@ forgot `/proc`, so `ls /` showed the process table and `tree /` did not.
 
 ### The visitor's files (`vfs.ts`)
 
-`/home/guest` is mounted from outside: the store calls `mountUserFiles(files)` whenever its
-`userFiles` change, and `rootFor` composes `/home` from the static owner's home plus that mount.
-`validateUserPath` is the single rule for what may be written (only My Documents, My Pictures and the
-guest root; XP's invalid characters; 64-char names); the shell's `>`, `touch`, `rm` and the store's
-`writeUserFile` all go through it. Images keep their data: URL in `src` and a one-line description in
-`content`, so `cat` and `grep` never print base64. `ShellContext` gained `writeFile` / `deleteFile`,
-and `closeProcess(pid, 'kill' | 'exit')` so an ordinary `exit` is not logged as a forced end.
+`/home/guest` is mounted from outside: the store calls `mountUserFiles(files, folders, recycled)`
+whenever its `userFiles`, `userFolders` or Recycle Bin change, and `rootFor` composes `/home` from the
+static owner's home plus that mount. `validateUserPath(path, folders?)` is the single rule for what
+may be written (My Documents, My Pictures, the guest root and any folder the visitor made in them;
+XP's invalid characters; 64-char names; a 240-char path); the shell's `>`, `touch`, `mkdir`, `mv`,
+`cp`, `rm` and the store all go through it. Images keep their data: URL in `src` and a one-line
+description in `content`, so `cat` and `grep` never print base64.
+
+Every change to the visitor's tree that is more than one write is a **pure plan** here, which the
+store applies and the unit tests call directly: `planMove` (rename/move, with contents; never
+overwrites, never into itself), `planCopy` (a file, a portfolio text file, or a visitor's folder;
+refuses a built-in picture or folder with the reason), `planRemoveFolder`, `planRecycle` and
+`planRestore` (the Recycle Bin; a restore remakes folders that have gone and refuses rather than
+overwrite). `nextFolderName` and `copyName` give XP's "New Folder (2)" and "Copy of x" names.
+
+`ShellContext` gained `writeFile` / `deleteFile` / `makeDir` / `move` / `removeDir`, and
+`closeProcess(pid, 'kill' | 'exit')` so an ordinary `exit` is not logged as a forced end.
 
 ### `bus.ts`
 

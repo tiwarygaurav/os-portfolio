@@ -94,3 +94,17 @@ test('Delete on a file stays in Explorer, and a read-only file says why it canno
     await error.getByRole('button', { name: 'OK' }).click();
     await expect(page.locator('[data-desktop-icon]')).not.toHaveCount(0);
 });
+
+test('My Computer selects on a click, opens on a double-click, and Details describes the selection', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'mycomputer');
+    const mc = win(page, 'My Computer');
+    const docs = mc.getByRole('button', { name: 'My Documents', exact: true }).last();
+    await docs.click();
+    // A single click only selects, as XP did: nothing opens.
+    await expect(win(page, 'Windows Explorer')).toHaveCount(0);
+    await expect(mc).toContainText('1 object selected');
+    await expect(mc.locator('.xp-taskpane')).toContainText('File Folder');
+    await docs.dblclick();
+    await expect(win(page, 'Windows Explorer').locator('#explorer-address')).toHaveValue('/home/guest/My Documents');
+});

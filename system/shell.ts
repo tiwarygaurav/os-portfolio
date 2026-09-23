@@ -23,6 +23,7 @@ import {
     GUEST_PATH,
     USER_FILES_QUOTA,
     guestUsage,
+    recycledUsage,
     type ProcEntry,
     type VNode,
 } from './vfs';
@@ -87,6 +88,8 @@ export interface ShellContext {
     move: (from: string, to: string) => string | null;
     /** Delete a visitor's folder; `recursive` takes its contents too. Returns why it failed, or null. */
     removeDir: (path: string, recursive: boolean) => string | null;
+    /** Copy a file, or a visitor's folder with its contents. Returns why it failed, or null. */
+    copy: (from: string, to: string) => string | null;
 }
 
 interface Command {
@@ -381,9 +384,11 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
 
     cp: {
         name: 'cp',
-        summary: 'Copy a file — yours or the portfolio\'s — into /home/guest.',
-        usage: 'cp <file>... <destination>',
-        run: (args, ctx) => {
+        summary: 'Copy a file — yours or the portfolio\'s — or, with -r, a folder, into /home/guest.',
+        usage: 'cp [-r] <source>... <destination>',
+        run: (rawArgs, ctx) => {
+            const recursive = rawArgs.some((a) => /^-[rR]+$/.test(a));
+            const args = rawArgs.filter((a) => !/^-[rR]+$/.test(a));
             if (args.length < 2) return out(error(args.length ? `cp: missing destination file operand after '${args[0]}'` : 'cp: missing file operand'));
             const dest = resolvePath(ctx.cwd, args[args.length - 1]);
             const destNode = lookup(dest, ctx.processes());
@@ -396,13 +401,12 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 const node = lookup(from, ctx.processes());
                 const say = (why: string) => lines.push(error(`cp: cannot copy '${prettyPath(from)}': ${why}`));
                 if (!node) { say('No such file or directory'); continue; }
-                if (isDir(node)) { say('Is a directory. Only files can be copied.'); continue; }
-                // A visitor's picture is its data URL. A built-in picture is a file on the site,
-                // which the browser's storage cannot hold a copy of — say so rather than save a stub.
-                if (node.src && !node.src.startsWith('data:')) { say('built-in pictures can be viewed, not copied.'); continue; }
+                if (isDir(node) && !recursive) { say('Is a directory. Use cp -r to copy a folder.'); continue; }
                 const to = intoDir ? joinPath(dest, node.name) : dest;
                 if (to === from) { say('it is the same file'); continue; }
-                const problem = ctx.writeFile(to, node.src ?? node.content);
+                // One rule for what can be copied, shared with Explorer's Copy and Paste: a built-in
+                // picture or folder is refused with the reason, and nothing is overwritten.
+                const problem = ctx.copy(from, to);
                 if (problem) say(problem);
             }
             return out(...lines);
@@ -421,6 +425,9 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 text(`localStorage ${kb(USER_FILES_QUOTA)} ${kb(used)} ${kb(USER_FILES_QUOTA - used)}  ${String(pct).padStart(3)}%  ${GUEST_PATH}`),
                 text('content/       (built into the page, read-only)       /home/' + HOME_PATH.split('/').pop()),
                 blank(),
+                ...(recycledUsage() > 0
+                    ? [muted(`${Math.round(recycledUsage() / 1024)}K of that is in the Recycle Bin. Empty it to free the space.`)]
+                    : []),
                 muted('Files you save in /home/guest live in this browser only. Nobody else can see them.'),
             );
         },

@@ -1,109 +1,196 @@
 "use client";
 
-import Image from 'next/image';
-import { useSystemStore } from '@/store/useSystemStore';
-import { Trash2, RotateCw } from 'lucide-react';
+import { useState } from 'react';
+import { useSystemStore, type RecycledItem } from '@/store/useSystemStore';
+import { APPS } from '@/constants/apps';
+import { FILE_ICONS } from '@/constants/fileIcons';
+import { DOCUMENTS_PATH } from '@/system/vfs';
+import { xpAlert, xpConfirm } from '@/utils/dialog';
+import { playSound } from '@/utils/sound';
+import { useIsMobile } from '@/utils/viewport';
+import XpIcon from '@/components/ui/XpIcon';
+import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
+
+/**
+ * The Recycle Bin: desktop icons, and the visitor's files and folders, that were deleted.
+ *
+ * XP's layout: select an item, then Restore this item from the task pane; Delete removes it for
+ * good; Empty the Recycle Bin asks first. A file goes back to the folder it came from, and a folder
+ * that has gone since is made again — unless something now stands at that path, in which case it
+ * says what, and nothing is overwritten. Deleting from the Command Prompt (`rm`) skips the bin, as
+ * `del` did.
+ */
+
+/** XP's Type column. */
+function typeOf(item: RecycledItem): string {
+    if (item.kind !== 'file') return 'Shortcut';
+    if (item.item.folders.includes(item.item.path)) return 'File Folder';
+    const f = item.item.files[item.item.path];
+    if (f?.mime === 'image/png') return 'PNG Image';
+    if (f?.mime === 'image/jpeg') return 'JPEG Image';
+    return 'Text Document';
+}
+
+function iconOf(item: RecycledItem): string {
+    if (item.kind !== 'file') return item.icon;
+    if (item.item.folders.includes(item.item.path)) return FILE_ICONS.folder;
+    const mime = item.item.files[item.item.path]?.mime;
+    return mime === 'image/png' || mime === 'image/jpeg' ? FILE_ICONS.picture : FILE_ICONS.text;
+}
 
 export default function RecycleBinApp() {
     const recycleBin = useSystemStore((s) => s.recycleBin);
-    const emptyRecycleBin = useSystemStore((s) => s.actions.emptyRecycleBin);
-    const restoreItem = useSystemStore((s) => s.actions.restoreItem);
+    const actions = useSystemStore((s) => s.actions);
+    const [selected, setSelected] = useState<string | null>(null);
+    // A phone has no double-click or right-click: a tap selects, and the task pane acts.
+    const isMobile = useIsMobile();
+    const current = recycleBin.find((r) => r.id === selected);
     const isEmpty = recycleBin.length === 0;
+    const binIcon = isEmpty ? FILE_ICONS.binEmpty : FILE_ICONS.binFull;
+
+    const restore = async (item: RecycledItem) => {
+        const problem = actions.restoreItem(item.id);
+        if (problem) await xpAlert('Recycle Bin', [problem], 'error');
+        else setSelected(null);
+    };
+
+    const restoreAll = async () => {
+        for (const item of recycleBin) {
+            const problem = actions.restoreItem(item.id);
+            if (problem) {
+                await xpAlert('Recycle Bin', [problem], 'error');
+                return;
+            }
+        }
+        setSelected(null);
+    };
+
+    const purge = async (item: RecycledItem) => {
+        const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to permanently delete '${item.name}'?`, {
+            confirmLabel: 'Yes',
+            cancelLabel: 'No',
+            icon: 'warning',
+        });
+        if (!ok) return;
+        actions.purgeRecycledItem(item.id);
+        setSelected(null);
+        playSound('recycle');
+    };
+
+    const emptyBin = async () => {
+        const n = recycleBin.length;
+        if (!n) return;
+        const ok = await xpConfirm(
+            n === 1 ? 'Confirm File Delete' : 'Confirm Multiple File Delete',
+            n === 1 ? 'Are you sure you want to permanently delete this item?' : `Are you sure you want to delete these ${n} items?`,
+            { confirmLabel: 'Yes', cancelLabel: 'No', icon: 'warning' },
+        );
+        if (!ok) return;
+        actions.emptyRecycleBin();
+        setSelected(null);
+        playSound('recycle');
+    };
 
     return (
-        <div className="h-full flex flex-col bg-[#ece9d8] font-sans select-none">
-            {/* Toolbar */}
-            <div className="flex items-center gap-1 px-2 py-1 border-b border-gray-400">
-                <button
-                    onClick={emptyRecycleBin}
-                    disabled={isEmpty}
-                    className="flex items-center gap-1 px-2 py-1 text-xs hover:bg-[#d9d6c4] active:translate-y-px disabled:opacity-40"
-                >
-                    <Trash2 size={14} /> Empty the Recycle Bin
-                </button>
-                <div className="h-5 w-px bg-gray-400 mx-1" />
-                <span className="text-xs text-gray-600">{recycleBin.length} item{recycleBin.length === 1 ? '' : 's'}</span>
+        <div className="flex h-full select-none flex-col bg-white font-sans">
+            <div className="xp-addressbar">
+                <span className="hidden sm:inline">Address</span>
+                <div className="xp-addressbar-field">
+                    <XpIcon src={binIcon} size={16} />
+                    <span>Recycle Bin</span>
+                </div>
             </div>
 
-            {/* Body */}
-            <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-                {/* Sidebar */}
-                <div className="shrink-0 bg-gradient-to-b from-[#7da2ce] to-[#3a6ea5] p-2 overflow-y-auto text-white text-xs md:w-52">
-                    <div className="mb-3 bg-white/20 rounded overflow-hidden">
-                        <div className="bg-gradient-to-r from-[#f0b765] to-[#cf8b1f] px-2 py-1 font-bold text-[11px] text-white">Recycle Bin Tasks</div>
-                        <div className="p-2 space-y-2">
-                            <button onClick={emptyRecycleBin} disabled={isEmpty} className="text-left hover:underline w-full disabled:opacity-40">
-                                Empty the Recycle Bin
-                            </button>
-                            <button
-                                onClick={() => recycleBin.forEach(r => restoreItem(r.id))}
-                                disabled={isEmpty}
-                                className="text-left hover:underline w-full disabled:opacity-40"
-                            >
-                                Restore all items
-                            </button>
-                        </div>
-                    </div>
+            <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+                <TaskPane className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
+                    <TaskSection title="Recycle Bin Tasks" special>
+                        {isEmpty && <TaskText>The Recycle Bin is empty.</TaskText>}
+                        {!isEmpty && <TaskLink label="Empty the Recycle Bin" onClick={() => void emptyBin()} />}
+                        {!isEmpty && !current && <TaskLink label="Restore all items" onClick={() => void restoreAll()} />}
+                        {current && <TaskLink label="Restore this item" onClick={() => void restore(current)} />}
+                    </TaskSection>
+                    <TaskSection title="Other Places">
+                        <TaskLink label="My Documents" icon={<XpIcon src={FILE_ICONS.userFolder} size={16} />} onClick={() => actions.openWindow('explorer', undefined, { path: DOCUMENTS_PATH })} />
+                        <TaskLink label="My Computer" icon={<XpIcon src={APPS.mycomputer?.iconAsset ?? FILE_ICONS.drive} size={16} />} onClick={() => actions.openWindow('mycomputer')} />
+                    </TaskSection>
+                    <TaskSection title="Details">
+                        {current ? (
+                            <>
+                                <TaskText strong>{current.name}</TaskText>
+                                <TaskText>{typeOf(current)}</TaskText>
+                                <TaskText>From: {current.origin}</TaskText>
+                                <TaskText>Deleted: {new Date(current.deletedAt).toLocaleString()}</TaskText>
+                            </>
+                        ) : (
+                            <>
+                                <TaskText strong>Recycle Bin</TaskText>
+                                <TaskText>
+                                    Deleted desktop icons, and files and folders deleted in Explorer, wait here until
+                                    the bin is emptied. Shift+Delete, and rm in the Command Prompt, skip it.
+                                </TaskText>
+                            </>
+                        )}
+                    </TaskSection>
+                </TaskPane>
 
-                    <div className="mb-3 bg-white/20 rounded overflow-hidden">
-                        <div className="bg-gradient-to-r from-[#f0b765] to-[#cf8b1f] px-2 py-1 font-bold text-[11px] text-white">Details</div>
-                        <div className="p-2">
-                            <p className="font-bold">Recycle Bin</p>
-                            <p className="text-[10px] text-blue-100 mt-1">
-                                To delete a desktop icon: drag it onto the Recycle Bin icon on the
-                                desktop, right-click it and choose Delete, or select it and press
-                                the Delete key. Deleted icons can be restored from here.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Main */}
-                <div className="flex-1 bg-white overflow-y-auto p-3">
+                <div className="order-1 min-h-[8rem] flex-1 md:order-none md:overflow-y-auto" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
                     {isEmpty ? (
-                        <div className="h-full flex items-center justify-center flex-col text-gray-400 text-sm">
-                            <Trash2 size={64} className="mb-2 text-gray-300" />
-                            <span>This folder is empty.</span>
-                        </div>
+                        <p className="p-4 text-xs text-gray-500">This folder is empty.</p>
                     ) : (
-                        <table className="w-full text-sm">
+                        <table className="w-full border-collapse text-xs">
                             <thead>
                                 <tr className="bg-[#ece9d8] text-left">
-                                    <th className="border-b border-gray-300 p-1 font-normal">Name</th>
-                                    <th className="border-b border-gray-300 p-1 font-normal">Original Location</th>
-                                    <th className="border-b border-gray-300 p-1 font-normal">Date Deleted</th>
-                                    <th className="border-b border-gray-300 p-1 font-normal w-20"></th>
+                                    <th className="border-b border-r border-[#d6d2c2] px-2 py-0.5 font-normal">Name</th>
+                                    <th className="hidden border-b border-r border-[#d6d2c2] px-2 py-0.5 font-normal sm:table-cell">Original Location</th>
+                                    <th className="border-b border-r border-[#d6d2c2] px-2 py-0.5 font-normal">Date Deleted</th>
+                                    <th className="hidden border-b border-[#d6d2c2] px-2 py-0.5 font-normal md:table-cell">Type</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {recycleBin.map(item => (
-                                    <tr key={item.id} className="hover:bg-blue-50">
-                                        <td className="p-1 flex items-center gap-2">
-                                            {/* `unoptimized`: these are the desktop's own .ico/.png files at 20 px; the optimizer has nothing to add. */}
-                                            <Image src={item.icon} alt="" width={20} height={20} unoptimized className="w-5 h-5 object-contain opacity-70" />
-                                            <span>{item.name}</span>
-                                        </td>
-                                        <td className="p-1 text-xs text-gray-600">{item.origin}</td>
-                                        <td className="p-1 text-xs text-gray-600">{new Date(item.deletedAt).toLocaleString()}</td>
-                                        <td className="p-1">
-                                            <button
-                                                onClick={() => restoreItem(item.id)}
-                                                className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#ece9d8] border border-gray-500 hover:bg-blue-100"
-                                                title="Restore"
-                                            >
-                                                <RotateCw size={10} /> Restore
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {recycleBin.map((item) => {
+                                    const isSelected = item.id === selected;
+                                    return (
+                                        <tr
+                                            key={item.id}
+                                            tabIndex={0}
+                                            aria-selected={isSelected}
+                                            data-bin-item={item.name}
+                                            onClick={() => setSelected(item.id)}
+                                            onFocus={() => setSelected(item.id)}
+                                            onKeyDown={(e) => {
+                                                // The bin's keys stay in the bin: Delete used to be free to reach the desktop.
+                                                if (e.key !== 'Delete' && e.key !== 'Enter') return;
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                if (e.key === 'Delete') void purge(item);
+                                                else void restore(item);
+                                            }}
+                                            className={`cursor-default outline-none ${isSelected ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'}`}
+                                        >
+                                            <td className="px-2 py-1">
+                                                <span className="flex items-center gap-2">
+                                                    <XpIcon src={iconOf(item)} size={16} className={item.kind === 'file' ? undefined : 'opacity-70'} />
+                                                    <span className="truncate">{item.name}</span>
+                                                </span>
+                                            </td>
+                                            <td className={`hidden px-2 py-1 sm:table-cell ${isSelected ? '' : 'text-gray-600'}`}>{item.origin}</td>
+                                            <td className={`px-2 py-1 ${isSelected ? '' : 'text-gray-600'}`}>{new Date(item.deletedAt).toLocaleString()}</td>
+                                            <td className={`hidden px-2 py-1 md:table-cell ${isSelected ? '' : 'text-gray-600'}`}>{typeOf(item)}</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
+                    )}
+                    {isMobile && current && (
+                        <p className="p-2 text-[11px] text-gray-600">Restore this item is in Recycle Bin Tasks, below.</p>
                     )}
                 </div>
             </div>
 
-            <div className="bg-[#ece9d8] border-t border-gray-400 px-2 py-0.5 text-xs text-gray-700">
-                {recycleBin.length} object{recycleBin.length === 1 ? '' : 's'}
+            <div className="flex justify-between border-t border-[#aca899] bg-[#ece9d8] px-2 py-0.5 text-xs text-gray-700">
+                <span>{current ? '1 object selected' : `${recycleBin.length} object${recycleBin.length === 1 ? '' : 's'}`}</span>
+                <span>Recycle Bin</span>
             </div>
         </div>
     );

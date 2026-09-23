@@ -20,11 +20,15 @@ export async function bootAndLogin(page: Page): Promise<void> {
     await expect(page.getByText('start', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
 }
 
-/** A window's outer frame, found by its exact title-bar text. */
+/**
+ * A window's outer frame, found by its exact title-bar text. The title bar only: matching any span
+ * with that text also matched a window that merely mentioned another — Explorer's "Recycle Bin"
+ * link made `win(page, 'Recycle Bin')` find Explorer.
+ */
 export function win(page: Page, title: string): Locator {
     return page
         .locator('[data-window], div.flex.flex-col.shadow-2xl')
-        .filter({ has: page.locator(`span:text-is("${title}")`) })
+        .filter({ has: page.locator(`.xp-titlebar-text:text-is("${title}")`) })
         .first();
 }
 

@@ -62,6 +62,13 @@ function session() {
             mount();
             return null;
         },
+        copy: (from, to) => {
+            const plan = vfs.planCopy(tree, from, to);
+            if (typeof plan === 'string') return plan;
+            tree = plan;
+            mount();
+            return null;
+        },
     };
     const run = (input) => {
         const r = shell.runCommand(input, ctx);
@@ -308,12 +315,19 @@ test('cp copies a portfolio file into your folder, but not a built-in picture or
     const s = session();
     assert.deepEqual(s.run(`cp ${vfs.HOME_PATH}/projects/os-portfolio/stack.txt "My Documents"`).lines, []);
     assert.match(s.files()[`${DOCS}/stack.txt`].content, /^TypeScript/);
-    assert.match(s.text(s.run(`cp "${vfs.SAMPLE_PICTURES_PATH}/Bliss.jpg" "My Pictures"`)), /built-in pictures can be viewed, not copied/);
+    assert.match(s.text(s.run(`cp "${vfs.SAMPLE_PICTURES_PATH}/Bliss.jpg" "My Pictures"`)), /built-in picture\. It can be viewed, not copied/);
     assert.match(s.text(s.run('cp "My Documents" copy')), /Is a directory/);
     const png = 'data:image/png;base64,iVBORw0KGgo=';
     s.ctx.writeFile(`${vfs.PICTURES_PATH}/me.png`, png);
     s.run('cp "My Pictures/me.png" "My Pictures/me2.png"');
     assert.equal(s.files()[`${vfs.PICTURES_PATH}/me2.png`].content, png, 'a picture copies as the picture, not its description');
+
+    // -r copies a folder you made, with what is in it; cp never overwrites.
+    s.run('mkdir -p Box/inner');
+    s.run('echo x > Box/inner/x.txt');
+    assert.deepEqual(s.run('cp -r Box "My Documents"').lines, []);
+    assert.equal(s.files()[`${DOCS}/Box/inner/x.txt`].content, 'x\n');
+    assert.match(s.text(s.run('cp Box/inner/x.txt "My Documents/Box/inner/x.txt"')), /already exists/);
 });
 
 test('folders from storage are kept only when they could have been made', () => {
@@ -343,4 +357,86 @@ test('a folder counts toward the quota, and a file in a missing folder is refuse
     assert.match(vfs.validateUserPath('/home/guest/nowhere/x.txt'), /The folder \/home\/guest\/nowhere does not exist/);
     assert.match(vfs.validateUserPath('/home/guest/a/x.txt', []), /does not exist/);
     assert.equal(vfs.validateUserPath('/home/guest/a/x.txt', ['/home/guest/a']), null);
+});
+
+/* ------------------------------------------------------------------ recycle bin */
+
+const note = (content) => ({ content, mime: 'text/plain', modified: 1 });
+
+test('the Recycle Bin takes a folder with everything in it, and gives it all back', () => {
+    const tree = {
+        files: { '/home/guest/A/x.txt': note('x'), '/home/guest/A/B/y.txt': note('y'), '/home/guest/keep.txt': note('k') },
+        folders: ['/home/guest/A', '/home/guest/A/B'],
+    };
+    const r = vfs.planRecycle(tree, '/home/guest/A');
+    assert.deepEqual(Object.keys(r.tree.files), ['/home/guest/keep.txt']);
+    assert.deepEqual(r.tree.folders, []);
+    assert.deepEqual([...r.taken.folders].sort(), ['/home/guest/A', '/home/guest/A/B']);
+    assert.ok(vfs.recycledSize([r.taken]) > 0);
+
+    const back = vfs.planRestore(r.tree, r.taken);
+    assert.deepEqual(back.folders, tree.folders);
+    assert.deepEqual(Object.keys(back.files).sort(), Object.keys(tree.files).sort());
+});
+
+test('restoring makes again the folders that have gone, and never overwrites', () => {
+    const tree = { files: { '/home/guest/A/B/y.txt': note('y') }, folders: ['/home/guest/A', '/home/guest/A/B'] };
+    const { taken } = vfs.planRecycle(tree, '/home/guest/A/B/y.txt');
+
+    // Its folders were deleted since: they come back with it.
+    const back = vfs.planRestore({ files: {}, folders: [] }, taken);
+    assert.deepEqual(back.folders, ['/home/guest/A', '/home/guest/A/B']);
+    assert.equal(back.files['/home/guest/A/B/y.txt'].content, 'y');
+
+    // Something new stands where it was: refused, with what is in the way.
+    const taken2 = vfs.planRestore({ files: { '/home/guest/A/B/y.txt': note('new') }, folders: tree.folders }, taken);
+    assert.match(taken2, /already a file or folder named y\.txt in \/home\/guest\/A\/B/);
+    // A file now has the name of a folder on the way.
+    assert.match(vfs.planRestore({ files: { '/home/guest/A': note('f') }, folders: [] }, taken), /named A in \/home\/guest/);
+});
+
+test('only the visitor\'s own files and folders go to the Recycle Bin', () => {
+    const empty = { files: {}, folders: [] };
+    assert.match(vfs.planRecycle(empty, `${vfs.HOME_PATH}/about.md`), /cannot be deleted/);
+    assert.match(vfs.planRecycle(empty, vfs.DOCUMENTS_PATH), /cannot be deleted/);
+    assert.match(vfs.planRecycle(empty, '/home/guest/nope.txt'), /Cannot find/);
+});
+
+test('df counts what the Recycle Bin holds, and says so', () => {
+    const s = session();
+    vfs.mountUserFiles(s.files(), s.folders(), 5000);
+    assert.equal(vfs.recycledUsage(), 5000);
+    assert.match(s.text(s.run('df')), /5K of that is in the Recycle Bin/);
+});
+
+/* ------------------------------------------------------------------ copy */
+
+test('copying names the copy the way XP did when the name is taken', () => {
+    const tree = { files: { '/home/guest/a.txt': note('a'), '/home/guest/Copy of a.txt': note('c') }, folders: [] };
+    vfs.mountUserFiles(tree.files, tree.folders);
+    assert.equal(vfs.copyName('/home/guest', 'b.txt', tree), 'b.txt');
+    assert.equal(vfs.copyName('/home/guest', 'a.txt', tree), 'Copy (2) of a.txt');
+    assert.equal(vfs.copyName(vfs.DOCUMENTS_PATH, 'a.txt', tree), 'a.txt');
+});
+
+test('a copy takes a folder with everything in it, and a portfolio file as text', () => {
+    const tree = { files: { '/home/guest/A/x.txt': note('x') }, folders: ['/home/guest/A'] };
+    vfs.mountUserFiles(tree.files, tree.folders);
+    const copied = vfs.planCopy(tree, '/home/guest/A', `${vfs.DOCUMENTS_PATH}/A`);
+    assert.deepEqual(copied.folders, ['/home/guest/A', `${vfs.DOCUMENTS_PATH}/A`]);
+    assert.equal(copied.files[`${vfs.DOCUMENTS_PATH}/A/x.txt`].content, 'x');
+    assert.equal(copied.files['/home/guest/A/x.txt'].content, 'x', 'the original stays');
+
+    const stack = vfs.planCopy(tree, `${vfs.HOME_PATH}/projects/os-portfolio/stack.txt`, '/home/guest/stack.txt');
+    assert.match(stack.files['/home/guest/stack.txt'].content, /^TypeScript/);
+});
+
+test('a copy refuses what storage cannot hold, the portfolio\'s folders, and overwriting', () => {
+    const tree = { files: { '/home/guest/a.txt': note('a') }, folders: ['/home/guest/A'] };
+    vfs.mountUserFiles(tree.files, tree.folders);
+    assert.match(vfs.planCopy(tree, `${vfs.SAMPLE_PICTURES_PATH}/Bliss.jpg`, '/home/guest/Bliss.jpg'), /built-in picture/);
+    assert.match(vfs.planCopy(tree, `${vfs.HOME_PATH}/projects`, '/home/guest/projects'), /part of the portfolio/);
+    assert.match(vfs.planCopy(tree, '/home/guest/A', '/home/guest/A/inner'), /inside the folder being copied/);
+    assert.match(vfs.planCopy(tree, '/home/guest/a.txt', '/home/guest/A'), /already exists/);
+    assert.match(vfs.planCopy(tree, '/home/guest/a.txt', `${vfs.HOME_PATH}/a.txt`), /portfolio is read-only/);
 });

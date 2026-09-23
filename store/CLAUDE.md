@@ -19,7 +19,7 @@ both the middleware and the file the shell shows a visitor follow from it.
 | Dialogs | `dialogs: DialogRequest[]` (never persisted; resolvers live in a module-level Map) |
 | Windows | `windows: AppWindow[]`, `activeWindowId` |
 | Desktop | `desktopIcons: Record<id, {x,y}>`, `deletedAppIds` |
-| Recycle bin | `recycleBin: RecycledItem[]` |
+| Recycle bin | `recycleBin: RecycledItem[]` — a desktop icon, or (`kind: 'file'`) a visitor's file or folder with everything that was in it |
 
 `AppWindow.id` doubles as the pid in `/proc` and in `ps`. Keep it **short and human-typable**: a
 visitor reads one off the screen and types it into `kill`. It used to be nine random characters,
@@ -65,7 +65,14 @@ or null, enforce `USER_FILES_QUOTA` (folder paths count toward it), roll back if
 to store the change, and publish `fs:write` / `fs:delete` / `fs:mkdir` / `fs:move`. A move or delete
 is computed by the VFS's pure `planMove` / `planRemoveFolder`; the store only applies it, and moves a
 picture wallpaper along with its file. After every change the store calls `mountUserFiles` so the
-headless VFS sees the same files and folders. Storage itself goes through `safeLocalStorage`, which cannot throw: a full or
+headless VFS sees the same files and folders (and how much the Recycle Bin holds, for `df`).
+
+`recycleUserPath` is Explorer's Delete: the file or folder leaves the tree and enters the bin in one
+`set`, so a refusal by the browser puts both back. `restoreItem` returns the reason it could not
+(`planRestore` refuses rather than overwrite) and remakes missing parent folders. `purgeRecycledItem`
+deletes one entry for good. `restoreAllItems` is Display Properties' Restore Deleted Icons and leaves
+file entries in the bin. Bin entries are sanitised on hydration; a file entry's paths are only
+re-validated when it is restored. What the bin holds counts toward `USER_FILES_QUOTA`. Storage itself goes through `safeLocalStorage`, which cannot throw: a full or
 blocked localStorage is reported as an Event Viewer error instead of breaking the action.
 
 `registerCloseGuard(id, guard)` lets an app answer "may I close?" asynchronously (Notepad asks about

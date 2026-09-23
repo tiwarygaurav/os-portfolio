@@ -81,6 +81,7 @@ export default function TerminalApp() {
             makeDir: (path) => actions.createUserFolder(path),
             move: (from, to) => actions.moveUserPath(from, to),
             removeDir: (path, recursive) => actions.deleteUserFolder(path, recursive),
+            copy: (from, to) => actions.copyUserPath(from, to),
         }),
         [cwd, processes, windows, openWindow, closeWindow, writeUserFile, deleteUserFile, actions],
     );
