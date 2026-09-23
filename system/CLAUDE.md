@@ -86,9 +86,10 @@ store applies and the unit tests call directly: `planMove` (rename/move, with co
 overwrites, never into itself), `planCopy` (a file, a portfolio text file, or a visitor's folder;
 refuses a built-in picture or folder with the reason), `planRemoveFolder`, `planRecycle` and
 `planRestore` (the Recycle Bin; a restore remakes folders that have gone and refuses rather than
-overwrite). `nextFolderName` and `copyName` give XP's "New Folder (2)" and "Copy of x" names.
+overwrite). `nextFolderName`, `nextFreeName` and `copyName` give XP's "New Folder (2)", "New Text
+Document (2).txt" and "Copy of x" names.
 
-`ShellContext` gained `writeFile` / `deleteFile` / `makeDir` / `move` / `removeDir`, and
+`ShellContext` gained `writeFile` / `deleteFile` / `makeDir` / `move` / `removeDir` / `copy`, and
 `closeProcess(pid, 'kill' | 'exit')` so an ordinary `exit` is not logged as a forced end.
 
 ### `bus.ts`

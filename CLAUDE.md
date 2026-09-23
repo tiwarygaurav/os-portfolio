@@ -351,7 +351,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no drag-and-drop between folders, no copy of a folder, no right-click menu on a file. |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no drag-and-drop between folders (Cut and Paste move instead), no multiple selection, no Explorer folder tree. |
 
 ---
 
@@ -455,6 +455,22 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Explorer's right-click menus, Cut / Copy / Paste, views and Properties
+
+**Why:** Explorer could browse, rename and delete, but a visitor who right-clicked got nothing, there
+was no way to copy a portfolio file into their own folder from the GUI, and every folder was one
+fixed grid. XP's Explorer is mostly its menus.
+**What:** an item's menu (Open, Cut, Copy, Delete, Rename, Properties) and the folder's (View,
+Arrange Icons By, Paste, New ▸ Folder / Text Document, Properties), through the chrome's
+`ContextMenu`. Ctrl+X / C / V, Alt+Enter, Backspace for Up. The clipboard lives in `utils/fs.ts`
+for the session, across windows, and a cut item is drawn faded until it is pasted. Paste copies as
+"Copy of x" when the name is taken, through the same pure `planCopy` as `cp`; Cut is refused for
+the portfolio with the reason. Tiles (XP's default), Icons, List and Details views, from the menu
+or the toolbar's Views button — Details with XP's Name / Size / Type / Date Modified columns, whose
+headers sort. `components/os/PropertiesDialog.tsx` is XP's General tab, and measures everything it
+shows: a picture's decoded bytes, a folder's contents added up; a built-in picture's size is a file
+the page never downloaded, and it says so rather than guess.
 
 ### 2026-09-24 - Deleted files go to the Recycle Bin; XP's task pane on My Computer, the bin and Explorer
 

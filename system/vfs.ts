@@ -479,12 +479,20 @@ const inside = (p: string, folder: string) => p.startsWith(folder + '/');
  * The next free "New Folder" name in `parent`, as XP numbered them: New Folder, New Folder (2)...
  */
 export function nextFolderName(parent: string, tree: UserTree, base = 'New Folder'): string {
+    return nextFreeName(parent, tree, base);
+}
+
+/**
+ * The next free name in `parent` for a new item, numbered the way XP numbered them — the number
+ * goes before the extension: New Text Document.txt, New Text Document (2).txt.
+ */
+export function nextFreeName(parent: string, tree: UserTree, base: string, ext = ''): string {
     const taken = (name: string) => {
         const path = `${parent}/${name}`;
         return tree.files[path] !== undefined || tree.folders.includes(path) || validateUserPath(path, tree.folders) !== null;
     };
-    if (!taken(base)) return base;
-    for (let n = 2; ; n++) if (!taken(`${base} (${n})`)) return `${base} (${n})`;
+    if (!taken(base + ext)) return base + ext;
+    for (let n = 2; ; n++) if (!taken(`${base} (${n})${ext}`)) return `${base} (${n})${ext}`;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { bootAndLogin, openFromDesktop, run, win } from './helpers';
+import { bootAndLogin, openFromDesktop, run, shell, win } from './helpers';
 
 test('Explorer browses the same filesystem the shell walks', async ({ page }) => {
     await bootAndLogin(page);
@@ -107,4 +107,77 @@ test('My Computer selects on a click, opens on a double-click, and Details descr
     await expect(mc.locator('.xp-taskpane')).toContainText('File Folder');
     await docs.dblclick();
     await expect(win(page, 'Windows Explorer').locator('#explorer-address')).toHaveValue('/home/guest/My Documents');
+});
+
+test('Explorer right-click: Copy and Paste (then "Copy of"), New > Text Document, Details view, Properties', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    const menuItem = (label: string) => page.getByRole('menuitem', { name: new RegExp(`^${label}`) });
+    const saved = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles).sort());
+
+    // Copy a portfolio file from its right-click menu...
+    await item('about.md').click({ button: 'right' });
+    await menuItem('Copy').click();
+    // ...and paste it into My Documents from the empty part of the folder's menu, twice.
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+    await w.getByText('This folder is empty.').click({ button: 'right' });
+    await menuItem('Paste').click();
+    await expect(item('about.md')).toBeVisible();
+    await item('about.md').click();
+    await page.keyboard.press('Control+V');
+    await expect(item('Copy of about.md')).toBeVisible();
+    expect(await saved()).toEqual(['/home/guest/My Documents/Copy of about.md', '/home/guest/My Documents/about.md']);
+
+    // New > Text Document goes straight into naming it, the number before the extension.
+    // The empty corner of the folder has the folder's menu, not an item's.
+    const area = await w.locator('ul').locator('xpath=..').boundingBox();
+    await page.mouse.click(area!.x + area!.width - 12, area!.y + area!.height - 12, { button: 'right' });
+    await menuItem('New').click();
+    await menuItem('Text Document').click();
+    await expect(w.getByLabel('New name for New Text Document.txt')).toBeFocused();
+    await page.keyboard.type('todo');
+    await page.keyboard.press('Enter');
+    await expect(item('todo.txt')).toBeVisible();
+
+    // The Details view shows XP's columns.
+    await w.getByRole('button', { name: 'Views' }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Details' }).click();
+    await expect(w.getByRole('button', { name: /^Date Modified/ })).toBeVisible();
+    await expect(item('todo.txt')).toContainText('Text Document');
+
+    // Properties reports what is really there.
+    await item('todo.txt').click({ button: 'right' });
+    await menuItem('Properties').click();
+    const props = page.getByRole('dialog', { name: 'todo.txt Properties' });
+    await expect(props).toContainText('Text Document');
+    await expect(props).toContainText('0 bytes');
+    await expect(props).toContainText('/home/guest/My Documents');
+    await props.getByRole('button', { name: 'OK' }).click();
+    await expect(props).toHaveCount(0);
+});
+
+test('Explorer: Cut is refused for the portfolio, and a cut file moves on Paste', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    await shell(page, 'echo moving > "/home/guest/My Documents/move-me.txt"');
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+
+    await item('about.md').click();
+    await page.keyboard.press('Control+X');
+    await expect(page.getByRole('dialog', { name: 'Error Moving File or Folder' })).toContainText('Cannot move about.md');
+    await page.getByRole('dialog').getByRole('button', { name: 'OK' }).click();
+
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+    await item('move-me.txt').click();
+    await page.keyboard.press('Control+X');
+    await w.getByRole('button', { name: 'My Pictures', exact: true }).first().click();
+    await item('Sample Pictures').click();
+    await page.keyboard.press('Control+V');
+    await expect(item('move-me.txt')).toBeVisible();
+    const files = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles));
+    expect(files).toEqual(['/home/guest/My Pictures/move-me.txt']);
 });

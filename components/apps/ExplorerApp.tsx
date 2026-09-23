@@ -4,16 +4,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ArrowUp } from 'lucide-react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
-import { DOCUMENTS_PATH, GUEST_PATH, HOME_PATH, PICTURES_PATH, isDir, isFile, isWritableDir, listDir, lookup, resolvePath, type VNode } from '@/system/vfs';
+import {
+    DOCUMENTS_PATH,
+    GUEST_PATH,
+    HOME_PATH,
+    PICTURES_PATH,
+    isDir,
+    isFile,
+    isWritableDir,
+    listDir,
+    lookup,
+    nextFreeName,
+    resolvePath,
+    type VNode,
+} from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
 import { useProcesses } from '@/utils/processes';
 import { playSound } from '@/utils/sound';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
-import { makeNewFolder, renameUserPath, useFsRevision } from '@/utils/fs';
-import RenameField from '@/components/ui/RenameField';
+import { makeNewFolder, pasteInto, renameUserPath, setFileClipboard, useFileClipboard, useFsRevision } from '@/utils/fs';
 import XpIcon from '@/components/ui/XpIcon';
+import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
 import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
-import { FILE_ICONS, fileIconFor } from '@/constants/fileIcons';
+import PropertiesDialog from '@/components/os/PropertiesDialog';
+import FileList, { sizeColumn, sortEntries, type Entry, type SortKey, type ViewMode } from '@/components/apps/explorer/FileList';
+import { FILE_ICONS, fileTypeName } from '@/constants/fileIcons';
 
 /**
  * Windows Explorer, over the same virtual filesystem the Command Prompt walks.
@@ -39,10 +54,20 @@ interface ExplorerAppProps {
     payload?: WindowPayload;
 }
 
-/** XP's icon for a node: a special folder's own, a program's, or the one for its kind. */
-function NodeIcon({ node, path, size = 16 }: { node: VNode; path: string; size?: number }) {
-    return <XpIcon src={fileIconFor(node, path)} size={size} className="shrink-0" />;
-}
+const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
+
+const VIEWS: { id: ViewMode; label: string }[] = [
+    { id: 'tiles', label: 'Tiles' },
+    { id: 'icons', label: 'Icons' },
+    { id: 'list', label: 'List' },
+    { id: 'details', label: 'Details' },
+];
+const SORTS: { id: SortKey; label: string }[] = [
+    { id: 'name', label: 'Name' },
+    { id: 'size', label: 'Size' },
+    { id: 'type', label: 'Type' },
+    { id: 'modified', label: 'Modified' },
+];
 
 export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const actions = useSystemStore((s) => s.actions);
@@ -64,12 +89,24 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const [renaming, setRenaming] = useState<string | null>(null);
     const [address, setAddress] = useState(prettyPath(start));
     const listRef = useRef<HTMLUListElement>(null);
+    /** XP opened a folder in Tiles; the View menu and the Views button change it. */
+    const [view, setView] = useState<ViewMode>('tiles');
+    const [sortBy, setSortBy] = useState<SortKey>('name');
+    /** An open right-click menu: over an item, or (item null) over the empty part of the folder. */
+    const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+    /** The path whose Properties box is showing. */
+    const [properties, setProperties] = useState<string | null>(null);
+    const clipboard = useFileClipboard();
 
     const path = nav.list[nav.cursor];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `revision` is the signal that /home/guest changed
     const children = useMemo(() => listDir(path, procs) ?? [], [path, procs, revision]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const node = useMemo(() => lookup(path, procs), [path, procs, revision]);
+    const entries = useMemo(
+        () => sortEntries(children.map((c) => ({ node: c, path: join(path, c.name) })), sortBy),
+        [children, path, sortBy],
+    );
 
     const navigate = useCallback((next: string) => {
         setNav((n) => ({ list: [...n.list.slice(0, n.cursor + 1), next], cursor: n.cursor + 1 }));
@@ -212,9 +249,106 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         if (selectedNode && selectedPath) void deleteNode(selectedNode, selectedPath);
     };
 
+    /* -------------------------------------------------------- Cut, Copy, Paste, New */
+
+    /** Only the visitor's own things can be moved; anything can be copied, and Paste says if not. */
+    const cut = async (entry: Entry) => {
+        if (!entry.node.writable) {
+            await xpAlert('Error Moving File or Folder', [
+                `Cannot move ${entry.node.name}: ${isDir(entry.node) ? 'it is a system folder.' : 'it is read-only.'}`,
+                'Only files and folders you made in /home/guest can be moved. Copy makes a copy you can change.',
+            ], 'error');
+            return;
+        }
+        setFileClipboard({ path: entry.path, cut: true });
+    };
+    const copy = (entry: Entry) => setFileClipboard({ path: entry.path, cut: false });
+    const paste = async () => {
+        if (!clipboard) return;
+        if (!canWriteHere) {
+            await xpAlert('Windows Explorer', ['Nothing can be pasted here: this is part of the portfolio.', 'Paste into My Documents, My Pictures or a folder you made.'], 'error');
+            return;
+        }
+        const name = await pasteInto(path);
+        if (name) {
+            setSelected(name);
+            focusItem(name);
+        }
+    };
+    /** New > Text Document: XP made "New Text Document.txt" and went straight into naming it. */
+    const newTextDocument = () => {
+        const { userFiles, userFolders } = useSystemStore.getState();
+        const name = nextFreeName(path, { files: userFiles, folders: userFolders }, 'New Text Document', '.txt');
+        const problem = actions.writeUserFile(join(path, name), { content: '' });
+        if (problem) {
+            void xpAlert('Windows Explorer', ['Unable to create the file.', problem], 'error');
+            return;
+        }
+        setSelected(name);
+        setRenaming(name);
+    };
+
+    /* ---------------------------------------------------------------- menus and keys */
+
+    const viewItems = (): MenuItem[] => VIEWS.map((v) => ({ label: v.label, checked: view === v.id, action: () => setView(v.id) }));
+
+    const itemMenu = (entry: Entry): MenuItem[] => {
+        const own = !!entry.node.writable;
+        return [
+            { label: 'Open', bold: true, action: () => activate(entry.node, entry.path) },
+            { divider: true },
+            { label: 'Cut', accel: 'Ctrl+X', disabled: !own, action: () => void cut(entry) },
+            { label: 'Copy', accel: 'Ctrl+C', action: () => copy(entry) },
+            { divider: true },
+            { label: 'Delete', accel: 'Del', disabled: !own, action: () => void deleteNode(entry.node, entry.path) },
+            { label: 'Rename', accel: 'F2', disabled: !own, action: () => startRename(entry.node) },
+            { divider: true },
+            { label: 'Properties', accel: 'Alt+Enter', action: () => setProperties(entry.path) },
+        ];
+    };
+
+    const folderMenu = (): MenuItem[] => [
+        { label: 'View', items: viewItems() },
+        { label: 'Arrange Icons By', items: SORTS.map((s) => ({ label: s.label, checked: sortBy === s.id, action: () => setSortBy(s.id) })) },
+        { divider: true },
+        { label: 'Paste', accel: 'Ctrl+V', disabled: !clipboard || !canWriteHere, action: () => void paste() },
+        { divider: true },
+        canWriteHere
+            ? {
+                label: 'New',
+                items: [
+                    { label: 'Folder', icon: <XpIcon src={FILE_ICONS.folder} size={16} />, action: () => void newFolder() },
+                    { divider: true },
+                    { label: 'Text Document', icon: <XpIcon src={FILE_ICONS.text} size={16} />, action: newTextDocument },
+                ],
+            }
+            : { label: 'New', disabled: true },
+        { divider: true },
+        { label: 'Properties', action: () => setProperties(path) },
+    ];
+
+    /** Keys on an item belong to Explorer; they used to reach the desktop and act on its icons. */
+    const onItemKey = (e: React.KeyboardEvent, entry: Entry) => {
+        const ctrl = e.ctrlKey || e.metaKey;
+        const key = e.key.toLowerCase();
+        const handled =
+            ['Enter', 'Delete', 'F2', 'Backspace'].includes(e.key) || (ctrl && ['x', 'c', 'v'].includes(key));
+        if (!handled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === 'Enter' && e.altKey) setProperties(entry.path);
+        else if (e.key === 'Enter') activate(entry.node, entry.path);
+        else if (e.key === 'Delete') void deleteNode(entry.node, entry.path, e.shiftKey);
+        else if (e.key === 'F2') startRename(entry.node);
+        else if (e.key === 'Backspace') { if (parent) navigate(parent); }
+        else if (key === 'x') void cut(entry);
+        else if (key === 'c') copy(entry);
+        else void paste();
+    };
+
     return (
-        <div className="flex h-full flex-col bg-[#ece9d8] font-sans text-black">
-            {/* Toolbar. Every control here is wired to real history. */}
+        <div className="relative flex h-full flex-col bg-[#ece9d8] font-sans text-black">
+            {/* Toolbar. Every control here is wired to real history, or to the view. */}
             <div className="xp-toolbar shrink-0">
                 <ToolButton label="Back" disabled={!canBack} onClick={() => step(-1)}>
                     <ChevronLeft size={16} />
@@ -224,6 +358,16 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                 </ToolButton>
                 <ToolButton label="Up one level" disabled={!parent} onClick={() => parent && navigate(parent)}>
                     <ArrowUp size={16} />
+                </ToolButton>
+                <div className="mx-1 h-5 w-px bg-[#d8d2bd]" />
+                <ToolButton
+                    label="Views"
+                    onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setMenu({ x: r.left, y: r.bottom, items: viewItems() });
+                    }}
+                >
+                    <span className="px-1 text-[11px]">Views ▾</span>
                 </ToolButton>
             </div>
             <div className="xp-addressbar shrink-0">
@@ -283,17 +427,13 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                             <>
                                 <TaskText strong>{selectedNode.name}</TaskText>
                                 <TaskText>
-                                    {isDir(selectedNode)
-                                        ? `Folder — ${(listDir(`${path === '/' ? '' : path}/${selectedNode.name}`, procs) ?? []).length} items`
-                                        : selectedNode.mime === 'application/x-link'
-                                            ? 'Shortcut'
-                                            : selectedNode.src
-                                                ? 'Picture'
-                                                : `${selectedNode.content.split('\n').length} lines`}
+                                    {fileTypeName(selectedNode)}
+                                    {isDir(selectedNode) && ` — ${(listDir(join(path, selectedNode.name), procs) ?? []).length} items`}
                                 </TaskText>
                                 {isFile(selectedNode) && selectedNode.modified !== undefined && (
                                     <TaskText>Date Modified: {new Date(selectedNode.modified).toLocaleString()}</TaskText>
                                 )}
+                                {sizeColumn(selectedNode) && <TaskText>Size: {sizeColumn(selectedNode)}</TaskText>}
                                 {!selectedNode.writable && <TaskText>Read-only</TaskText>}
                                 {isDir(selectedNode) && selectedNode.description && <TaskText>{selectedNode.description}</TaskText>}
                             </>
@@ -318,83 +458,94 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                     </TaskSection>
                 </TaskPane>
 
-                {/* File list */}
-                <div className="order-1 flex-1 bg-white p-2 md:order-none md:overflow-y-auto">
+                {/* File list. The empty part of it has its own menu (View, Paste, New...), as in XP. */}
+                <div
+                    tabIndex={-1}
+                    className="order-1 min-h-[8rem] flex-1 bg-white p-2 outline-none md:order-none md:overflow-y-auto"
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        setSelected(null);
+                        setMenu({ x: e.clientX, y: e.clientY, items: folderMenu() });
+                    }}
+                    onMouseDown={(e) => {
+                        if (e.target === e.currentTarget) setSelected(null);
+                    }}
+                    onKeyDown={(e) => {
+                        // Keys on the empty part of the folder: Paste, and Backspace for Up, as in XP.
+                        const ctrl = e.ctrlKey || e.metaKey;
+                        if (ctrl && e.key.toLowerCase() === 'v') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void paste();
+                        } else if (e.key === 'Backspace' && parent) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            navigate(parent);
+                        }
+                    }}
+                >
                     {children.length === 0 ? (
                         <p className="p-4 text-xs text-gray-500">
                             {node ? 'This folder is empty.' : 'This folder no longer exists. It was moved or deleted.'}
                         </p>
                     ) : (
-                        <ul ref={listRef} className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
-                            {children.map((child) => {
-                                const childPath = `${path === '/' ? '' : path}/${child.name}`;
-                                const isSelected = selected === child.name;
-                                if (renaming === child.name) {
-                                    return (
-                                        <li key={child.name}>
-                                            <div className="flex w-full items-center gap-2 rounded bg-[#316ac5] px-2 py-1 text-xs">
-                                                <NodeIcon node={child} path={childPath} size={18} />
-                                                <RenameField
-                                                    name={child.name}
-                                                    isFolder={isDir(child)}
-                                                    onCommit={(typed) => void commitRename(childPath, typed)}
-                                                    onCancel={() => { setRenaming(null); focusItem(child.name); }}
-                                                />
-                                            </div>
-                                        </li>
-                                    );
-                                }
-                                return (
-                                    <li key={child.name}>
-                                        <button
-                                            data-name={child.name}
-                                            onClick={() => setSelected(child.name)}
-                                            onDoubleClick={() => activate(child, childPath)}
-                                            onFocus={() => setSelected(child.name)}
-                                            onKeyDown={(e) => {
-                                                // Keys pressed on a file belong to Explorer. They used to reach the
-                                                // desktop underneath and act on whatever desktop icon was selected.
-                                                if (e.key === 'Enter' || e.key === 'Delete' || e.key === 'F2') {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                }
-                                                if (e.key === 'Enter') activate(child, childPath);
-                                                if (e.key === 'Delete') void deleteNode(child, childPath, e.shiftKey);
-                                                if (e.key === 'F2') startRename(child);
-                                            }}
-                                            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
-                                                isSelected ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'
-                                            }`}
-                                            title={
-                                                isDir(child)
-                                                    ? child.description ?? child.name
-                                                    : isFile(child) && child.open
-                                                        ? `Opens ${APPS[child.open.appId]?.title ?? child.open.appId}`
-                                                        : child.name
-                                            }
-                                        >
-                                            <NodeIcon node={child} path={childPath} size={18} />
-                                            <span className="truncate">{child.name}</span>
-                                        </button>
-                                    </li>
-                                );
-                            })}
-                        </ul>
+                        <FileList
+                            entries={entries}
+                            view={view}
+                            sortBy={sortBy}
+                            onSort={setSortBy}
+                            selected={selected}
+                            renaming={renaming}
+                            cutPath={clipboard?.cut ? clipboard.path : null}
+                            listRef={listRef}
+                            onSelect={setSelected}
+                            onActivate={(entry) => activate(entry.node, entry.path)}
+                            onItemKey={onItemKey}
+                            onItemMenu={(e, entry) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setSelected(entry.node.name);
+                                setMenu({ x: e.clientX, y: e.clientY, items: itemMenu(entry) });
+                            }}
+                            onRenameCommit={(entry, typed) => void commitRename(entry.path, typed)}
+                            onRenameCancel={(entry) => {
+                                setRenaming(null);
+                                focusItem(entry.node.name);
+                            }}
+                        />
                     )}
                 </div>
             </div>
 
-            <div className="flex shrink-0 justify-between border-t border-[#aca899] bg-[#ece9d8] px-2 py-0.5 text-[10px] text-gray-700">
-                <span>{children.length} object{children.length === 1 ? '' : 's'}</span>
+            <div className="flex shrink-0 justify-between gap-2 border-t border-[#aca899] bg-[#ece9d8] px-2 py-0.5 text-[10px] text-gray-700">
+                <span>
+                    {selectedNode
+                        ? `1 object selected${sizeColumn(selectedNode) ? ` — ${sizeColumn(selectedNode)}` : ''}`
+                        : `${children.length} object${children.length === 1 ? '' : 's'}`}
+                </span>
                 <span className="truncate font-mono">{prettyPath(path)}</span>
             </div>
+
+            <ContextMenu x={menu?.x ?? 0} y={menu?.y ?? 0} isOpen={menu !== null} onClose={() => setMenu(null)} items={menu?.items ?? []} />
+            {properties && <PropertiesDialog path={properties} onClose={() => setProperties(null)} />}
         </div>
     );
 }
 
-function ToolButton({ children, onClick, disabled, label }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; label: string }) {
+function ToolButton({
+    children,
+    onClick,
+    disabled,
+    label,
+}: {
+    children: React.ReactNode;
+    onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    disabled?: boolean;
+    label: string;
+}) {
     return (
         <button
+            type="button"
             onClick={onClick}
             disabled={disabled}
             title={label}
@@ -405,4 +556,3 @@ function ToolButton({ children, onClick, disabled, label }: { children: React.Re
         </button>
     );
 }
-

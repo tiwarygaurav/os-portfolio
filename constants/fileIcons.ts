@@ -51,3 +51,15 @@ export function fileIconFor(node: VNode, path?: string): string {
     if (node.src) return FILE_ICONS.picture;
     return FILE_ICONS.text;
 }
+
+/** XP's "Type" for a node, as the Details view, the Recycle Bin and Properties show it. */
+export function fileTypeName(node: VNode): string {
+    if (isDir(node)) return 'File Folder';
+    if (node.mime === 'application/x-link') return 'Internet Shortcut';
+    if (node.mime === 'application/x-app') return 'Shortcut';
+    if (node.mime === 'image/png') return 'PNG Image';
+    if (node.mime === 'image/jpeg') return 'JPEG Image';
+    if (node.mime === 'text/markdown') return 'Markdown Document';
+    if (node.mime === 'application/json') return 'JSON File';
+    return 'Text Document';
+}
