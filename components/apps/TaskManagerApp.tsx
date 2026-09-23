@@ -63,7 +63,7 @@ export default function TaskManagerApp({ windowId }: { windowId?: string }) {
             ],
             { confirmLabel: 'End Task', cancelLabel: 'Cancel', icon: 'warning' },
         );
-        if (ok) actions.closeWindow(id);
+        if (ok) actions.closeWindow(id, 'task-manager');
     };
 
     const selectedIsSelf = selected === windowId;

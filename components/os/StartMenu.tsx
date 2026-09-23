@@ -101,7 +101,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
             }}
         >
             {/* Header */}
-            <div className="h-16 bg-gradient-to-b from-[#245dca] to-[#3c82f2] p-2 flex items-center gap-3 border-b-[2px] border-orange-300 relative overflow-hidden rounded-t-lg">
+            <div className="luna-start-bar h-16 p-2 flex items-center gap-3 border-b-[2px] border-orange-300 relative overflow-hidden rounded-t-lg">
                 <div className="absolute top-0 left-0 w-full h-[1px] bg-white/30" />
                 <div className="w-12 h-12 rounded border-2 border-white overflow-hidden shrink-0 shadow-md bg-white">
                     <img
@@ -114,7 +114,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
             </div>
 
             {/* Body */}
-            <div className="flex bg-white border-l border-r border-[#3c82f2] relative">
+            <div className="luna-start-edge flex bg-white border-l border-r relative">
                 {/* Left Column */}
                 <div className="w-1/2 bg-white py-2 flex flex-col">
                     <StartMenuItem
@@ -187,18 +187,18 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
                 </div>
 
                 {/* Right Column */}
-                <div className="w-1/2 bg-[#d3e5fa] py-2 border-l border-[#95bdee] flex flex-col text-[#00136b]">
+                <div className="luna-start-right w-1/2 py-2 border-l flex flex-col">
                     <StartMenuLink fallback={<HardDrive size={16} />} icon="/icons/My Computer.ico" label="My Computer" onClick={() => handleAppClick('mycomputer')} />
                     <StartMenuLink fallback={<FolderOpen size={16} />} icon="/icons/documents.png" label="My Documents" onClick={() => handleAppClick('resume')} />
                     <StartMenuLink fallback={<Music size={16} />} icon="/icons/Music.ico" label="My Music" onClick={() => handleAppClick('music')} />
 
-                    <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
+                    <div className="luna-start-right-rule h-[1px] my-1 mx-2" />
 
                     <StartMenuLink fallback={<Monitor size={16} />} icon="/icons/control-panel.png" label="Control Panel" onClick={() => handleAppClick('settings')} />
                     <StartMenuLink fallback={<TerminalSquare size={16} />} icon="/icons/278.ico" label="Command Prompt" onClick={() => handleAppClick('terminal')} />
                     <StartMenuLink fallback={<ImageIcon size={16} />} icon="/icons/Display.ico" label="Picture Viewer" onClick={() => handleAppClick('imageviewer')} />
 
-                    <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
+                    <div className="luna-start-right-rule h-[1px] my-1 mx-2" />
 
                     {/*
                       * Run. XP's own command palette, and the fastest route to anything on this
@@ -217,7 +217,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
                         onClick={() => handleAppClick('taskmgr')}
                     />
 
-                    <div className="h-[1px] bg-[#aebad3] my-1 mx-2" />
+                    <div className="luna-start-right-rule h-[1px] my-1 mx-2" />
 
                     {/* URLs come from `@/content` — they were duplicated here before. */}
                     <div className="px-2 text-[10px] text-gray-600 font-bold pb-1">CONNECT WITH ME</div>
@@ -235,10 +235,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
 
             {/* Footer */}
             <div
-                className="h-10 flex items-center justify-end gap-3 px-3 border-t-2 border-orange-300 rounded-b-lg"
-                style={{
-                    background: 'linear-gradient(to bottom, #245dca 0%, #3c82f2 100%)',
-                }}
+                className="luna-start-bar h-10 flex items-center justify-end gap-3 px-3 border-t-2 border-orange-300 rounded-b-lg"
             >
                 <button
                     onClick={handleLogout}
@@ -299,7 +296,7 @@ function StartMenuLink({ icon, label, onClick, fallback }: { icon?: string, labe
         >
             <div className="w-5 h-5 flex items-center justify-center shrink-0">
                 {showFallback ? (
-                    <div className="text-[#00136b] group-hover:text-white">{fallback}</div>
+                    <div className="group-hover:text-white">{fallback}</div>
                 ) : (
                     <img
                         src={icon}

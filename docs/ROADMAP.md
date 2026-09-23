@@ -72,7 +72,7 @@ them all.
 
 ---
 
-## 3. Application interoperability — a real event bus
+## 3. Application interoperability — a real event bus  ✅ DONE (consumed by the Event Viewer and `events`)
 
 Today interop is one-directional and implicit: a caller passes a `WindowPayload`. That covers
 "open X focused on Y" and nothing else.
@@ -216,7 +216,7 @@ control offering the genuine XP themes: Blue, Olive Green and Silver.
 non-XP, or renaming the environment. Those were explored and reversed on the owner's
 instruction — see `CLAUDE.md` §8.
 
-## 11. Design tokens (consolidation, not re-design)
+## 11. Design tokens (consolidation, not re-design)  ✅ DONE for the Luna chrome (`--luna-*`, three schemes)
 
 Colour, elevation, radius, spacing and typography move out of per-component inline gradients into
 CSS variables plus a Tailwind theme extension — **with exactly the values the components use

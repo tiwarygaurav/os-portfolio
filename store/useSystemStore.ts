@@ -3,6 +3,15 @@ import { persist, createJSONStorage, type StateStorage } from 'zustand/middlewar
 import { APPS } from '@/constants/apps';
 import { PERSISTED_KEYS, type PersistedKey } from '@/store/persistence';
 import { isMobileViewport } from '@/utils/viewport';
+import { publish } from '@/system/bus';
+import {
+    DEFAULT_SCREEN_SAVER,
+    DEFAULT_THEME,
+    isThemeId,
+    sanitizeScreenSaver,
+    type ScreenSaverSettings,
+    type ThemeId,
+} from '@/constants/prefs';
 
 /**
  * Launch argument passed to an app when it is opened, e.g. `{ projectId: 'os-portfolio' }` from the
@@ -66,6 +75,10 @@ interface SystemState {
     volume: number;
     isMuted: boolean;
     wallpaperId: string;
+    themeId: ThemeId;
+    screenSaver: ScreenSaverSettings;
+    /** True while the screen saver is on screen. Never persisted. */
+    screenSaverActive: boolean;
 
     windows: AppWindow[];
     activeWindowId: string | null;
@@ -87,9 +100,17 @@ interface SystemState {
         setVolume: (v: number) => void;
         toggleMute: () => void;
         setWallpaper: (id: string) => void;
+        setTheme: (id: ThemeId) => void;
+        setScreenSaver: (patch: Partial<ScreenSaverSettings>) => void;
+        /** Start or stop the screen saver (Settings > Preview, idle timeout, any input). */
+        setScreenSaverActive: (active: boolean) => void;
 
         openWindow: (appId: string, title?: string, payload?: WindowPayload) => void;
-        closeWindow: (id: string) => void;
+        /**
+         * `by` records *why* it closed, for the event log: omitted for an ordinary close, set
+         * when the shell's `kill` or the Task Manager's End Task ended it.
+         */
+        closeWindow: (id: string, by?: 'shell' | 'task-manager') => void;
         minimizeWindow: (id: string) => void;
         maximizeWindow: (id: string) => void;
         /** Un-minimise and raise, preserving the maximised state. */
@@ -112,6 +133,8 @@ interface SystemState {
 
         deleteIcon: (appId: string, name: string, icon: string) => void;
         restoreItem: (id: string) => void;
+        /** Put every deleted desktop icon back. */
+        restoreAllItems: () => void;
         emptyRecycleBin: () => void;
 
         /** Show an XP message box. Resolves with the id of the button chosen. */
@@ -243,6 +266,9 @@ export const useSystemStore = create<SystemState>()(
             volume: 0.5,
             isMuted: false,
             wallpaperId: 'bliss',
+            themeId: DEFAULT_THEME,
+            screenSaver: DEFAULT_SCREEN_SAVER,
+            screenSaverActive: false,
 
             windows: [],
             activeWindowId: null,
@@ -253,15 +279,55 @@ export const useSystemStore = create<SystemState>()(
             dialogs: [],
 
             actions: {
-                bootComplete: () => set({ isBooting: false }),
-                login: () => set({ isLoggedIn: true }),
-                logout: () => set({ isLoggedIn: false, windows: [], activeWindowId: null }),
-                shutdown: () => set({ isShuttingDown: true }),
+                bootComplete: () => {
+                    set({ isBooting: false });
+                    publish({ type: 'system:boot' });
+                },
+                login: () => {
+                    set({ isLoggedIn: true });
+                    publish({ type: 'system:login' });
+                },
+                logout: () => {
+                    set({ isLoggedIn: false, windows: [], activeWindowId: null, screenSaverActive: false });
+                    publish({ type: 'system:logoff' });
+                },
+                shutdown: () => {
+                    set({ isShuttingDown: true });
+                    publish({ type: 'system:shutdown' });
+                },
                 cancelShutdown: () => set({ isShuttingDown: false }),
 
                 setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), isMuted: v === 0 }),
                 toggleMute: () => set(state => ({ isMuted: !state.isMuted })),
-                setWallpaper: (id) => set({ wallpaperId: id }),
+                setWallpaper: (id) => {
+                    if (get().wallpaperId === id) return;
+                    set({ wallpaperId: id });
+                    publish({ type: 'setting:changed', key: 'wallpaper', value: id });
+                },
+
+                setTheme: (id) => {
+                    if (!isThemeId(id) || get().themeId === id) return;
+                    set({ themeId: id });
+                    publish({ type: 'setting:changed', key: 'colour scheme', value: id });
+                },
+
+                setScreenSaver: (patch) => {
+                    const prev = get().screenSaver;
+                    const next = sanitizeScreenSaver({ ...prev, ...patch });
+                    if (next.kind === prev.kind && next.idleMinutes === prev.idleMinutes) return;
+                    set({ screenSaver: next });
+                    if (next.kind !== prev.kind) {
+                        publish({ type: 'setting:changed', key: 'screen saver', value: next.kind });
+                    }
+                    if (next.idleMinutes !== prev.idleMinutes) {
+                        publish({ type: 'setting:changed', key: 'screen saver wait', value: `${next.idleMinutes} min` });
+                    }
+                },
+
+                setScreenSaverActive: (active) => {
+                    if (get().screenSaverActive === active) return;
+                    set({ screenSaverActive: active });
+                },
 
                 openWindow: (appId, title, payload) => {
                     const { windows } = get();
@@ -311,18 +377,32 @@ export const useSystemStore = create<SystemState>()(
                         windows: [...windows, newWindow],
                         activeWindowId: newWindow.id,
                     });
+                    publish({ type: 'app:opened', appId, pid: newWindow.id, title: newWindow.title });
                 },
 
                 /** Remove and re-pack the survivors so the z band stays `Z_BASE..Z_BASE+n-1`. */
-                closeWindow: (id) => set(state => ({
-                    windows: renormalize(byZ(state.windows.filter(w => w.id !== id))),
-                    activeWindowId: state.activeWindowId === id ? null : state.activeWindowId
-                })),
+                closeWindow: (id, by) => {
+                    const target = get().windows.find(w => w.id === id);
+                    set(state => ({
+                        windows: renormalize(byZ(state.windows.filter(w => w.id !== id))),
+                        activeWindowId: state.activeWindowId === id ? null : state.activeWindowId
+                    }));
+                    // Publish only if something was really closed: a stale id is a no-op, and the
+                    // log must not report a close that did not happen.
+                    if (!target) return;
+                    publish(by
+                        ? { type: 'app:killed', pid: target.id, title: target.title, by }
+                        : { type: 'app:closed', appId: target.appId, pid: target.id, title: target.title });
+                },
 
-                minimizeWindow: (id) => set(state => ({
-                    windows: state.windows.map(w => w.id === id ? { ...w, isMinimized: true } : w),
-                    activeWindowId: state.activeWindowId === id ? null : state.activeWindowId
-                })),
+                minimizeWindow: (id) => {
+                    const target = get().windows.find(w => w.id === id);
+                    set(state => ({
+                        windows: state.windows.map(w => w.id === id ? { ...w, isMinimized: true } : w),
+                        activeWindowId: state.activeWindowId === id ? null : state.activeWindowId
+                    }));
+                    if (target && !target.isMinimized) publish({ type: 'app:minimized', pid: target.id, title: target.title });
+                },
 
                 maximizeWindow: (id) => set(state => ({
                     windows: state.windows.map(w => w.id === id ? { ...w, isMaximized: true } : w)
@@ -333,12 +413,16 @@ export const useSystemStore = create<SystemState>()(
                  * maximised window from the taskbar used to silently un-maximise it, so
                  * minimise/restore was not lossless.
                  */
-                restoreWindow: (id) => set(state => ({
-                    windows: raise(state.windows, id).map(w =>
-                        w.id === id ? { ...w, isMinimized: false } : w
-                    ),
-                    activeWindowId: id,
-                })),
+                restoreWindow: (id) => {
+                    const target = get().windows.find(w => w.id === id);
+                    set(state => ({
+                        windows: raise(state.windows, id).map(w =>
+                            w.id === id ? { ...w, isMinimized: false } : w
+                        ),
+                        activeWindowId: id,
+                    }));
+                    if (target?.isMinimized) publish({ type: 'app:restored', pid: target.id, title: target.title });
+                },
 
                 /** Leave the maximised state only. Split out from `restoreWindow` on purpose. */
                 unmaximizeWindow: (id) => set(state => ({
@@ -438,27 +522,49 @@ export const useSystemStore = create<SystemState>()(
 
                 resetDesktopIcons: () => set({ desktopIcons: {} }),
 
-                deleteIcon: (appId, name, icon) => set(state => {
-                    if (state.deletedAppIds.includes(appId)) return {};
-                    return {
+                deleteIcon: (appId, name, icon) => {
+                    if (get().deletedAppIds.includes(appId)) return;
+                    set(state => ({
                         deletedAppIds: [...state.deletedAppIds, appId],
                         recycleBin: [
                             ...state.recycleBin,
                             { id: appId, name, icon, origin: 'Desktop', deletedAt: Date.now() }
                         ]
-                    };
-                }),
+                    }));
+                    publish({ type: 'recycle:deleted', name });
+                },
 
-                restoreItem: (id) => set(state => ({
-                    deletedAppIds: state.deletedAppIds.filter(a => a !== id),
-                    recycleBin: state.recycleBin.filter(r => r.id !== id)
-                })),
+                restoreItem: (id) => {
+                    const item = get().recycleBin.find(r => r.id === id);
+                    set(state => ({
+                        deletedAppIds: state.deletedAppIds.filter(a => a !== id),
+                        recycleBin: state.recycleBin.filter(r => r.id !== id)
+                    }));
+                    if (item) publish({ type: 'recycle:restored', name: item.name });
+                },
 
-                emptyRecycleBin: () => set({ recycleBin: [] }),
+                /**
+                 * Bring every deleted icon back. `deletedAppIds` persists, so a visitor could
+                 * otherwise lose the Projects icon for good and have to think to open the
+                 * Recycle Bin to recover it; Display Properties offers this instead.
+                 */
+                restoreAllItems: () => {
+                    const items = get().recycleBin;
+                    if (items.length === 0 && get().deletedAppIds.length === 0) return;
+                    set({ deletedAppIds: [], recycleBin: [] });
+                    items.forEach((item) => publish({ type: 'recycle:restored', name: item.name }));
+                },
+
+                emptyRecycleBin: () => {
+                    const count = get().recycleBin.length;
+                    set({ recycleBin: [] });
+                    if (count > 0) publish({ type: 'recycle:emptied', count });
+                },
 
                 openDialog: (request) => {
                     const id = `dlg${++dialogCounter}`;
                     set(state => ({ dialogs: [...state.dialogs, { ...request, id }] }));
+                    publish({ type: 'dialog:shown', title: request.title });
                     return new Promise<string>((resolve) => {
                         dialogResolvers.set(id, resolve);
                     });
@@ -467,6 +573,11 @@ export const useSystemStore = create<SystemState>()(
                 resolveDialog: (id, buttonId) => {
                     const resolve = dialogResolvers.get(id);
                     dialogResolvers.delete(id);
+                    const shown = get().dialogs.find(d => d.id === id);
+                    if (shown) {
+                        const label = shown.buttons.find(b => b.id === buttonId)?.label ?? buttonId;
+                        publish({ type: 'dialog:answered', title: shown.title, button: label });
+                    }
                     set(state => ({ dialogs: state.dialogs.filter(d => d.id !== id) }));
                     // After the state update, so a caller that opens another dialog in response
                     // does not race the removal of this one.
@@ -482,6 +593,17 @@ export const useSystemStore = create<SystemState>()(
             // Derived from `store/persistence.ts`, which `/etc/system.conf` also renders, so the
             // list the shell shows a visitor cannot drift from what is actually saved.
             partialize: (state): Pick<SystemState, PersistedKey> => pick(state, PERSISTED_KEYS),
+            // localStorage is user-editable, and an older build's save has no theme or screen
+            // saver at all. Validate what comes back instead of trusting it.
+            merge: (persisted, current) => {
+                const saved = (persisted ?? {}) as Partial<SystemState>;
+                return {
+                    ...current,
+                    ...saved,
+                    themeId: isThemeId(saved.themeId) ? saved.themeId : DEFAULT_THEME,
+                    screenSaver: sanitizeScreenSaver(saved.screenSaver),
+                };
+            },
         }
     )
 );

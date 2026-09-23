@@ -24,3 +24,8 @@ build/
 
 # typescript incremental build info
 *.tsbuildinfo
+
+# tests
+.test-out/
+test-results/
+playwright-report/

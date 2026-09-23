@@ -255,7 +255,7 @@ const renderSystemConf = (): string =>
         '',
         '[layers]',
         'content        = typed source of truth, headless',
-        'system         = virtual filesystem + shell, headless',
+        'system         = virtual filesystem + shell + event bus, headless',
         'components/os  = shell chrome (desktop, window, taskbar, start menu)',
         'components/app = one component per application',
         '',

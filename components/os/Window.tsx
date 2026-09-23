@@ -190,8 +190,8 @@ export default function Window({ win }: WindowProps) {
                     else actions.maximizeWindow(win.id);
                 }}
                 className={`flex items-center justify-between px-2 h-7 select-none cursor-default ${isActive
-                    ? 'bg-gradient-to-b from-[#0058ee] via-[#0073e6] to-[#0058ee]'
-                    : 'bg-gradient-to-b from-[#7a96df] via-[#9bb4ea] to-[#7a96df]'} text-white border-b border-[#003da8] ${win.isMaximized ? '' : 'rounded-t-lg'}`}
+                    ? 'luna-title'
+                    : 'luna-title-inactive'} text-white border-b luna-title-edge ${win.isMaximized ? '' : 'rounded-t-lg'}`}
             >
                 <div className="flex items-center gap-2 min-w-0">
                     {appConfig?.iconAsset ? (
@@ -236,7 +236,7 @@ export default function Window({ win }: WindowProps) {
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 bg-white overflow-hidden relative border-l-2 border-r-2 border-b-2 border-[#0055ea]">
+            <div className="flex-1 bg-white overflow-hidden relative border-l-2 border-r-2 border-b-2 luna-frame">
                 <AppBody windowId={win.id} payload={win.payload} />
             </div>
 

@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "lib": ["es2022"],
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "types": [],
+        "outDir": "../../.test-out",
+        "rootDir": "../..",
+        "baseUrl": "../..",
+        "paths": { "@/*": ["./*"] }
+    },
+    "include": ["../../content/**/*.ts", "../../system/**/*.ts", "../../store/persistence.ts"]
+}

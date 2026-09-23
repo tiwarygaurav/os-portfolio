@@ -66,7 +66,8 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 | `MusicPlayerApp` | **Fixed** | Keeps the original XP playlist and files. `isPlaying` now follows the audio element's own events, taskbar volume + mute apply, and failures are reported. |
 | `MinesweeperApp` | Complete | First-click-safe generation, flood fill, flagging, win detection. Correct. |
 | `CalculatorApp` | Complete | Incl. memory, `sqrt`, `%`, `1/x`, backspace. |
-| `SettingsApp` | Partial, honest | Wallpaper + icon reset work. Themes / Screen Saver / Appearance now state plainly that they are not built. |
+| `SettingsApp` | **Complete** | Every tab is real: Themes (Windows XP / Modified), Desktop (wallpaper, icon reset, restore deleted icons), Screen Saver (four savers, wait, Preview), Appearance (Blue / Olive Green / Silver, previewed via scoped `data-theme`), Settings (read from the browser). |
+| `EventViewerApp` | **New** | Application / Security / System logs over `system/bus.ts`. Nothing seeded; Clear all events is real. |
 | `MyComputerApp` | Partial, honest | Inert toolbar removed; volumes report real counts from `content/`. |
 | `NotepadApp` | Works | Exit, Status Bar and a real caret readout; Paste uses the async Clipboard API and says so when refused. |
 | `TaskManagerApp` | **New** | Applications / Processes / Performance over the live window list. End Task really closes. No metric is drawn that the browser cannot supply — a minimised window shows "Minimized", never a fabricated "Not Responding". |

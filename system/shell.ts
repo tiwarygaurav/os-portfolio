@@ -9,6 +9,7 @@
  * caller, so the shell has no dependency on the store either.
  */
 
+import { getLog, publish, type LogEntry } from './bus';
 import {
     HOME_PATH,
     allPaths,
@@ -106,6 +107,28 @@ const entryKind = (n: VNode): 'dir' | 'file' | 'link' | 'app' => {
 export const prettyPath = (p: string): string =>
     p === HOME_PATH ? '~' : p.startsWith(HOME_PATH + '/') ? '~' + p.slice(HOME_PATH.length) : p;
 
+/** `events` / `dmesg`: the tail of the bus log, oldest first, the way a terminal reads. */
+function runEvents(args: string[]): ShellResult {
+    const requested = args[0] ? Number(args[0]) : 20;
+    if (!Number.isInteger(requested) || requested <= 0) {
+        return out(error(`events: not a positive count: ${args[0]}`));
+    }
+    const log = getLog();
+    if (!log.length) return out(muted('The event log is empty.'));
+    const tail = log.slice(-requested);
+    const line = (e: LogEntry) => {
+        const time = new Date(e.time).toLocaleTimeString();
+        const level = e.level === 'information' ? 'info' : e.level === 'warning' ? 'warn' : 'error';
+        return pair(`${time} ${level.padEnd(5)}`, `${e.source}: ${e.message}`);
+    };
+    return out(
+        muted(`${tail.length} of ${log.length} event${log.length === 1 ? '' : 's'} this session`),
+        ...tail.map(line),
+        blank(),
+        muted('The Event Viewer (Start > Run > eventvwr) shows the same log.'),
+    );
+}
+
 /* --------------------------------------------------------------- commands */
 
 /**
@@ -193,6 +216,7 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
             const node = lookup(target, ctx.processes());
             if (!node) return out(error(`cat: ${prettyPath(target)}: no such file or directory`));
             if (isDir(node)) return out(error(`cat: ${prettyPath(target)}: is a directory`));
+            publish({ type: 'fs:read', path: prettyPath(target) });
             const lines = body(node.content);
             if (node.href) lines.push(blank(), { kind: 'link', text: node.href, href: node.href });
             if (node.open)
@@ -469,6 +493,20 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 muted('`cat /etc/system.conf` for the full stack, `cat /var/log/boot.log` for init.'),
             );
         },
+    },
+
+    events: {
+        name: 'events',
+        summary: 'The system event log: what this session has actually done.',
+        usage: 'events [count]',
+        run: (args) => runEvents(args),
+    },
+
+    dmesg: {
+        name: 'dmesg',
+        summary: 'Alias for `events`.',
+        hidden: true,
+        run: (args) => runEvents(args),
     },
 
     uname: {

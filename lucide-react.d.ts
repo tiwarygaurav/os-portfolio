@@ -90,4 +90,22 @@ declare module 'lucide-react' {
     export const Bomb: Icon;
 
     // Add other icons as needed
+    export const ScrollText: Icon;
+    export const RefreshCw: Icon;
+    export const Eraser: Icon;
+    export const Pipette: Icon;
+    export const PaintBucket: Icon;
+    export const Pencil: Icon;
+    export const Brush: Icon;
+    export const Undo2: Icon;
+    export const Redo2: Icon;
+    export const Activity: Icon;
+    export const ClipboardList: Icon;
+    export const Slash: Icon;
+    export const RectangleHorizontal: Icon;
+    export const Circle: Icon;
+    export const Type: Icon;
+    export const Save: Icon;
+    export const FilePlus: Icon;
+    export const SprayCan: Icon;
 }

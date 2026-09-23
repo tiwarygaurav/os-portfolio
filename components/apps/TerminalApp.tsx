@@ -13,6 +13,7 @@ import {
     type ShellLine,
 } from '@/system/shell';
 import { HOME_PATH, type ProcEntry } from '@/system/vfs';
+import { publish } from '@/system/bus';
 import { useProcesses } from '@/utils/processes';
 
 /**
@@ -66,7 +67,7 @@ export default function TerminalApp() {
             },
             closeProcess: (pid) => {
                 if (!windows.some((w) => w.id === pid)) return false;
-                closeWindow(pid);
+                closeWindow(pid, 'shell');
                 return true;
             },
             openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
@@ -89,6 +90,8 @@ export default function TerminalApp() {
         // reads the same array.
         history.current.push(command);
         const result = runCommand(command, ctx);
+        // What the Event Viewer shows for this command: a failure is one that printed an error.
+        publish({ type: 'shell:command', input: command, ok: !result.lines.some((l) => l.kind === 'error') });
 
         if (result.cwd) setCwd(result.cwd);
         if (result.clear) {

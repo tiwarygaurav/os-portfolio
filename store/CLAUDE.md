@@ -15,7 +15,8 @@ both the middleware and the file the shell shows a visitor follow from it.
 | --- | --- |
 | Session | `isBooting`, `isLoggedIn`, `isShuttingDown` |
 | Audio | `audioEnabled`, `volume`, `isMuted` |
-| Appearance | `wallpaperId` |
+| Appearance | `wallpaperId`, `themeId` (Luna scheme), `screenSaver` (`{ kind, idleMinutes }`), `screenSaverActive` (never persisted) |
+| Dialogs | `dialogs: DialogRequest[]` (never persisted; resolvers live in a module-level Map) |
 | Windows | `windows: AppWindow[]`, `activeWindowId` |
 | Desktop | `desktopIcons: Record<id, {x,y}>`, `deletedAppIds` |
 | Recycle bin | `recycleBin: RecycledItem[]` |
@@ -27,7 +28,9 @@ which both overflowed the `ps` column and made the pid impossible to identify.
 ## Persistence
 
 `persist` under the key `gaurav-xp-os`. `partialize` is derived from `PERSISTED_KEYS`, so the
-persisted slice is exactly: volume, mute, wallpaper, icon positions, recycle bin, deleted app ids.
+persisted slice is exactly: volume, mute, wallpaper, colour scheme, screen saver, icon positions,
+recycle bin, deleted app ids. `merge` validates `themeId` and `screenSaver` on the way back in —
+localStorage is user-editable, and a save from an older build has neither key.
 Windows, focus and session state are deliberately not persisted — a reload should return to a
 clean desktop.
 
@@ -51,6 +54,12 @@ promise you are making to a visitor's browser for the next year.
 5. **No `any`.** `AppWindow.payload` is `WindowPayload` (`Record<string, string>`) because payloads
    cross the shell boundary and must stay serialisable. Typing it as a per-app discriminated union
    is the remaining debt.
+
+## Events
+
+Actions publish to `system/bus.ts` **after** `set()`, never inside a `set` updater (updaters must be
+pure — React may call them twice). They publish only real changes: `closeWindow` on a stale pid,
+`minimizeWindow` on an already-minimised window and a no-op `setTheme` all publish nothing.
 
 ## Window manager internals
 
@@ -87,12 +96,12 @@ the store believed otherwise.
 ## Fixed in P1 (2026-08-20)
 
 C4 lossy restore · C5 unbounded z-index · C6 restore not raising · C8 off-screen drag (windows
-*and* icons) · A11 dead `themeColor` state (removed entirely — the Themes tab now says theming is
-not built).
+*and* icons) · A11 dead `themeColor` state (removed; theming returned on 2026-09-23 as a real
+`themeId` backed by the Luna CSS tokens).
 
 ## Known defects still open
 
 | Id | Issue |
 | --- | --- |
-| A10 | `deletedAppIds` persists, so a visitor can permanently lose the Projects icon. The Recycle Bin restores it, but nothing signposts that. Consider protecting core portfolio apps from deletion. |
+| A10 | `deletedAppIds` persists by design. Mitigated: `restoreAllItems`, surfaced as Display Properties > Desktop > Restore Deleted Icons. |
 | — | `AppWindow` has no `openedAt`, so the future System Monitor cannot show process uptime. Add it when that app lands (`docs/ROADMAP.md` §4). |

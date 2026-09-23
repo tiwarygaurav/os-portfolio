@@ -95,9 +95,10 @@ components/
   ui/         shared primitives (ContextMenu, Disclosure)
 constants/    apps.ts — the app registry (id, title, icon, default size, capabilities)
 content/      Typed source of truth for all portfolio facts. No JSX, no styling.
-system/       Headless runtime: virtual filesystem, shell. No React.
+system/       Headless runtime: virtual filesystem, shell, event bus. No React.
 store/        Zustand store + window manager
 utils/        cn, sound, dialog (XP message boxes), processes (window -> ProcEntry)
+tests/        unit/ (node:test over the headless layers) + e2e/ (Playwright over the real UI)
 public/       icons, wallpapers, sounds, profile image, resume
 docs/         AUDIT.md (standing audit) + ROADMAP.md (forward plan)
 ```
@@ -163,6 +164,24 @@ A tree built at module load from `content/`. `/home/gaurav/**` mirrors the portf
 generated per call from live window state. Files can carry an `open` hint `{ appId, payload }`
 so `open <path>` launches the matching GUI app — this is what keeps shell and GUI in sync.
 
+### Event bus (`system/bus.ts`)
+
+A headless, typed, bounded log. The store, the shell and the apps `publish` what *happened*
+(`app:opened`, `shell:command`, `setting:changed`, `recycle:deleted`, `dialog:answered`...); the
+Event Viewer app and the shell's `events` command read the same log. `describe()` is an exhaustive
+switch, so a new event kind without a human description is a compile error. Store actions publish
+*after* `set()`, never inside an updater, and only when something really changed — closing a stale
+pid publishes nothing.
+
+### Colour schemes and the screen saver
+
+The Luna chrome colours are CSS variables in `app/globals.css` (`--luna-*`), selected by
+`data-theme` on `<html>` (Blue / Olive Green / Silver). Components use `luna-*` classes, never the
+hex values. `Desktop` sets the attribute from `themeId`; any subtree can set its own `data-theme`,
+which is how Display Properties previews a scheme before applying it. The screen saver
+(`components/os/ScreenSaver.tsx`) is a real idle timer over pointer/key/wheel/touch input plus four
+canvas animations with XP's names; it is the one thing allowed to animate indefinitely.
+
 ### Audio (`utils/sound.ts`)
 
 Synthesised UI sounds via a single lazily-created `AudioContext`; `startup` is the only sampled
@@ -170,8 +189,10 @@ file. Volume/mute read from the store on every call. Never autoplay before a use
 
 ### Persistence
 
-`partialize` persists only: volume, mute, wallpaper, theme colour, icon positions, recycle bin,
-deleted app ids. Windows and session state are deliberately **not** persisted.
+`partialize` is derived from `store/persistence.ts`: volume, mute, wallpaper, colour scheme, screen
+saver, icon positions, recycle bin, deleted app ids. `/etc/system.conf` renders the same list. Windows,
+dialogs and session state are deliberately **not** persisted. A `merge` validates what comes back from
+localStorage, since a visitor can edit it and older saves lack newer keys.
 
 ---
 
@@ -285,10 +306,10 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | --- | --- |
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | Paint | Still an `<iframe>` to `jspaint.app` — not the owner's work, blockable by the host. |
-| `deletedAppIds` | Still persisted — a visitor can permanently lose the Projects icon (A10). The Recycle Bin restores it, but nothing signposts that. |
+| `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~3 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Desktop keyboard navigation · focus trapping · tests. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. |
+| Not implemented | Desktop keyboard navigation (window focus is still pointer-driven; message boxes do trap focus). A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. |
 
 ---
 
@@ -344,7 +365,8 @@ tree unrunnable.
    `constants/apps.ts`. Never duplicate a title, icon path, or URL into a component.
 3. **A button that does nothing must not exist.** Either implement it, disable it visibly with a
    reason, or delete it.
-4. **Keep the tree runnable.** Every commit must `npm run build` clean.
+4. **Keep the tree runnable.** Every commit must `npm run build` clean, and `npm test` must pass
+   (`npm run test:unit`, then `npm run test:e2e` against a production build).
 5. **Type safety.** No new `any`. Prefer discriminated unions over optional-field soup.
 6. **`system/` and `content/` stay headless** — no React, no DOM, no styling. This is what makes
    the shell testable and the architecture explainable.
@@ -354,8 +376,9 @@ tree unrunnable.
 9. **Use the existing asset system.** Do not replace custom `.ico` / `.png` icons with lucide
    glyphs. Lucide is for controls and UI affordances, not for identity.
 10. **No new dependencies** without recording why in §8.
-11. **Test interaction-heavy components by hand** after changing them: drag, resize, maximize,
-    minimize, restore, close, taskbar round-trip, keyboard.
+11. **Test interaction-heavy components in the browser** after changing them: drag, resize,
+    maximize, minimize, restore, close, taskbar round-trip, keyboard. If a bug was found by hand,
+    add the Playwright test that would have caught it to `tests/e2e/`.
 12. **Do not report a feature as complete because its UI exists.**
 
 ---
@@ -390,6 +413,46 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-23 - The verification harness moves into the repo as a test suite
+
+**Why:** twice, the scratchpad probe and Playwright harness were deleted by the OS cleaning its temp
+folder, and every session rebuilt them from memory. They were the only thing standing between a
+change and a regression like "minimising unmounts the app", and "tests" was listed under Not
+implemented. **New dependency (rule 10):** `@playwright/test` as a devDependency. It ships no code
+to visitors; the alternative — a hand-rolled driver on the `playwright` library — is the same
+dependency with less tooling. The unit tests use Node's built-in `node:test` and the project's own
+`tsc`, so they add nothing.
+**Consequences:** `npm run test:unit` compiles `content/` + `system/` + `store/persistence.ts` to
+`.test-out/` and runs them headless; `npm run test:e2e` drives a production build on port 3111
+(desktop and iPhone-13 projects). `tests/` is excluded from the app's `tsconfig`, so test code
+never affects `next build`. Assertions on colours check that tokens *apply*, not specific gradient
+stops, because the Blue values are being refined towards the real Luna bitmaps.
+
+### 2026-09-23 - A system event bus, and the Event Viewer as its first consumer
+
+**Why:** interop was one-directional (a caller passes a payload), and nothing let a visitor *see*
+the parts of the desktop talking. XP already shipped the right window for it: Event Viewer, with
+Application / Security / System logs. Naming it anything else would have been inventing a program.
+**Rules it enforces:** every entry was published by code that really did the thing; nothing is
+seeded to make the log look busy; the log is bounded (500) and in memory only. `closeWindow` takes
+an optional `by` so a close from `kill` or End Task is logged as such.
+**Consequences:** `system/bus.ts` (headless), `EventViewerApp`, and an `events` shell command over
+the same log. Store actions publish after `set()` — never inside an updater, which must stay pure.
+
+### 2026-09-23 - Luna colour tokens, real Themes / Screen Saver / Appearance tabs
+
+**Why:** three Display Properties tabs said "not built yet" because the chrome colours were
+hardcoded inline in forty places. The P3 plan was always to move them into tokens *without
+changing them*, then make the Themes tab real.
+**Consequences:** `--luna-*` variables in `globals.css`, Blue first with the values the components
+used, Olive Green and Silver as approximations (stated as such in the CSS and in the Appearance tab).
+Themes offers XP's own "Windows XP" theme and shows "Modified Theme" only while that is true;
+Appearance holds the colour scheme, as it did in XP. The screen saver is a real idle timer with a
+real wait setting. `themeId` and `screenSaver` are persisted and validated on hydration. The
+Desktop tab gained Restore Deleted Icons, which finally signposts A10.
+**Known limit:** another session is refining the Blue values towards the real Luna bitmaps; the
+token *names* and the `data-theme` mechanism are the stable contract.
 
 ### 2026-09-03 - Windows Explorer, and folders navigate rather than launch
 

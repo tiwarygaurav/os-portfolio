@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import DesktopIcon from './DesktopIcon';
 import ContextMenu from '@/components/ui/ContextMenu';
 import DialogLayer from './Dialog';
+import ScreenSaver from './ScreenSaver';
 import { RunDialogLayer } from './RunDialog';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 import { PROFILE, SYSTEM } from '@/content';
@@ -44,6 +45,7 @@ export default function Desktop() {
     const windows = useSystemStore((s) => s.windows);
     const actions = useSystemStore((s) => s.actions);
     const wallpaperId = useSystemStore((s) => s.wallpaperId);
+    const themeId = useSystemStore((s) => s.themeId);
     const deletedAppIds = useSystemStore((s) => s.deletedAppIds);
     const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
     const [desktopMenu, setDesktopMenu] = useState({ isOpen: false, x: 0, y: 0 });
@@ -60,6 +62,18 @@ export default function Desktop() {
     useEffect(() => {
         if (windows.length > 0) setShowBalloon(false);
     }, [windows.length]);
+
+    /*
+     * Apply the chosen Luna colour scheme. `data-theme` on <html> is what `app/globals.css` keys
+     * the scheme variables off, so every window, the taskbar, the Start menu and the dialogs
+     * follow it. Removed again on unmount: the boot and login screens are always the XP blue.
+     */
+    useEffect(() => {
+        document.documentElement.dataset.theme = themeId;
+        return () => {
+            delete document.documentElement.dataset.theme;
+        };
+    }, [themeId]);
 
     /*
      * Force every open window maximised the moment the viewport crosses into the mobile
@@ -392,6 +406,9 @@ export default function Desktop() {
 
             {/* Taskbar */}
             <Taskbar onOpenRun={() => setRunOpen(true)} />
+
+            {/* Idle timer + screen saver, configured in Display Properties. Above everything. */}
+            <ScreenSaver />
         </div>
     );
 }

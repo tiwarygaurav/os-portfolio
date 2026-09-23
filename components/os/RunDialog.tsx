@@ -149,9 +149,9 @@ export default function RunDialog({ onClose }: RunDialogProps) {
             role="dialog"
             aria-modal="true"
             aria-label="Run"
-            className="w-[420px] max-w-[94vw] border border-[#003da8] shadow-2xl"
+            className="w-[420px] max-w-[94vw] border luna-title-edge shadow-2xl"
         >
-            <div className="flex h-7 items-center justify-between rounded-t-[6px] bg-gradient-to-b from-[#0058ee] via-[#0073e6] to-[#0058ee] px-2 text-white">
+            <div className="flex h-7 items-center justify-between luna-title rounded-t-[6px] px-2 text-white">
                 <span className="text-xs font-bold tracking-wide drop-shadow-md">Run</span>
                 <button
                     onClick={onClose}

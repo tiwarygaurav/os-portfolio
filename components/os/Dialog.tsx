@@ -128,10 +128,10 @@ function DialogBox({ request, index }: { request: DialogRequest; index: number }
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.97 }}
             transition={{ duration: 0.12, ease: 'easeOut' }}
-            className="pointer-events-auto w-[400px] max-w-[92vw] border border-[#003da8] shadow-2xl"
+            className="pointer-events-auto w-[400px] max-w-[92vw] border luna-title-edge shadow-2xl"
             style={{ marginTop: index * 26, marginLeft: index * 26 }}
         >
-            <div className="flex h-7 items-center justify-between rounded-t-[6px] bg-gradient-to-b from-[#0058ee] via-[#0073e6] to-[#0058ee] px-2 text-white">
+            <div className="flex h-7 items-center justify-between luna-title rounded-t-[6px] px-2 text-white">
                 <span className="truncate text-xs font-bold tracking-wide drop-shadow-md">{request.title}</span>
                 <button
                     onClick={() => resolveDialog(request.id, cancelButton.id)}

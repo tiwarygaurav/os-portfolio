@@ -88,11 +88,7 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                     e.preventDefault();
                     setBarMenu({ isOpen: true, x: e.clientX, y: e.clientY });
                 }}
-                className="fixed bottom-0 left-0 right-0 h-9 flex items-center justify-between shadow-lg z-50 text-white select-none"
-                style={{
-                    background: 'linear-gradient(to bottom, #245edb 0%, #3c83f6 8%, #245edb 25%, #1941a5 100%)',
-                    borderTop: '1px solid #4a89ff'
-                }}
+                className="luna-taskbar fixed bottom-0 left-0 right-0 h-9 flex items-center justify-between shadow-lg z-50 text-white select-none"
             >
                 {/* Start Button */}
                 <button
@@ -163,11 +159,8 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                                         actions.focusWindow(win.id);
                                     }
                                 }}
-                                className="flex h-7 min-w-[104px] max-w-[180px] shrink-0 items-center gap-2 truncate rounded-sm px-2 py-1 text-xs transition-all sm:min-w-[140px]"
+                                className={`flex h-7 min-w-[104px] max-w-[180px] shrink-0 items-center gap-2 truncate rounded-sm px-2 py-1 text-xs transition-all sm:min-w-[140px] ${isActive ? 'luna-task-btn-active' : 'luna-task-btn'}`}
                                 style={{
-                                    background: isActive
-                                        ? 'linear-gradient(to bottom, #1746a3, #2059ce 50%, #1746a3)'
-                                        : 'linear-gradient(to bottom, #4083f5, #2f70e8 50%, #1c5fda)',
                                     boxShadow: isActive
                                         ? 'inset 1px 1px 3px rgba(0,0,0,0.5)'
                                         : 'inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px rgba(0,0,0,0.15)',
@@ -188,9 +181,8 @@ export default function Taskbar({ onOpenRun }: TaskbarProps) {
                 {/* System Tray */}
                 <div
                     ref={trayRef}
-                    className="flex items-center gap-2 px-3 h-full relative"
+                    className="luna-tray flex items-center gap-2 px-3 h-full relative"
                     style={{
-                        background: 'linear-gradient(to bottom, #1750c4 0%, #15428b 100%)',
                         borderLeft: '1px solid rgba(255,255,255,0.2)',
                     }}
                 >

@@ -16,6 +16,7 @@ import {
     Bomb,
     Image as ImageIcon,
     Monitor,
+    ScrollText,
 } from 'lucide-react';
 import type { WindowPayload } from '@/store/useSystemStore';
 
@@ -284,6 +285,21 @@ export const APPS: Record<string, AppConfig> = {
         surfaces: ['start', 'run'],
         aliases: ['taskmgr.exe', 'taskman'],
         load: () => import('@/components/apps/TaskManagerApp'),
+    },
+    eventvwr: {
+        id: 'eventvwr',
+        title: 'Event Viewer',
+        icon: ScrollText,
+        // XP kept Event Viewer under Control Panel > Administrative Tools.
+        iconAsset: '/icons/control-panel.png',
+        width: 720,
+        height: 480,
+        canMaximize: true,
+        canResize: true,
+        category: 'system',
+        surfaces: ['start', 'run'],
+        aliases: ['eventvwr.msc', 'events', 'eventlog'],
+        load: () => import('@/components/apps/EventViewerApp'),
     },
 };
 

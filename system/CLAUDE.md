@@ -71,6 +71,16 @@ The traversal functions (`lookup`, `listDir`, `renderTree`, `searchFiles`, `allP
 one `rootFor(procs)` composition. They used to assemble the root separately and `renderTree`
 forgot `/proc`, so `ls /` showed the process table and `tree /` did not.
 
+### `bus.ts`
+
+The event bus: a closed `SystemEvent` union, an exhaustive `describe()` that turns each into an
+Event Viewer row (log, level, source, category, code, message), and a bounded in-memory log with
+`publish` / `subscribe` / `on` / `getLog` / `clearLog`. `getLog()` returns the same array until
+something is published, which is what React's `useSyncExternalStore` needs. No imports at all.
+
+Events describe what *happened*, never what should happen. Add a variant only when some code will
+really publish it, and give it a `describe()` case in plain words.
+
 ## Rules
 
 1. **No React, no DOM, no styling.** If you need a colour, you are in the wrong layer — add a
@@ -95,16 +105,14 @@ The layers compile to CommonJS and run under Node with the `@/` alias rewritten.
 `runCommand` against a stub `ShellContext` and check the emitted lines — no browser needed. That
 round trip is the reason to keep this directory pure.
 
-Recipe: a `tsconfig` with `module: commonjs`, `rootDir` at the repo root and
-`include` covering `content/**`, `system/**` and `store/persistence.ts`; then a runner that
-patches `Module._resolveFilename` to map `@/x` onto the emitted `out/x`. Stub `ShellContext` with
-a couple of fake `ProcEntry` rows and assert on the rendered lines.
+This is committed now: `npm run test:unit` (`tests/unit/`). It compiles with
+`tests/unit/tsconfig.json`, maps `@/` via `tests/unit/alias.cjs`, and runs on `node:test`. The stub
+`ShellContext` rejects unknown pids on purpose — see below.
 
 **A headless pass is not a UI pass.** The `ps`/`kill` pid defect was invisible to this probe
 because the stub `closeProcess` accepted any id; only driving the real browser found it. Use both.
 
 ## Not built yet
 
-`sudo` / root access, the event bus for app-to-app messaging, and the module-graph source that
-the future Architecture viewer will read. `sudo` currently states plainly that it is not wired up
-rather than pretending to fail for effect.
+`sudo` / root access, and the module-graph source that the future Architecture viewer will
+read. `sudo` currently states plainly that it is not wired up rather than pretending to fail.
