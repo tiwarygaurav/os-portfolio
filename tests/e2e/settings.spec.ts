@@ -175,3 +175,32 @@ test('the Event Viewer shows what this session really did', async ({ page }) => 
     await killRow.click();
     await expect(ev).toContainText(new RegExp(`"Untitled - Notepad" \\(${pid}\\) was ended from the Command Prompt`));
 });
+
+test('Browse... sets a picture wallpaper, Position lays it out, and a built-in background replaces it', async ({ page }) => {
+    await run(page, 'desk.cpl');
+    const settings = win(page, 'Display Properties');
+    await settings.getByRole('tab', { name: 'Desktop' }).click();
+    // Nothing to position until a picture is chosen, and the list says so rather than doing nothing.
+    await expect(settings.getByLabel('Picture position')).toBeDisabled();
+
+    await settings.getByRole('button', { name: 'Browse...' }).click();
+    const open = page.getByRole('dialog', { name: 'Open' });
+    await open.locator('#fd-name').fill('Sample Pictures/Windows XP.png');
+    await open.getByRole('button', { name: 'Open', exact: true }).click();
+    await settings.getByLabel('Picture position').selectOption('tile');
+
+    /** How the full-screen desktop background lays out the XP logo, or null if it is not the wallpaper. */
+    const desktopRepeat = () =>
+        page.evaluate(() => {
+            const el = Array.from(document.querySelectorAll('div')).find(
+                (d) => d.getBoundingClientRect().width === window.innerWidth && getComputedStyle(d).backgroundImage.includes('windows-xp-logo'),
+            );
+            return el ? getComputedStyle(el).backgroundRepeat : null;
+        });
+    await expect.poll(desktopRepeat).toBe('repeat');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.wallpaperFile);
+    expect(saved).toEqual({ path: '/home/guest/My Pictures/Sample Pictures/Windows XP.png', position: 'tile' });
+
+    await settings.getByRole('button', { name: 'Bliss', exact: true }).click();
+    await expect.poll(desktopRepeat).toBe(null);
+});

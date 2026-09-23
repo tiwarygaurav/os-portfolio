@@ -2,7 +2,30 @@
 
 import { useState } from 'react';
 import { useSystemStore, WALLPAPERS } from '@/store/useSystemStore';
-import { IDLE_MINUTES, SCREEN_SAVERS, THEMES, DEFAULT_SCREEN_SAVER, DEFAULT_THEME, type ThemeId } from '@/constants/prefs';
+import {
+    IDLE_MINUTES,
+    SCREEN_SAVERS,
+    THEMES,
+    DEFAULT_SCREEN_SAVER,
+    DEFAULT_THEME,
+    WALLPAPER_POSITIONS,
+    type ThemeId,
+    type WallpaperFile,
+    type WallpaperPosition,
+} from '@/constants/prefs';
+import FileDialog, { type FileType } from '@/components/os/FileDialog';
+import { PICTURES_PATH } from '@/system/vfs';
+import { wallpaperCss } from '@/utils/wallpaper';
+import { useFsRevision } from '@/utils/fs';
+import { xpAlert } from '@/utils/dialog';
+
+/** XP's Browse... listed every picture first. */
+const PICTURE_TYPES: FileType[] = [
+    { label: 'All Picture Files', test: (f) => Boolean(f.src) },
+    { label: 'PNG (*.png)', test: (f) => /\.png$/i.test(f.name) },
+];
+
+const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 /**
  * Display Properties, laid out as XP had it: Themes, Desktop, Screen Saver, Appearance, Settings.
@@ -46,10 +69,8 @@ function MonitorPreview({ children }: { children: React.ReactNode }) {
     );
 }
 
-function wallpaperStyle(id: string): React.CSSProperties {
-    const wp = WALLPAPERS.find((w) => w.id === id) ?? WALLPAPERS[0];
-    return wp.color ? { background: wp.color } : { background: `url('${wp.url}') center/cover` };
-}
+/** A built-in wallpaper swatch, or the current picture wallpaper, drawn exactly as the desktop draws it. */
+const wallpaperStyle = (id: string, file: WallpaperFile | null = null) => wallpaperCss(id, file);
 
 /**
  * A miniature active and inactive window in the current scheme. Schemes apply the moment they are
@@ -57,9 +78,9 @@ function wallpaperStyle(id: string): React.CSSProperties {
  * `data-theme` on its own subtree so it stays correct even where the page root has none (it is
  * mounted inside the desktop, which always sets one, but the component does not rely on that).
  */
-function SchemePreview({ themeId, wallpaperId }: { themeId: ThemeId; wallpaperId: string }) {
+function SchemePreview({ themeId, wallpaperId, wallpaperFile }: { themeId: ThemeId; wallpaperId: string; wallpaperFile: WallpaperFile | null }) {
     return (
-        <div data-theme={themeId} className="absolute inset-0" style={wallpaperStyle(wallpaperId)}>
+        <div data-theme={themeId} className="absolute inset-0" style={wallpaperStyle(wallpaperId, wallpaperFile)}>
             <div className="absolute left-3 top-3 w-28 border luna-title-edge bg-[#ece9d8] shadow">
                 <div className="luna-title-inactive h-3 px-1 text-[7px] font-bold leading-3 text-white">Inactive Window</div>
                 <div className="h-6" />
@@ -75,16 +96,25 @@ function SchemePreview({ themeId, wallpaperId }: { themeId: ThemeId; wallpaperId
 
 export default function SettingsApp() {
     const wallpaperId = useSystemStore((s) => s.wallpaperId);
+    const wallpaperFile = useSystemStore((s) => s.wallpaperFile);
     const themeId = useSystemStore((s) => s.themeId);
+    // Previews draw the picture wallpaper through the filesystem; re-render if its file changes.
+    useFsRevision();
+    const [browsing, setBrowsing] = useState(false);
     const screenSaver = useSystemStore((s) => s.screenSaver);
     const deletedCount = useSystemStore((s) => s.deletedAppIds.length);
     const actions = useSystemStore((s) => s.actions);
     const [tab, setTab] = useState<Tab>('Desktop');
 
-    const isXpTheme = wallpaperId === XP_THEME.wallpaperId && themeId === XP_THEME.themeId;
+    const isXpTheme = wallpaperId === XP_THEME.wallpaperId && !wallpaperFile && themeId === XP_THEME.themeId;
+
+    const applyPicture = (path: string, position: WallpaperPosition) => {
+        const problem = actions.setWallpaperFile(path, position);
+        if (problem) void xpAlert('Display Properties', [problem], 'warning');
+    };
 
     return (
-        <div className="flex h-full select-none flex-col bg-[#ece9d8] font-sans text-xs">
+        <div className="relative flex h-full select-none flex-col bg-[#ece9d8] font-sans text-xs">
             {/* Tabs */}
             <div role="tablist" className="flex flex-wrap gap-px border-b border-gray-500 px-2 pt-2">
                 {TABS.map((t) => (
@@ -135,7 +165,7 @@ export default function SettingsApp() {
                         </label>
                         <p className="text-gray-600">Sample:</p>
                         <MonitorPreview>
-                            <SchemePreview themeId={themeId} wallpaperId={wallpaperId} />
+                            <SchemePreview themeId={themeId} wallpaperId={wallpaperId} wallpaperFile={wallpaperFile} />
                         </MonitorPreview>
                     </div>
                 )}
@@ -143,7 +173,7 @@ export default function SettingsApp() {
                 {tab === 'Desktop' && (
                     <div className="space-y-3">
                         <MonitorPreview>
-                            <div className="absolute inset-0" style={wallpaperStyle(wallpaperId)}>
+                            <div className="absolute inset-0" style={wallpaperStyle(wallpaperId, wallpaperFile)}>
                                 <div className="luna-taskbar absolute bottom-0 left-0 right-0 h-2.5" />
                             </div>
                         </MonitorPreview>
@@ -151,17 +181,48 @@ export default function SettingsApp() {
                         <fieldset className="border border-gray-500 p-2">
                             <legend className="px-1 font-normal">Background:</legend>
                             <div className="h-32 overflow-y-auto border border-gray-500 bg-white p-1">
-                                {WALLPAPERS.map((w) => (
-                                    <button
-                                        key={w.id}
-                                        onClick={() => actions.setWallpaper(w.id)}
-                                        aria-pressed={wallpaperId === w.id}
-                                        className={`flex w-full items-center gap-2 px-2 py-0.5 text-left ${wallpaperId === w.id ? 'bg-[#316ac5] text-white' : 'hover:bg-blue-100'}`}
+                                {wallpaperFile && (
+                                    // The picture in use: shown selected, not a button — there is nothing to choose.
+                                    <div
+                                        title={wallpaperFile.path}
+                                        className="flex w-full items-center gap-2 bg-[#316ac5] px-2 py-0.5 text-white"
                                     >
-                                        <div className="h-4 w-5 border border-gray-400" style={wallpaperStyle(w.id)} />
-                                        {w.name}
-                                    </button>
-                                ))}
+                                        <div className="h-4 w-5 border border-gray-400" style={wallpaperStyle(wallpaperId, { ...wallpaperFile, position: 'stretch' })} />
+                                        {fileName(wallpaperFile.path)}
+                                    </div>
+                                )}
+                                {WALLPAPERS.map((w) => {
+                                    const current = !wallpaperFile && wallpaperId === w.id;
+                                    return (
+                                        <button
+                                            key={w.id}
+                                            onClick={() => actions.setWallpaper(w.id)}
+                                            aria-pressed={current}
+                                            className={`flex w-full items-center gap-2 px-2 py-0.5 text-left ${current ? 'bg-[#316ac5] text-white' : 'hover:bg-blue-100'}`}
+                                        >
+                                            <div className="h-4 w-5 border border-gray-400" style={wallpaperStyle(w.id)} />
+                                            {w.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <XPButton onClick={() => setBrowsing(true)}>Browse...</XPButton>
+                                <label className="flex items-center gap-1">
+                                    <span>Position:</span>
+                                    <select
+                                        aria-label="Picture position"
+                                        value={wallpaperFile?.position ?? 'stretch'}
+                                        disabled={!wallpaperFile}
+                                        title={wallpaperFile ? undefined : 'Only a picture chosen with Browse... can be positioned.'}
+                                        onChange={(e) => wallpaperFile && applyPicture(wallpaperFile.path, e.target.value as WallpaperPosition)}
+                                        className="border border-[#7f9db9] bg-white px-1 py-0.5 disabled:bg-gray-100 disabled:text-gray-500"
+                                    >
+                                        {WALLPAPER_POSITIONS.map((p) => (
+                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                </label>
                             </div>
                         </fieldset>
 
@@ -237,7 +298,7 @@ export default function SettingsApp() {
                 {tab === 'Appearance' && (
                     <div className="space-y-3">
                         <MonitorPreview>
-                            <SchemePreview themeId={themeId} wallpaperId={wallpaperId} />
+                            <SchemePreview themeId={themeId} wallpaperId={wallpaperId} wallpaperFile={wallpaperFile} />
                         </MonitorPreview>
                         <label className="block">
                             <span className="mb-1 block">Windows and buttons:</span>
@@ -276,6 +337,19 @@ export default function SettingsApp() {
                     </div>
                 )}
             </div>
+
+            {browsing && (
+                <FileDialog
+                    mode="open"
+                    initialDir={PICTURES_PATH}
+                    types={PICTURE_TYPES}
+                    onCancel={() => setBrowsing(false)}
+                    onConfirm={(path) => {
+                        setBrowsing(false);
+                        applyPicture(path, wallpaperFile?.position ?? 'stretch');
+                    }}
+                />
+            )}
 
             {/*
               * Footer. OK / Cancel / Apply were three dead buttons: settings here apply the moment

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Trash2 } from 'lucide-react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
-import { SAMPLE_PICTURES_PATH, isFile, listDir, lookup, type VFile } from '@/system/vfs';
+import { SAMPLE_PICTURES_PATH, isFile, listDir, type VFile } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
 import { useFsRevision } from '@/utils/fs';
-import { xpConfirm } from '@/utils/dialog';
+import { xpAlert, xpConfirm } from '@/utils/dialog';
 
 /**
  * Windows Picture and Fax Viewer, over the filesystem.
@@ -25,38 +25,52 @@ interface ImageViewerAppProps {
 }
 
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/')) || '/';
+const baseOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+
+/** What is on screen: a folder, and the picture in it. Kept apart so the folder outlives its pictures. */
+interface View {
+    folder: string;
+    name: string | null;
+}
+
+const viewOf = (path: string): View => ({ folder: dirOf(path), name: baseOf(path) });
 
 export default function ImageViewerApp({ windowId, payload }: ImageViewerAppProps) {
     const actions = useSystemStore((s) => s.actions);
     const revision = useFsRevision();
 
-    const [current, setCurrent] = useState<string>(() => {
-        if (payload?.path) return payload.path;
-        const first = (listDir(SAMPLE_PICTURES_PATH) ?? []).find((n) => isFile(n) && n.src);
-        return first ? `${SAMPLE_PICTURES_PATH}/${first.name}` : SAMPLE_PICTURES_PATH;
-    });
+    /*
+     * The folder is state of its own. It used to be derived from the picture's path, so deleting the
+     * last picture in My Pictures "showed" the folder itself — whose parent then became the folder,
+     * and the viewer walked up into the visitor's home.
+     */
+    const [view, setView] = useState<View>(() =>
+        payload?.path ? viewOf(payload.path) : { folder: SAMPLE_PICTURES_PATH, name: null },
+    );
     const [zoom, setZoom] = useState(1);
     const [rotation, setRotation] = useState(0);
+    const { folder } = view;
 
-    // A later `open` on this window shows the new picture.
+    // A later `open` on this window shows the new picture. Not on mount: that is the initial state.
+    const openingPayload = useRef(payload);
     useEffect(() => {
-        if (payload?.path) {
-            setCurrent(payload.path);
-            setZoom(1);
-            setRotation(0);
-        }
+        if (payload === openingPayload.current || !payload?.path) return;
+        setView(viewOf(payload.path));
+        setZoom(1);
+        setRotation(0);
     }, [payload]);
 
-    const folder = dirOf(current);
     const pictures = useMemo(
         () => (listDir(folder) ?? []).filter((n): n is VFile => isFile(n) && Boolean(n.src)),
         // `revision` changes whenever a visitor file is written or deleted.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [folder, revision],
     );
-    const node = lookup(current);
-    const img = node && isFile(node) && node.src ? node : undefined;
-    const index = img ? pictures.findIndex((p) => p.name === img.name) : -1;
+    // The picture asked for, or — if it has gone (deleted from Explorer or the shell), or none was
+    // named — the first one in the folder, rather than "no pictures" beside a folder that has some.
+    const img = pictures.find((p) => p.name === view.name) ?? pictures[0];
+    const index = img ? pictures.indexOf(img) : -1;
+    const current = img ? `${folder === '/' ? '' : folder}/${img.name}` : null;
 
     useEffect(() => {
         if (!windowId) return;
@@ -66,27 +80,54 @@ export default function ImageViewerApp({ windowId, payload }: ImageViewerAppProp
     const show = (i: number) => {
         if (!pictures.length) return;
         const next = pictures[(i + pictures.length) % pictures.length];
-        setCurrent(`${folder}/${next.name}`);
+        setView({ folder, name: next.name });
         setZoom(1);
         setRotation(0);
     };
 
     const remove = async () => {
-        if (!img?.writable) return;
+        if (!img || !current) return;
+        if (!img.writable) {
+            await xpAlert('Error Deleting File or Folder', [
+                `Cannot delete ${img.name}: it is read-only.`,
+                'Only pictures you saved in /home/guest can be deleted.',
+            ], 'error');
+            return;
+        }
         const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to delete '${img.name}'?`, {
             confirmLabel: 'Yes',
             cancelLabel: 'No',
             icon: 'warning',
         });
         if (!ok) return;
-        const remaining = pictures.filter((p) => p.name !== img.name);
-        actions.deleteUserFile(current);
-        const next = remaining[Math.min(Math.max(index, 0), remaining.length - 1)];
-        setCurrent(next ? `${folder}/${next.name}` : folder);
+        const remaining = pictures.filter((p) => p !== img);
+        const problem = actions.deleteUserFile(current);
+        if (problem) {
+            void xpAlert('Windows Picture and Fax Viewer', [problem], 'error');
+            return;
+        }
+        // The picture that slid into its place, as XP did; the folder stays even when it is empty.
+        const next = remaining[Math.min(index, remaining.length - 1)];
+        setView({ folder, name: next?.name ?? null });
+        setZoom(1);
+        setRotation(0);
     };
 
     return (
-        <div className="flex h-full select-none flex-col bg-[#ece9d8] font-sans">
+        <div
+            // Focusable, so the viewer's keys work after a click on the picture. Keys it handles stop
+            // here: Delete used to reach the desktop and offer to recycle a selected desktop icon.
+            tabIndex={-1}
+            onKeyDown={(e) => {
+                const handled = e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+                if (!handled) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.key === 'Delete') void remove();
+                else if (pictures.length > 1) show(index + (e.key === 'ArrowLeft' ? -1 : 1));
+            }}
+            className="flex h-full select-none flex-col bg-[#ece9d8] font-sans outline-none"
+        >
             <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-gray-700">
                 {img ? (
                     // eslint-disable-next-line @next/next/no-img-element -- data: URLs and .ico/.png assets; nothing to optimise

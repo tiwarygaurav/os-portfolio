@@ -6,9 +6,12 @@ import { isMobileViewport } from '@/utils/viewport';
 import { publish } from '@/system/bus';
 import {
     USER_FILES_QUOTA,
+    isFile,
+    lookup,
     mimeForName,
     mountUserFiles,
     userFilesSize,
+    validateUserContent,
     validateUserPath,
     type UserFile,
 } from '@/system/vfs';
@@ -16,6 +19,9 @@ import {
     DEFAULT_SCREEN_SAVER,
     DEFAULT_THEME,
     isThemeId,
+    isWallpaperPosition,
+    type WallpaperFile,
+    type WallpaperPosition,
     sanitizeScreenSaver,
     type ScreenSaverSettings,
     type ThemeId,
@@ -83,6 +89,8 @@ interface SystemState {
     volume: number;
     isMuted: boolean;
     wallpaperId: string;
+    /** A picture from the filesystem shown instead of `wallpaperId`. A path, never a copy. */
+    wallpaperFile: WallpaperFile | null;
     themeId: ThemeId;
     screenSaver: ScreenSaverSettings;
     /** True while the screen saver is on screen. Never persisted. */
@@ -111,6 +119,12 @@ interface SystemState {
         setVolume: (v: number) => void;
         toggleMute: () => void;
         setWallpaper: (id: string) => void;
+        /**
+         * Use a picture from the filesystem as the wallpaper (XP's Desktop > Browse..., and Paint's
+         * Set As Background). The picture must already be a file — nothing is copied. Returns why it
+         * cannot be used, or null.
+         */
+        setWallpaperFile: (path: string, position: WallpaperPosition) => string | null;
         setTheme: (id: ThemeId) => void;
         setScreenSaver: (patch: Partial<ScreenSaverSettings>) => void;
         /** Start or stop the screen saver (Settings > Preview, idle timeout, any input). */
@@ -166,6 +180,11 @@ interface SystemState {
          * as ending a process did in XP. Returns the unregister function.
          */
         registerCloseGuard: (id: string, guard: () => Promise<boolean>) => () => void;
+        /**
+         * Before Log Off or Turn Off: ask every window with unsaved work, one at a time, as XP did.
+         * Resolves false as soon as one says Cancel — the session must then stay.
+         */
+        requestEndSession: () => Promise<boolean>;
         emptyRecycleBin: () => void;
 
         /** Show an XP message box. Resolves with the id of the button chosen. */
@@ -192,6 +211,13 @@ const guardsPending = new Set<string>();
  * `set()`, taking the action that triggered the save down with it. Now the change still applies
  * for this session, and the failure is reported in the Event Viewer instead of silently lost.
  */
+/**
+ * Whether the last write to localStorage failed. The persist middleware writes after every
+ * `set()` — a focus, a dialog, a title — so the failure is reported once when it starts rather than
+ * on every click, which used to push every genuine entry out of the 500-entry log.
+ */
+let persistFailed = false;
+
 const safeLocalStorage: StateStorage = {
     getItem: (name) => {
         try {
@@ -203,13 +229,17 @@ const safeLocalStorage: StateStorage = {
     setItem: (name, value) => {
         try {
             localStorage.setItem(name, value);
+            persistFailed = false;
         } catch {
-            publish({
-                type: 'app:message',
-                source: 'Storage',
-                level: 'error',
-                message: 'Settings and files could not be saved: this browser refused the write (storage full or blocked).',
-            });
+            if (!persistFailed) {
+                publish({
+                    type: 'app:message',
+                    source: 'Storage',
+                    level: 'error',
+                    message: 'Settings and files could not be saved: this browser refused the write (storage full or blocked).',
+                });
+            }
+            persistFailed = true;
         }
     },
     removeItem: (name) => {
@@ -221,6 +251,14 @@ const safeLocalStorage: StateStorage = {
     },
 };
 
+/** A saved picture wallpaper, if it is still well-formed. Whether the file exists is checked at draw time. */
+function sanitizeWallpaperFile(v: unknown): WallpaperFile | null {
+    if (!v || typeof v !== 'object') return null;
+    const { path, position } = v as Partial<WallpaperFile>;
+    if (typeof path !== 'string' || !path.startsWith('/') || !isWallpaperPosition(position)) return null;
+    return { path, position };
+}
+
 /** Keep only well-formed visitor files from whatever localStorage handed back. */
 function sanitizeUserFiles(v: unknown): Record<string, UserFile> {
     if (!v || typeof v !== 'object') return {};
@@ -230,7 +268,8 @@ function sanitizeUserFiles(v: unknown): Record<string, UserFile> {
         if (!f || typeof f !== 'object') continue;
         const { content, mime, modified } = f as Partial<UserFile>;
         if (typeof content !== 'string' || !mimes.includes(mime as UserFile['mime'])) continue;
-        if (validateUserPath(path)) continue;
+        // The same two rules a live write obeys: a visitor can edit localStorage by hand.
+        if (validateUserPath(path) || validateUserContent(path, content)) continue;
         out[path] = { content, mime: mime as UserFile['mime'], modified: typeof modified === 'number' ? modified : 0 };
     }
     return out;
@@ -350,6 +389,7 @@ export const useSystemStore = create<SystemState>()(
             volume: 0.5,
             isMuted: false,
             wallpaperId: 'bliss',
+            wallpaperFile: null,
             themeId: DEFAULT_THEME,
             screenSaver: DEFAULT_SCREEN_SAVER,
             screenSaverActive: false,
@@ -376,8 +416,29 @@ export const useSystemStore = create<SystemState>()(
                     // Also called after Turn Off from the logon screen, where nobody was logged on:
                     // the log must not record a logoff for a session that never existed.
                     const wasLoggedIn = get().isLoggedIn;
-                    set({ isLoggedIn: false, windows: [], activeWindowId: null, screenSaverActive: false });
+                    // Nothing from the old session may survive onto the next desktop: an open
+                    // "save the changes?" box, or a guard for a window that no longer exists.
+                    const pending = get().dialogs;
+                    closeGuards.clear();
+                    guardsPending.clear();
+                    set({ isLoggedIn: false, windows: [], activeWindowId: null, screenSaverActive: false, dialogs: [] });
+                    for (const d of pending) {
+                        const cancel = d.buttons.find(b => b.cancel) ?? d.buttons[d.buttons.length - 1];
+                        const resolve = dialogResolvers.get(d.id);
+                        dialogResolvers.delete(d.id);
+                        resolve?.(cancel?.id ?? '');
+                    }
                     if (wasLoggedIn) publish({ type: 'system:logoff' });
+                },
+
+                requestEndSession: async () => {
+                    for (const [id, guard] of Array.from(closeGuards)) {
+                        if (!get().windows.some(w => w.id === id)) continue;
+                        // Bring the window forward so the visitor sees what the question is about.
+                        get().actions.restoreWindow(id);
+                        if (!(await guard())) return false;
+                    }
+                    return true;
                 },
                 shutdown: () => {
                     set({ isShuttingDown: true });
@@ -391,9 +452,22 @@ export const useSystemStore = create<SystemState>()(
                     publish({ type: 'setting:changed', key: 'mute', value: get().isMuted ? 'on' : 'off' });
                 },
                 setWallpaper: (id) => {
-                    if (get().wallpaperId === id) return;
-                    set({ wallpaperId: id });
+                    const { wallpaperId, wallpaperFile } = get();
+                    if (wallpaperId === id && !wallpaperFile) return;
+                    // Choosing a built-in background replaces a picture wallpaper, as it did in XP.
+                    set({ wallpaperId: id, wallpaperFile: null });
                     publish({ type: 'setting:changed', key: 'wallpaper', value: id });
+                },
+
+                setWallpaperFile: (path, position) => {
+                    const node = lookup(path);
+                    if (!node || !isFile(node) || !node.src) return 'That is not a picture file.';
+                    if (!isWallpaperPosition(position)) return 'Unknown picture position.';
+                    const current = get().wallpaperFile;
+                    if (current && current.path === path && current.position === position) return null;
+                    set({ wallpaperFile: { path, position } });
+                    publish({ type: 'setting:changed', key: 'wallpaper', value: `${path} (${position})` });
+                    return null;
                 },
 
                 setTheme: (id) => {
@@ -682,7 +756,7 @@ export const useSystemStore = create<SystemState>()(
                 },
 
                 writeUserFile: (path, { content, mime }) => {
-                    const invalid = validateUserPath(path);
+                    const invalid = validateUserPath(path) ?? validateUserContent(path, content);
                     if (invalid) return invalid;
                     const current = get().userFiles;
                     const created = current[path] === undefined;
@@ -691,6 +765,13 @@ export const useSystemStore = create<SystemState>()(
                         return 'There is not enough space left in this browser to save that file. Delete something from /home/guest first.';
                     }
                     set({ userFiles: next });
+                    // The persist middleware has just tried to store it (synchronously). If the browser
+                    // refused, the file would vanish on reload while the save looked successful — so
+                    // undo it and say why, rather than report a save that did not happen.
+                    if (persistFailed) {
+                        set({ userFiles: current });
+                        return 'This browser refused to store the file, so it was not saved. Site data may be blocked, or storage is full.';
+                    }
                     publish({ type: 'fs:write', path, created, bytes: content.length });
                     return null;
                 },
@@ -702,8 +783,11 @@ export const useSystemStore = create<SystemState>()(
                     }
                     const next = { ...current };
                     delete next[path];
-                    set({ userFiles: next });
+                    // A deleted picture cannot stay the wallpaper; fall back to the built-in one.
+                    const wasWallpaper = get().wallpaperFile?.path === path;
+                    set(wasWallpaper ? { userFiles: next, wallpaperFile: null } : { userFiles: next });
                     publish({ type: 'fs:delete', path });
+                    if (wasWallpaper) publish({ type: 'setting:changed', key: 'wallpaper', value: get().wallpaperId });
                     return null;
                 },
 
@@ -768,6 +852,7 @@ export const useSystemStore = create<SystemState>()(
                     themeId: isThemeId(saved.themeId) ? saved.themeId : DEFAULT_THEME,
                     screenSaver: sanitizeScreenSaver(saved.screenSaver),
                     userFiles: sanitizeUserFiles(saved.userFiles),
+                    wallpaperFile: sanitizeWallpaperFile(saved.wallpaperFile),
                 };
             },
         }
@@ -783,3 +868,15 @@ mountUserFiles(useSystemStore.getState().userFiles);
 useSystemStore.subscribe((state, prev) => {
     if (state.userFiles !== prev.userFiles) mountUserFiles(state.userFiles);
 });
+
+/*
+ * Another tab of this site wrote the same storage key. Without this, this tab's next ordinary
+ * action — the middleware persists after every `set()` — wrote its stale copy back over it, and a
+ * file saved in the other tab was gone on reload. Rehydrating keeps both tabs on one truth. The
+ * write that follows is byte-identical, so it raises no event of its own and cannot ping-pong.
+ */
+if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'gaurav-xp-os') void useSystemStore.persist.rehydrate();
+    });
+}

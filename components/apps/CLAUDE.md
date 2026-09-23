@@ -66,7 +66,7 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 | `MusicPlayerApp` | **Fixed** | Keeps the original XP playlist and files. `isPlaying` now follows the audio element's own events, taskbar volume + mute apply, and failures are reported. |
 | `MinesweeperApp` | Complete | First-click-safe generation, flood fill, flagging, win detection. Correct. |
 | `CalculatorApp` | Complete | Incl. memory, `sqrt`, `%`, `1/x`, backspace. |
-| `SettingsApp` | **Complete** | Every tab is real: Themes (Windows XP / Modified), Desktop (wallpaper, icon reset, restore deleted icons), Screen Saver (four savers, wait, Preview), Appearance (Blue / Olive Green / Silver, applied as soon as chosen), Settings (read from the browser). |
+| `SettingsApp` | **Complete** | Every tab is real: Themes (Windows XP / Modified), Desktop (wallpaper, Browse... for a picture with Center / Tile / Stretch, icon reset, restore deleted icons), Screen Saver (four savers, wait, Preview), Appearance (Blue / Olive Green / Silver, applied as soon as chosen), Settings (read from the browser). |
 | `EventViewerApp` | **New** | Application / Security / System logs over `system/bus.ts`. Nothing seeded; Clear all events is real. |
 | `MyComputerApp` | Partial, honest | Inert toolbar removed; volumes report real counts from `content/`. My Documents and My Pictures open the real folders in Explorer. |
 | `NotepadApp` | **Real files** | Open / Save / Save As over the VFS through `FileDialog`; `payload.path` opens a file; XP's "save the changes?" on New, Open, Exit and the title-bar X (a store close guard); read-only portfolio files open with Save redirected to Save As; titled `<name> - Notepad`. |

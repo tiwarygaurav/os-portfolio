@@ -98,9 +98,10 @@ test('the shell writes files the GUI can open, and removes them', async ({ page 
     await notepad(page, 'from-shell.txt - Notepad').locator('button[aria-label="Close"], button[title="Close"]').click();
     await win(page, 'Command Prompt').locator('#shell-input').click();
     await shell(page, 'rm from-shell.txt');
-    await shell(page, 'ls');
-    const text = await terminalText(page);
-    expect(text.split('guest@portfolio').pop()).not.toContain('from-shell.txt');
+    // What is saved, not what is printed: the terminal's text never contained its own input line,
+    // so a check on the output passed whether or not the file went.
+    await expect.poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles)))
+        .not.toContain('/home/guest/from-shell.txt');
     await shell(page, 'rm ~/about.md');
     await expect(win(page, 'Command Prompt')).toContainText('Read-only file system');
 });
@@ -112,4 +113,31 @@ test('the picture viewer walks a real folder; built-in pictures cannot be delete
     await expect(viewer.getByRole('button', { name: 'Built-in pictures cannot be deleted' })).toBeDisabled();
     await viewer.getByRole('button', { name: 'Next Image' }).click();
     await expect(win(page, 'Profile.png - Windows Picture and Fax Viewer')).toBeVisible();
+});
+
+test('the viewer keeps its folder when its last picture is deleted, and Delete works from the keyboard', async ({ page }) => {
+    // A 1x1 PNG in My Pictures, put where the store keeps the visitor's files.
+    const dot = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    await page.evaluate((src) => {
+        const saved = JSON.parse(localStorage.getItem('gaurav-xp-os')!);
+        saved.state.userFiles = { '/home/guest/My Pictures/dot.png': { content: src, mime: 'image/png', modified: 1 } };
+        localStorage.setItem('gaurav-xp-os', JSON.stringify(saved));
+    }, dot);
+    await page.reload();
+    await bootAndLogin(page);
+
+    // A selected desktop icon is what a leaked Delete would have offered to recycle.
+    await page.locator('[data-desktop-icon]').first().click();
+    await run(page, '/home/guest/My Pictures/dot.png');
+    const viewer = win(page, 'dot.png - Windows Picture and Fax Viewer');
+    await viewer.locator('img[alt="dot.png"]').click();
+    await page.keyboard.press('Delete');
+    const confirm = page.getByRole('dialog', { name: 'Confirm File Delete' });
+    await expect(confirm).toContainText("delete 'dot.png'");
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await confirm.getByRole('button', { name: 'Yes' }).click();
+
+    // It used to treat the folder as the picture, and show the folder's parent instead.
+    const empty = win(page, 'Windows Picture and Fax Viewer');
+    await expect(empty).toContainText('There are no pictures in /home/guest/My Pictures.');
 });

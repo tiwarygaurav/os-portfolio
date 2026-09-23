@@ -71,7 +71,8 @@ function NodeIcon({ node }: { node: VNode }) {
 }
 
 export default function FileDialog({ mode, initialDir, initialName = '', types, onCancel, onConfirm }: FileDialogProps) {
-    useFsRevision();
+    // Files can change underneath an open dialog (the shell, another window); re-list when they do.
+    const revision = useFsRevision();
     const [dir, setDir] = useState(initialDir);
     const [name, setName] = useState(initialName);
     const [typeIndex, setTypeIndex] = useState(0);
@@ -89,7 +90,8 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
         const dirs = children.filter(isDir);
         const files = children.filter((c): c is VFile => isFile(c) && !c.href && type.test(c));
         return [...dirs, ...files];
-    }, [dir, type]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `revision` is the signal that files changed
+    }, [dir, type, revision]);
 
     // The Look in list: the current folder's ancestors, then the places.
     const ancestry = useMemo(() => {
@@ -147,10 +149,13 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
         <div
             className="absolute inset-0 z-40 flex items-center justify-center bg-black/10 p-2"
             onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                    e.stopPropagation();
-                    onCancel();
-                }
+                // Modal: no key pressed in here reaches the app, the desktop or the browser's own
+                // shortcuts. Delete on a list item used to offer to recycle a desktop icon, and F5
+                // reloaded the page and lost the document being saved.
+                e.stopPropagation();
+                const key = e.key.toLowerCase();
+                if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && ['s', 'o', 'p', 'n'].includes(key))) e.preventDefault();
+                if (e.key === 'Escape') onCancel();
             }}
         >
             <div

@@ -59,3 +59,27 @@ export function sanitizeScreenSaver(v: unknown): ScreenSaverSettings {
             : DEFAULT_SCREEN_SAVER.idleMinutes,
     };
 }
+
+/**
+ * How a picture wallpaper is laid out — XP's three choices in Display Properties > Desktop.
+ * Built-in wallpapers are photographs sized for the screen and always fill it.
+ */
+export const WALLPAPER_POSITIONS = [
+    { id: 'center', name: 'Center' },
+    { id: 'tile', name: 'Tile' },
+    { id: 'stretch', name: 'Stretch' },
+] as const;
+
+export type WallpaperPosition = (typeof WALLPAPER_POSITIONS)[number]['id'];
+
+/** A picture from the filesystem used as the wallpaper. Points at the file; never a copy. */
+export interface WallpaperFile {
+    path: string;
+    position: WallpaperPosition;
+}
+
+export const isWallpaperPosition = (v: unknown): v is WallpaperPosition =>
+    WALLPAPER_POSITIONS.some((p) => p.id === v);
+
+/** The desktop colour XP drew around a centred picture. */
+export const DESKTOP_BACKGROUND_COLOUR = '#3a6ea5';

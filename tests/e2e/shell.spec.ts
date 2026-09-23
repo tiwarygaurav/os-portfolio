@@ -68,6 +68,6 @@ test('/etc/system.conf is generated from what is really persisted', async ({ pag
     const text = await terminalText(page);
     const persisted = text.split('\n').find((l) => l.startsWith('persisted'));
     expect(persisted).toBe(
-        'persisted      = volume, mute, wallpaper, colour scheme, screen saver, your files (/home/guest), icon positions, recycle bin, deleted desktop icons',
+        'persisted      = volume, mute, wallpaper, wallpaper picture, colour scheme, screen saver, your files (/home/guest), icon positions, recycle bin, deleted desktop icons',
     );
 });

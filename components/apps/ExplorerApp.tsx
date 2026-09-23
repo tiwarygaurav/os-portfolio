@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ArrowUp, FolderClosed, FileText, Link2, AppWindow, Image as ImageIcon } from 'lucide-react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
@@ -52,36 +52,46 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
 
     const start = payload?.path ? resolvePath(HOME_PATH, payload.path) : HOME_PATH;
 
-    /** Real navigation history, which is what makes Back and Forward honest controls. */
-    const [history, setHistory] = useState<string[]>([start]);
-    const [cursor, setCursor] = useState(0);
+    /**
+     * Real navigation history, which is what makes Back and Forward honest controls. One state, so
+     * the list and the cursor can never disagree — they were two, and a re-open appended to the end
+     * of the list while moving the cursor from wherever it was, showing one folder while the
+     * address bar named another.
+     */
+    const [nav, setNav] = useState<{ list: string[]; cursor: number }>({ list: [start], cursor: 0 });
     const [selected, setSelected] = useState<string | null>(null);
     const [address, setAddress] = useState(prettyPath(start));
 
-    const path = history[cursor];
+    const path = nav.list[nav.cursor];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `revision` is the signal that /home/guest changed
     const children = useMemo(() => listDir(path, procs) ?? [], [path, procs, revision]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const node = useMemo(() => lookup(path, procs), [path, procs, revision]);
 
     const navigate = useCallback((next: string) => {
-        setHistory((prev) => [...prev.slice(0, cursor + 1), next]);
-        setCursor((c) => c + 1);
+        setNav((n) => ({ list: [...n.list.slice(0, n.cursor + 1), next], cursor: n.cursor + 1 }));
         setSelected(null);
         setAddress(prettyPath(next));
-    }, [cursor]);
+    }, []);
 
-    // A later `open` on this window carries a new path; follow it.
+    const step = (by: -1 | 1) => {
+        const next = nav.cursor + by;
+        if (next < 0 || next >= nav.list.length) return;
+        setNav({ ...nav, cursor: next });
+        setAddress(prettyPath(nav.list[next]));
+        setSelected(null);
+    };
+
+    // A later `open` on this window carries a new path; follow it. Not on mount: the opening path
+    // is already the start of the history, and adding it again made Back go "back" to the same folder.
+    const openingPayload = useRef(payload);
     useEffect(() => {
-        if (!payload?.path) return;
-        const target = resolvePath(HOME_PATH, payload.path);
-        setHistory((prev) => [...prev, target]);
-        setCursor((c) => c + 1);
-        setAddress(prettyPath(target));
-    }, [payload]);
+        if (payload === openingPayload.current || !payload?.path) return;
+        navigate(resolvePath(HOME_PATH, payload.path));
+    }, [payload, navigate]);
 
-    const canBack = cursor > 0;
-    const canForward = cursor < history.length - 1;
+    const canBack = nav.cursor > 0;
+    const canForward = nav.cursor < nav.list.length - 1;
     const parent = path === '/' ? null : resolvePath(path, '..');
 
     /** Open a node: the app that owns it, its external target, or navigate into it. */
@@ -120,28 +130,40 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const selectedNode = selected ? children.find((c) => c.name === selected) : undefined;
     const selectedPath = selectedNode ? `${path === '/' ? '' : path}/${selectedNode.name}` : null;
 
-    /** Delete a file the visitor saved. Built-in files are read-only and never offer this. */
-    const deleteSelected = async () => {
-        if (!selectedNode || !isFile(selectedNode) || !selectedNode.writable || !selectedPath) return;
-        const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to delete '${selectedNode.name}'?`, {
+    /**
+     * Delete `target` — the item the key was pressed on, or the one the task pane refers to. Only
+     * the visitor's own files can go; anything else gets XP's refusal with the actual reason.
+     */
+    const deleteNode = async (target: VNode, targetPath: string) => {
+        if (!isFile(target) || !target.writable) {
+            await xpAlert('Error Deleting File or Folder', [
+                `Cannot delete ${target.name}: ${isDir(target) ? 'folders cannot be deleted here.' : 'it is read-only.'}`,
+                'Only files you saved in /home/guest can be deleted.',
+            ], 'error');
+            return;
+        }
+        const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to delete '${target.name}'?`, {
             confirmLabel: 'Yes',
             cancelLabel: 'No',
             icon: 'warning',
         });
         if (!ok) return;
-        const problem = actions.deleteUserFile(selectedPath);
+        const problem = actions.deleteUserFile(targetPath);
         if (problem) void xpAlert('Windows Explorer', [problem], 'error');
         else setSelected(null);
+    };
+    const deleteSelected = () => {
+        if (selectedNode && selectedPath) void deleteNode(selectedNode, selectedPath);
     };
 
     return (
         <div className="flex h-full flex-col bg-[#ece9d8] font-sans text-black">
             {/* Toolbar. Every control here is wired to real history. */}
             <div className="flex shrink-0 items-center gap-1 border-b border-[#aca899] px-2 py-1">
-                <ToolButton label="Back" disabled={!canBack} onClick={() => { setCursor((c) => c - 1); setAddress(prettyPath(history[cursor - 1])); setSelected(null); }}>
+                <ToolButton label="Back" disabled={!canBack} onClick={() => step(-1)}>
                     <ChevronLeft size={16} />
                 </ToolButton>
-                <ToolButton label="Forward" disabled={!canForward} onClick={() => { setCursor((c) => c + 1); setAddress(prettyPath(history[cursor + 1])); setSelected(null); }}>
+                <ToolButton label="Forward" disabled={!canForward} onClick={() => step(1)}>
                     <ChevronRight size={16} />
                 </ToolButton>
                 <ToolButton label="Up one level" disabled={!parent} onClick={() => parent && navigate(parent)}>
@@ -213,7 +235,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
 
                     {selectedNode && isFile(selectedNode) && selectedNode.writable && (
                         <Panel title="File Tasks">
-                            <PlaceLink label="Delete this file" onClick={() => void deleteSelected()} />
+                            <PlaceLink label="Delete this file" onClick={deleteSelected} />
                         </Panel>
                     )}
 
@@ -251,13 +273,16 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                         <button
                                             onClick={() => setSelected(child.name)}
                                             onDoubleClick={() => activate(child, childPath)}
+                                            onFocus={() => setSelected(child.name)}
                                             onKeyDown={(e) => {
-                                                if (e.key === 'Enter') { e.preventDefault(); activate(child, childPath); }
-                                                if (e.key === 'Delete' && isFile(child) && child.writable) {
+                                                // Keys pressed on a file belong to Explorer. They used to reach the
+                                                // desktop underneath and act on whatever desktop icon was selected.
+                                                if (e.key === 'Enter' || e.key === 'Delete') {
                                                     e.preventDefault();
                                                     e.stopPropagation();
-                                                    void deleteSelected();
                                                 }
+                                                if (e.key === 'Enter') activate(child, childPath);
+                                                if (e.key === 'Delete') void deleteNode(child, childPath);
                                             }}
                                             className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
                                                 isSelected ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'

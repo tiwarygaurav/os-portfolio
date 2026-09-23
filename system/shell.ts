@@ -232,7 +232,7 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
             const lines = body(node.content);
             if (node.href) lines.push(blank(), { kind: 'link', text: node.href, href: node.href });
             if (node.open)
-                lines.push(blank(), muted(`Tip: \`open ${prettyPath(target)}\` opens this in a window.`));
+                lines.push(blank(), muted(`Tip: \`open ${shellQuote(prettyPath(target))}\` opens this in a window.`));
             return out(...lines);
         },
     },
@@ -248,7 +248,10 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 const target = resolvePath(ctx.cwd, arg);
                 const node = lookup(target, ctx.processes());
                 if (node && isDir(node)) continue;
-                const problem = ctx.writeFile(target, node && isFile(node) && node.writable && !node.src ? node.content : '');
+                // An existing file keeps its content — for a visitor's picture that is its data URL
+                // (`src`), not the one-line description `content` holds for `cat`.
+                const keep = node && isFile(node) && node.writable ? (node.src ?? node.content) : '';
+                const problem = ctx.writeFile(target, keep);
                 if (problem) lines.push(error(`touch: cannot touch '${prettyPath(target)}': ${problem}`));
             }
             return out(...lines);
@@ -662,19 +665,32 @@ interface Token {
 }
 
 /** Split a command line, honouring double and single quotes. */
+/**
+ * Does the character at `i` open a quote? A double quote always does (an unclosed one is left open
+ * on purpose, so Tab can keep completing inside `"My Documents/`). A single quote only does when a
+ * closing one follows — otherwise it is an apostrophe: `echo I'm done > note.txt` used to open a
+ * quote that swallowed the rest of the line, redirect included.
+ */
+const opensQuote = (input: string, i: number): boolean =>
+    input[i] === '"' || (input[i] === "'" && input.indexOf("'", i + 1) !== -1);
+
+/** Quote a path for display in a command the visitor may copy, when it needs quoting. */
+export const shellQuote = (path: string): string => (/[\s']/.test(path) ? `"${path}"` : path);
+
 function tokenize(input: string): Token[] {
     const tokens: Token[] = [];
     let current = '';
     let quote: '"' | "'" | null = null;
     let wasQuoted = false;
     let started = false;
-    for (const ch of input) {
+    for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
         if (quote) {
             if (ch === quote) quote = null;
             else current += ch;
             continue;
         }
-        if (ch === '"' || ch === "'") {
+        if ((ch === '"' || ch === "'") && opensQuote(input, i)) {
             quote = ch;
             wasQuoted = true;
             started = true;
@@ -780,19 +796,20 @@ function lastArgument(input: string): { start: number; value: string; isFirst: b
         const ch = input[i];
         if (quote) {
             if (ch === quote) quote = null;
-        } else if (ch === '"' || ch === "'") {
+        } else if ((ch === '"' || ch === "'") && opensQuote(input, i)) {
             quote = ch;
         } else if (ch === ' ') {
             start = i + 1;
         }
     }
-    const raw = input.slice(start);
-    return { start, value: raw.replace(/["']/g, ''), isFirst: input.slice(0, start).trim() === '' };
+    // Unquote with the tokenizer itself, so an apostrophe in a name survives completion.
+    const value = tokenize(input.slice(start))[0]?.value ?? '';
+    return { start, value, isFirst: input.slice(0, start).trim() === '' };
 }
 
-/** How a completion is written back: quoted when it contains a space, left open on folders. */
+/** How a completion is written back: quoted when it has a space or apostrophe, left open on folders. */
 const quoteCandidate = (value: string, isDirectory: boolean): string =>
-    value.includes(' ') ? `"${value}${isDirectory ? '' : '"'}` : value;
+    /[\s']/.test(value) ? `"${value}${isDirectory ? '' : '"'}` : value;
 
 /** Replace the argument being completed with `candidate` (as returned by `complete`). */
 export function applyCompletion(input: string, candidate: string): string {

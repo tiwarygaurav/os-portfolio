@@ -24,7 +24,7 @@ function session() {
         closeProcess: () => false,
         openUrl: () => {},
         writeFile: (p, content) => {
-            const problem = vfs.validateUserPath(p);
+            const problem = vfs.validateUserPath(p) ?? vfs.validateUserContent(p, content);
             if (problem) return problem;
             files = { ...files, [p]: { content, mime: vfs.mimeForName(p), modified: 1 } };
             vfs.mountUserFiles(files);
@@ -153,4 +153,38 @@ test('df reports the real space the visitor files use', () => {
     assert.match(out, /localStorage/);
     assert.match(out, /\/home\/guest/);
     assert.ok(vfs.guestUsage() >= 4096);
+});
+
+test('touch keeps a picture intact; picture names accept only pictures', () => {
+    const s = session();
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    assert.equal(s.ctx.writeFile(`${vfs.PICTURES_PATH}/me.png`, png), null);
+    s.run('touch "My Pictures/me.png"');
+    assert.equal(s.files()[`${vfs.PICTURES_PATH}/me.png`].content, png, 'touch must not erase the data URL');
+
+    assert.match(s.text(s.run('echo hello > "My Pictures/photo.png"')), /Only pictures can be saved/);
+    assert.match(s.text(s.run('ls > "My Pictures/me.png"')), /Only pictures can be saved/);
+    assert.equal(s.files()[`${vfs.PICTURES_PATH}/me.png`].content, png, '> must not overwrite a picture with text');
+    assert.match(s.text(s.run('touch new.jpg')), /Only pictures can be saved/);
+    assert.match(s.text(s.run(`cat "${vfs.SAMPLE_PICTURES_PATH}/Bliss.jpg" > copy.jpg`)), /Only pictures can be saved/);
+});
+
+test('a lone apostrophe is text, not an unclosed quote', () => {
+    const s = session();
+    assert.equal(s.text(s.run("echo it's here")), "it's here");
+    s.run("echo I'm done > note.txt");
+    assert.equal(s.files()[`${vfs.GUEST_PATH}/note.txt`].content, "I'm done\n");
+    // A pair still quotes.
+    assert.equal(s.text(s.run("echo 'a > b'")), 'a > b');
+});
+
+test('hints and completions quote paths the shell would otherwise split', () => {
+    const s = session();
+    s.ctx.writeFile(`${DOCS}/notes.txt`, 'hi');
+    assert.match(s.text(s.run('cat "My Documents/notes.txt"')), /open "\/home\/guest\/My Documents\/notes\.txt"/);
+    s.ctx.writeFile(`${DOCS}/it's.txt`, 'x');
+    s.run('cd "My Documents"');
+    const c = shell.complete('cat it', s.ctx);
+    assert.deepEqual(c, [`"it's.txt"`]);
+    assert.match(s.text(s.run(`cat ${c[0]}`)), /^x/);
 });

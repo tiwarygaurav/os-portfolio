@@ -414,6 +414,19 @@ export function validateUserPath(absPath: string): string | null {
     return null;
 }
 
+/**
+ * Why `content` cannot be stored at `absPath`, or null. A .png or .jpg name promises a picture, so
+ * only a picture's data: URL may be saved under one — `echo hello > photo.png` used to store the
+ * text as a "picture" the viewer then drew as a broken image, and `touch new.jpg` made an empty one.
+ */
+export function validateUserContent(absPath: string, content: string): string | null {
+    const mime = mimeForName(absPath);
+    if ((mime === 'image/png' || mime === 'image/jpeg') && !content.startsWith('data:image/')) {
+        return 'Only pictures can be saved with a .png or .jpg name.';
+    }
+    return null;
+}
+
 /** True when a path is one a visitor saved (as opposed to a built-in, read-only file). */
 export const isUserPath = (absPath: string): boolean => userFiles[absPath] !== undefined;
 

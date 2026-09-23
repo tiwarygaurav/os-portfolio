@@ -15,7 +15,7 @@ both the middleware and the file the shell shows a visitor follow from it.
 | --- | --- |
 | Session | `isBooting`, `isLoggedIn`, `isShuttingDown` |
 | Audio | `audioEnabled`, `volume`, `isMuted` |
-| Appearance | `wallpaperId`, `themeId` (Luna scheme), `screenSaver` (`{ kind, idleMinutes }`), `screenSaverActive` (never persisted) |
+| Appearance | `wallpaperId`, `wallpaperFile` (`{ path, position }` — a picture file, never a copy), `themeId` (Luna scheme), `screenSaver` (`{ kind, idleMinutes }`), `screenSaverActive` (never persisted) |
 | Dialogs | `dialogs: DialogRequest[]` (never persisted; resolvers live in a module-level Map) |
 | Windows | `windows: AppWindow[]`, `activeWindowId` |
 | Desktop | `desktopIcons: Record<id, {x,y}>`, `deletedAppIds` |

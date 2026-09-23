@@ -198,8 +198,8 @@ file. Volume/mute read from the store on every call. Never autoplay before a use
 
 ### Persistence
 
-`partialize` is derived from `store/persistence.ts`: volume, mute, wallpaper, colour scheme, screen
-saver, icon positions, recycle bin, deleted app ids. `/etc/system.conf` renders the same list. Windows,
+`partialize` is derived from `store/persistence.ts`: volume, mute, wallpaper, wallpaper picture,
+colour scheme, screen saver, the visitor's files, icon positions, recycle bin, deleted app ids. `/etc/system.conf` renders the same list. Windows,
 dialogs and session state are deliberately **not** persisted. A `merge` validates what comes back from
 localStorage, since a visitor can edit it and older saves lack newer keys.
 
@@ -422,6 +422,30 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Fixes from the review of e7c7906
+
+Sixteen findings across files, the shell and the viewers. The one that lost data: two tabs of the site
+each wrote their own copy of the store, so a file saved in one tab was gone after the other tab did
+anything at all; the store now re-reads storage when another tab writes it. A save the browser refused
+to keep is rolled back and reported rather than shown as saved, and that refusal is logged once, not
+on every click. `requestEndSession` asks each window with unsaved work in turn, for Log Off and Turn
+Off to call (wiring it into those buttons is in the chrome session's files, not yet done), and a logoff
+clears any prompt left open. `touch` no longer turned a picture
+into text, and a `.png` name only takes a picture. Delete and Enter pressed in Explorer, the picture viewer or a file
+dialog no longer reach the desktop and offer to recycle a desktop icon. Explorer's history was
+doubled when opened on a path. The viewer walked up out of an emptied folder.
+
+### 2026-09-24 - Picture wallpapers point at files
+
+**Why:** XP's Display Properties > Desktop had Browse... and Center / Tile / Stretch, and Paint had
+Set As Background. Both need a wallpaper that is a picture file.
+**Design:** `wallpaperFile: { path, position }` in the store, never a copy of the image — the file
+already lives in `userFiles` (or is a Sample Picture), and a second copy would spend the same
+localStorage quota twice. `utils/wallpaper.ts` is the one place a background becomes CSS, used by the
+desktop and every Settings preview. Deleting the picture drops the wallpaper back to the built-in
+choice (logged); a file that vanished some other way falls back at draw time rather than drawing a
+broken image. Choosing a built-in background clears the picture, as in XP.
 
 ### 2026-09-24 - A writable /home/guest, and Notepad saves real files
 

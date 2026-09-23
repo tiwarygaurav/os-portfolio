@@ -100,12 +100,16 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
         return true;
     }, [actions]);
 
-    /** Save in place; an untitled or read-only document goes to Save As instead. True if saved now. */
-    const save = useCallback((): boolean => {
+    /**
+     * Save in place; an untitled or read-only document goes to Save As instead. Tells the caller
+     * which happened: a failed write must not be mistaken for "Save As is showing" — that used to
+     * leave a pending close armed, which then fired after some later, unrelated save.
+     */
+    const save = useCallback((): 'saved' | 'dialog' | 'failed' => {
         const { text: current, path: currentPath } = live.current;
-        if (currentPath && isWritable(currentPath)) return writeTo(currentPath, current);
+        if (currentPath && isWritable(currentPath)) return writeTo(currentPath, current) ? 'saved' : 'failed';
         setFileDialog('save');
-        return false;
+        return 'dialog';
     }, [writeTo]);
 
     /**
@@ -128,8 +132,9 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
         });
         if (answer === 'no') return true;
         if (answer === 'cancel') return false;
-        if (save()) return true;
-        afterSave.current = then;
+        const result = save();
+        if (result === 'saved') return true;
+        if (result === 'dialog') afterSave.current = then;
         return false;
     }, [actions, save]);
 
@@ -155,6 +160,18 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
             if (ok) load(target);
         });
     }, [payload, askToSave, load]);
+
+    // Reloading or closing the browser tab would lose unsaved text without a word. The browser's own
+    // "leave site?" prompt is the only thing a page may show at that moment.
+    useEffect(() => {
+        if (!dirty) return;
+        const warn = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = '';
+        };
+        window.addEventListener('beforeunload', warn);
+        return () => window.removeEventListener('beforeunload', warn);
+    }, [dirty]);
 
     // The title-bar close button, Alt+F4 and File > Exit all ask about unsaved changes.
     useEffect(() => {
@@ -240,7 +257,7 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
         File: [
             { label: 'New', action: () => { void newDoc(); }, shortcut: 'Ctrl+N' },
             { label: 'Open...', action: () => { void openFile(); }, shortcut: 'Ctrl+O' },
-            { label: 'Save', action: () => { setOpenMenu(null); save(); }, shortcut: 'Ctrl+S' },
+            { label: 'Save', action: () => { setOpenMenu(null); void save(); }, shortcut: 'Ctrl+S' },
             { label: 'Save As...', action: () => { setOpenMenu(null); setFileDialog('save'); } },
             { divider: true, label: '' },
             // Not an XP item: a copy on the visitor's own disk, which My Documents is not.
@@ -289,7 +306,7 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
                 if (e.key === 'F5') { e.preventDefault(); insertDateTime(); return; }
                 if (!(e.ctrlKey || e.metaKey)) return;
                 const key = e.key.toLowerCase();
-                if (key === 's') { e.preventDefault(); save(); }
+                if (key === 's') { e.preventDefault(); void save(); }
                 if (key === 'o') { e.preventDefault(); void openFile(); }
             }}
         >
@@ -361,6 +378,9 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
 
             {fileDialog && (
                 <FileDialog
+                    // A new instance per mode: Save As followed straight by Open must not reuse the
+                    // Save dialog's typed name and folder listing.
+                    key={fileDialog}
                     mode={fileDialog}
                     initialDir={fileDialog === 'save' && path && writable ? path.slice(0, path.lastIndexOf('/')) : DOCUMENTS_PATH}
                     initialName={fileDialog === 'save' ? (path ? baseName(path) : 'Untitled.txt') : ''}

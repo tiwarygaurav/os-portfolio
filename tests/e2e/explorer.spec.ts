@@ -55,3 +55,42 @@ test('Run hands a folder with no owning app to Explorer', async ({ page }) => {
     await run(page, '/etc');
     await expect(win(page, 'Windows Explorer')).toBeVisible();
 });
+
+test('opened on a path, Explorer has no Back yet; a later open is one step, and drops Forward', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, '/etc');
+    const w = win(page, 'Windows Explorer');
+    const addr = w.locator('#explorer-address');
+    await expect(addr).toHaveValue('/etc');
+    // The opening path used to be added to the history twice, so Back went "back" to the same folder.
+    await expect(w.getByLabel('Back')).toBeDisabled();
+
+    await run(page, '/proc');
+    await expect(addr).toHaveValue('/proc');
+    await w.getByLabel('Back').click();
+    await expect(addr).toHaveValue('/etc');
+    await expect(w.getByLabel('Back')).toBeDisabled();
+
+    // A new place after going Back replaces what was ahead, as every browser and Explorer does.
+    await run(page, '/home');
+    await expect(addr).toHaveValue('/home');
+    await expect(w.getByLabel('Forward')).toBeDisabled();
+    await w.getByLabel('Back').click();
+    await expect(addr).toHaveValue('/etc');
+});
+
+test('Delete on a file stays in Explorer, and a read-only file says why it cannot go', async ({ page }) => {
+    await bootAndLogin(page);
+    // A selected desktop icon is what a leaked Delete would have offered to recycle.
+    await page.locator('[data-desktop-icon]').first().click();
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    await w.locator('ul li button', { hasText: 'about.md' }).first().click();
+    await page.keyboard.press('Delete');
+
+    const error = page.getByRole('dialog', { name: 'Error Deleting File or Folder' });
+    await expect(error).toContainText('Cannot delete about.md: it is read-only.');
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await error.getByRole('button', { name: 'OK' }).click();
+    await expect(page.locator('[data-desktop-icon]')).not.toHaveCount(0);
+});

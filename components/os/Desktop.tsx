@@ -1,6 +1,7 @@
 "use client";
 
-import { useSystemStore, WALLPAPERS } from '@/store/useSystemStore';
+import { useSystemStore } from '@/store/useSystemStore';
+import { useWallpaperStyle } from '@/utils/wallpaper';
 import { APPS, DESKTOP_ICONS } from '@/constants/apps';
 import Taskbar from './Taskbar';
 import Window from './Window';
@@ -44,7 +45,6 @@ const GRID_RESERVED_HEIGHT = 80;
 export default function Desktop() {
     const windows = useSystemStore((s) => s.windows);
     const actions = useSystemStore((s) => s.actions);
-    const wallpaperId = useSystemStore((s) => s.wallpaperId);
     const themeId = useSystemStore((s) => s.themeId);
     const deletedAppIds = useSystemStore((s) => s.deletedAppIds);
     const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
@@ -87,7 +87,6 @@ export default function Desktop() {
     }, [isMobile, actions]);
 
     const visibleIcons = DESKTOP_ICONS.filter(id => !deletedAppIds.includes(id));
-    const wallpaper = WALLPAPERS.find(w => w.id === wallpaperId) || WALLPAPERS[0];
 
     const handleDesktopContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -234,9 +233,9 @@ export default function Desktop() {
 
     const rowsPerColumn = Math.max(1, Math.floor((viewportHeight - GRID_RESERVED_HEIGHT) / CELL_HEIGHT));
 
-    const wallpaperStyle: React.CSSProperties = wallpaper.color
-        ? { backgroundColor: wallpaper.color }
-        : { backgroundImage: `url('${wallpaper.url}')`, backgroundSize: 'cover', backgroundPosition: 'center' };
+    // A built-in wallpaper or a picture from the filesystem (Display Properties > Browse...,
+    // Paint's Set As Background) — drawn by the same helper the Settings previews use.
+    const wallpaperStyle = useWallpaperStyle();
 
     return (
         <div className="h-full w-full bg-[#1c55ee] relative font-sans overflow-hidden">
