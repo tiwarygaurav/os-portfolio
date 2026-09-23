@@ -17,13 +17,20 @@ const open = (request: Omit<DialogRequest, 'id'>) =>
 
 const asBody = (body: string | string[]) => (Array.isArray(body) ? body : body.split('\n'));
 
+/** The sound XP's default scheme gave each message-box symbol. "Question" had none. */
+const chime = (icon: DialogRequest['icon']) => {
+    if (icon === 'error') playSound('critical');
+    else if (icon === 'warning') playSound('exclamation');
+    else if (icon === 'info') playSound('ding');
+};
+
 /** A message box with a single OK. Resolves when it is dismissed. */
 export async function xpAlert(
     title: string,
     body: string | string[],
     icon: DialogRequest['icon'] = 'info',
 ): Promise<void> {
-    playSound(icon === 'error' ? 'error' : 'click');
+    chime(icon);
     await open({
         title,
         body: asBody(body),
@@ -39,7 +46,7 @@ export async function xpConfirm(
     options: { confirmLabel?: string; cancelLabel?: string; icon?: DialogRequest['icon'] } = {},
 ): Promise<boolean> {
     const { confirmLabel = 'Yes', cancelLabel = 'No', icon = 'question' } = options;
-    playSound('click');
+    chime(icon);
     const answer = await open({
         title,
         body: asBody(body),

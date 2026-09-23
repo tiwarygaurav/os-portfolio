@@ -7,11 +7,20 @@ import BootScreen from '@/components/os/BootScreen';
 import LoginScreen from '@/components/os/LoginScreen';
 import Desktop from '@/components/os/Desktop';
 import ErrorBoundary from '@/components/os/ErrorBoundary';
-import { SYSTEM } from '@/content';
+import { PoweredOffScreen, StatusScreen, shuttingDownMessage } from '@/components/os/SessionScreens';
+import { consumeRestart } from '@/components/os/power';
+
+/** How long "... is shutting down..." shows — long enough for the shutdown sound to play. */
+const SHUTDOWN_MS = 2800;
 
 export default function Home() {
-    const { isBooting, isLoggedIn, isShuttingDown, actions } = useSystemStore();
+    const isBooting = useSystemStore((s) => s.isBooting);
+    const isLoggedIn = useSystemStore((s) => s.isLoggedIn);
+    const isShuttingDown = useSystemStore((s) => s.isShuttingDown);
+    const actions = useSystemStore((s) => s.actions);
     const [mounted, setMounted] = useState(false);
+    // Turn Off ends with the machine off. Only the power button (a real reload) leaves this state.
+    const [poweredOff, setPoweredOff] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -20,9 +29,15 @@ export default function Home() {
     useEffect(() => {
         if (!isShuttingDown) return;
         const t = setTimeout(() => {
+            // Restart and Turn Off run the same shutdown and differ only here, as they did in XP.
+            if (consumeRestart()) {
+                window.location.reload();
+                return;
+            }
             actions.cancelShutdown();
             actions.logout();
-        }, 2400);
+            setPoweredOff(true);
+        }, SHUTDOWN_MS);
         return () => clearTimeout(t);
     }, [isShuttingDown, actions]);
 
@@ -32,26 +47,25 @@ export default function Home() {
         /*
          * `reducedMotion="user"` makes every Framer animation in the tree honour the visitor's
          * "reduce motion" setting: transform and opacity animations become instant rather than
-         * being removed, so nothing loses meaning. The boot progress bar, which is the one thing
-         * that loops, already checks the preference itself.
+         * being removed, so nothing loses meaning. The CSS animations in app/luna.css (the boot
+         * chunks, the grey fade behind Turn Off) carry their own prefers-reduced-motion rules.
          */
         <MotionConfig reducedMotion="user">
         <ErrorBoundary>
-        <main className="h-viewport w-screen overflow-hidden bg-black text-white selection:bg-win-blue selection:text-white relative">
-            {isBooting && <BootScreen onComplete={actions.bootComplete} />}
-            {!isBooting && !isLoggedIn && !isShuttingDown && <LoginScreen onLogin={actions.login} />}
-            {!isBooting && isLoggedIn && !isShuttingDown && <Desktop />}
-
-            {isShuttingDown && (
-                <div className="absolute inset-0 z-[10000] bg-[#3a6ea5] flex items-center justify-center text-white font-sans flex-col gap-6">
-                    <div className="text-3xl font-light tracking-wide">{SYSTEM.name} is shutting down…</div>
-                    <div className="w-64 h-2 bg-blue-900/40 rounded-full overflow-hidden">
-                        <div className="h-full bg-white/80 animate-pulse" style={{ width: '80%' }} />
-                    </div>
-                    <div className="absolute bottom-8 text-sm text-blue-100 italic">
-                        {SYSTEM.tagline}
-                    </div>
-                </div>
+        <main className="h-viewport relative w-screen overflow-hidden bg-black text-white selection:bg-win-blue selection:text-white">
+            {poweredOff ? (
+                <PoweredOffScreen />
+            ) : (
+                <>
+                    {isBooting && <BootScreen onComplete={actions.bootComplete} />}
+                    {!isBooting && !isLoggedIn && !isShuttingDown && <LoginScreen onLogin={actions.login} />}
+                    {!isBooting && isLoggedIn && !isShuttingDown && <Desktop />}
+                    {isShuttingDown && (
+                        <div className="absolute inset-0 z-[10000]">
+                            <StatusScreen message={shuttingDownMessage()} />
+                        </div>
+                    )}
+                </>
             )}
         </main>
         </ErrorBoundary>

@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import XpIcon from '@/components/ui/XpIcon';
 import { useSystemStore } from '@/store/useSystemStore';
 import { APPS, appList } from '@/constants/apps';
 import { HOME_PATH, allPaths, lookup, resolvePath, isFile } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
-import { playSound } from '@/utils/sound';
 import { useProcesses } from '@/utils/processes';
 
 /**
@@ -44,7 +44,6 @@ export default function RunDialog({ onClose }: RunDialogProps) {
     }, []);
 
     const openApp = (appId: string) => {
-        playSound('open');
         actions.openWindow(appId, APPS[appId].title);
         onClose();
     };
@@ -98,13 +97,11 @@ export default function RunDialog({ onClose }: RunDialogProps) {
         // Files and directories both carry the launch hint, so this resolves a path exactly the
         // way `open <path>` does in the Command Prompt.
         if (node.open) {
-            playSound('open');
             actions.openWindow(node.open.appId, APPS[node.open.appId]?.title, node.open.payload);
             onClose();
             return;
         }
         // Nothing owns this path: show it in the Explorer, which browses the same tree.
-        playSound('open');
         actions.openWindow('explorer', APPS.explorer.title, { path: prettyPath(abs) });
         onClose();
     }
@@ -141,82 +138,72 @@ export default function RunDialog({ onClose }: RunDialogProps) {
     };
 
     return (
-        <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.97 }}
-            transition={{ duration: 0.12, ease: 'easeOut' }}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Run"
-            className="w-[420px] max-w-[94vw] border luna-title-edge shadow-2xl"
-        >
-            <div className="flex h-7 items-center justify-between luna-title rounded-t-[6px] px-2 text-white">
-                <span className="text-xs font-bold tracking-wide drop-shadow-md">Run</span>
-                <button
-                    onClick={onClose}
-                    className="flex h-5 w-5 items-center justify-center rounded-[3px] border border-white/40 bg-gradient-to-b from-[#e74e57] to-[#a91b1b] hover:from-[#f47280] hover:to-[#c0252b]"
-                    aria-label="Close"
-                >
-                    <span className="text-[11px] font-bold leading-none">&times;</span>
-                </button>
+        <div role="dialog" aria-modal="true" aria-label="Run" className="xp-window-frame w-[347px] max-w-[94vw]">
+            <div className="xp-titlebar">
+                <XpIcon src="/icons/run.png" size={16} className="xp-titlebar-icon" />
+                <span className="xp-titlebar-text">Run</span>
+                <div className="xp-titlebar-controls">
+                    <button type="button" onClick={onClose} className="xp-caption-btn is-close" aria-label="Close" data-tip="Close" />
+                </div>
             </div>
 
-            <div className="bg-[#ece9d8] px-5 py-4 font-sans text-black">
+            <div className="xp-face px-3 pb-3 pt-4">
                 <div className="flex gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/icons/run.png" alt="" className="h-8 w-8 shrink-0 object-contain" />
-                    <p className="text-xs leading-relaxed">
-                        Type the name of a program or a path in this system, and it will open it for you.
+                    <XpIcon src="/icons/run.png" size={32} className="shrink-0" />
+                    <p className="leading-[1.45]">
+                        Type the name of a program, folder or path in this system, and it will open it for you.
                     </p>
                 </div>
 
-                <label htmlFor="run-input" className="mt-4 block text-xs">
-                    Open:
-                </label>
-                <input
-                    id="run-input"
-                    ref={inputRef}
-                    value={value}
-                    onChange={(e) => {
-                        setValue(e.target.value);
-                        setError(null);
-                        setHighlight(0);
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            submit();
-                        } else if (e.key === 'ArrowDown') {
-                            e.preventDefault();
-                            setHighlight((h) => Math.min(h + 1, suggestions.length - 1));
-                        } else if (e.key === 'ArrowUp') {
-                            e.preventDefault();
-                            setHighlight((h) => Math.max(0, h - 1));
-                        } else if (e.key === 'Escape') {
-                            e.preventDefault();
-                            onClose();
-                        }
-                    }}
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="mt-1 w-full border border-[#7f9db9] bg-white px-2 py-1 font-mono text-xs outline-none focus:border-[#0058ee]"
-                    placeholder="cmd"
-                />
+                <div className="mt-4 flex items-center gap-2">
+                    <label htmlFor="run-input" className="shrink-0">
+                        <u>O</u>pen:
+                    </label>
+                    <input
+                        id="run-input"
+                        ref={inputRef}
+                        value={value}
+                        onChange={(e) => {
+                            setValue(e.target.value);
+                            setError(null);
+                            setHighlight(0);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                submit();
+                            } else if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                setHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+                            } else if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                setHighlight((h) => Math.max(0, h - 1));
+                            } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                onClose();
+                            }
+                        }}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="xp-input h-[21px] min-w-0 flex-1"
+                        placeholder="cmd"
+                    />
+                </div>
 
                 {suggestions.length > 0 && (
-                    <ul className="mt-1 max-h-40 overflow-auto border border-[#7f9db9] bg-white text-xs">
+                    <ul className="ml-[38px] mt-px max-h-40 overflow-auto border border-[#7f9db9] bg-white" role="listbox">
                         {suggestions.map((s, i) => (
-                            <li key={`${s.label}-${i}`}>
+                            <li key={`${s.label}-${i}`} role="option" aria-selected={i === highlight}>
                                 <button
+                                    type="button"
                                     onMouseEnter={() => setHighlight(i)}
                                     onClick={s.run}
-                                    className={`flex w-full items-baseline justify-between gap-3 px-2 py-1 text-left ${
-                                        i === highlight ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'
+                                    className={`flex w-full items-baseline justify-between gap-3 px-1.5 py-px text-left ${
+                                        i === highlight ? 'bg-[var(--luna-highlight)] text-white' : ''
                                     }`}
                                 >
-                                    <span className="truncate font-mono">{s.label}</span>
-                                    <span className={`shrink-0 text-[10px] ${i === highlight ? 'text-blue-100' : 'text-gray-500'}`}>
+                                    <span className="truncate">{s.label}</span>
+                                    <span className={`shrink-0 ${i === highlight ? 'text-white/80' : 'text-[#7f7c6d]'}`}>
                                         {s.detail}
                                     </span>
                                 </button>
@@ -225,29 +212,21 @@ export default function RunDialog({ onClose }: RunDialogProps) {
                     </ul>
                 )}
 
-                {error && <p className="mt-2 text-xs leading-relaxed text-[#a91b1b]">{error}</p>}
+                {error && <p className="mt-2 leading-[1.45] text-[#a91b1b]">{error}</p>}
 
-                <div className="mt-5 flex justify-end gap-2">
-                    <RunButton onClick={submit}>OK</RunButton>
-                    <RunButton onClick={onClose}>Cancel</RunButton>
+                <div className="mt-4 flex justify-end gap-1.5">
+                    <button type="button" className="xp-button is-default" onClick={submit}>OK</button>
+                    <button type="button" className="xp-button" onClick={onClose}>Cancel</button>
                 </div>
             </div>
-        </motion.div>
+        </div>
     );
 }
 
-function RunButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-    return (
-        <button
-            onClick={onClick}
-            className="min-w-[75px] rounded-[3px] border border-[#7a7a6d] bg-gradient-to-b from-white via-[#f2f1ea] to-[#dedbc8] px-3 py-1 text-xs shadow-sm hover:border-[#3c7fb1] hover:from-[#fefefe] hover:to-[#e6f1fb] active:translate-y-px"
-        >
-            {children}
-        </button>
-    );
-}
-
-/** Mount point: centred over the desktop, above windows, never over the taskbar. */
+/**
+ * Mount point. XP opened Run at the bottom-left of the screen, just above the Start button that
+ * launched it — not centred — so it appears there on a desktop, and centred on a phone.
+ */
 export function RunDialogLayer({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
     return (
         <AnimatePresence>
@@ -257,7 +236,8 @@ export function RunDialogLayer({ isOpen, onClose }: { isOpen: boolean; onClose: 
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.1 }}
-                    className="absolute inset-x-0 bottom-9 top-0 z-[46] flex items-center justify-center bg-black/10"
+                    className="absolute inset-x-0 top-0 z-[46] flex items-center justify-center md:items-end md:justify-start md:pb-4 md:pl-3"
+                    style={{ bottom: 'var(--xp-taskbar-h)' }}
                     onMouseDown={(e) => {
                         if (e.target === e.currentTarget) onClose();
                     }}

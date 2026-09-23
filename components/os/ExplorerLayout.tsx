@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, type LucideIcon } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import XpIcon from '@/components/ui/XpIcon';
 
 /**
- * Explorer-style shell: task sidebar + content pane.
+ * Explorer-style shell: XP's task pane beside a content pane.
  *
  * The previous version carried a full fake browser toolbar — Back, Forward, Search, Folders, Go
  * and an editable address field, none of which did anything. They are gone rather than
@@ -12,6 +13,7 @@ import { ChevronDown, ChevronUp, type LucideIcon } from 'lucide-react';
  *
  * What remains of the address bar is a *read-only* path display showing the VFS location of the
  * content — the same path that works in the terminal. It reports state; it never invites input.
+ * The task pane is drawn from `app/luna.css` (`.xp-taskpane*`), so it follows the colour scheme.
  */
 
 interface SidebarItem {
@@ -24,6 +26,8 @@ interface SidebarSection {
     title: string;
     items: SidebarItem[];
     defaultOpen?: boolean;
+    /** XP drew the first, most important group with a dark header (e.g. "System Tasks"). */
+    special?: boolean;
 }
 
 interface ExplorerLayoutProps {
@@ -35,32 +39,27 @@ interface ExplorerLayoutProps {
 
 export default function ExplorerLayout({ path, sidebarSections, children }: ExplorerLayoutProps) {
     return (
-        <div className="flex h-full flex-col bg-[#f1f1f1] font-sans">
-            <div className="flex shrink-0 items-center gap-2 border-b border-[#d0cfc4] bg-[#ece9d8] px-2 py-1 text-xs">
-                <span className="hidden text-gray-500 sm:inline">Location</span>
-                <div className="min-w-0 flex-1 truncate border border-[#c8c6b8] bg-white px-2 py-0.5 font-mono text-black">
-                    {path}
+        <div className="flex h-full flex-col bg-white">
+            <div className="xp-addressbar">
+                <span className="hidden sm:inline">Address</span>
+                <div className="xp-addressbar-field" data-tip="The same path works in the Command Prompt">
+                    <XpIcon src="/icons/xp/folder-open.png" size={16} />
+                    <span>{path}</span>
                 </div>
-                <span className="hidden text-[10px] text-gray-500 lg:inline">also reachable from the terminal</span>
             </div>
 
             {/*
               * On a phone this becomes one scrolling column with the content first and the task
-              * panes beneath it: a 192px sidebar beside content on a 390px screen leaves neither
+              * panes beneath it: a 200px sidebar beside content on a 390px screen leaves neither
               * readable, and putting the panes on top buries what the visitor came for.
               * `order` moves them visually while the DOM keeps the sidebar first for screen
               * readers. `flex-col-reverse` would do the same but starts the scroll at the visual
               * bottom, so the window opened showing the end of the content.
               */}
             <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-                <div className="order-2 shrink-0 space-y-3 bg-gradient-to-b from-[#748aff] to-[#4057d2] p-3 md:order-none md:w-48 md:overflow-y-auto">
+                <div className="xp-taskpane order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
                     {sidebarSections.map((section) => (
-                        <CollapsibleSection
-                            key={section.title}
-                            title={section.title}
-                            items={section.items}
-                            defaultOpen={section.defaultOpen}
-                        />
+                        <CollapsibleSection key={section.title} {...section} />
                     ))}
                 </div>
 
@@ -70,42 +69,46 @@ export default function ExplorerLayout({ path, sidebarSections, children }: Expl
     );
 }
 
-function CollapsibleSection({ title, items, defaultOpen = true }: SidebarSection) {
+/** XP's round double-chevron: pointing up to collapse, down to expand. */
+function Chevrons({ open }: { open: boolean }) {
+    return (
+        <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden style={{ transform: open ? undefined : 'rotate(180deg)' }}>
+            <path d="M1 4.6 4.5 1.2 8 4.6M1 8.2 4.5 4.8 8 8.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+    );
+}
+
+function CollapsibleSection({ title, items, defaultOpen = true, special = false }: SidebarSection) {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     const panelId = `panel-${title.replace(/\s+/g, '-').toLowerCase()}`;
 
     return (
-        <section className="overflow-hidden rounded shadow-sm">
+        <section className={`xp-taskpane-section${special ? ' is-special' : ''}`}>
             <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
                 aria-expanded={isOpen}
                 aria-controls={panelId}
-                className="flex w-full cursor-pointer items-center justify-between bg-gradient-to-r from-blue-100 to-blue-200 p-1 px-2 hover:brightness-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="xp-taskpane-head"
             >
-                <span className="text-xs font-bold text-[#215dc6]">{title}</span>
-                {isOpen ? (
-                    <ChevronUp size={14} className="rounded-full border border-blue-200 bg-white text-blue-400" aria-hidden />
-                ) : (
-                    <ChevronDown size={14} className="rounded-full border border-blue-200 bg-white text-blue-400" aria-hidden />
-                )}
+                <span>{title}</span>
+                <span className="xp-taskpane-chevron">
+                    <Chevrons open={isOpen} />
+                </span>
             </button>
 
             {isOpen && (
-                <div id={panelId} className="space-y-1 border-t border-white/50 bg-[#d6dff7] p-2">
+                <div id={panelId} className="xp-taskpane-body">
                     {items.map((item) =>
                         item.action ? (
-                            <button
-                                key={item.label}
-                                onClick={item.action}
-                                className="flex w-full items-center gap-2 py-0.5 text-left text-xs text-[#215dc6] hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                            >
-                                {item.icon && <item.icon size={14} aria-hidden />}
+                            <button key={item.label} type="button" onClick={item.action} className="xp-taskpane-link">
+                                {item.icon && <item.icon size={16} aria-hidden />}
                                 <span>{item.label}</span>
                             </button>
                         ) : (
                             // No action: render as text, never as a button that does nothing.
-                            <div key={item.label} className="flex items-center gap-2 py-0.5 text-xs text-[#1c3f8f]">
-                                {item.icon && <item.icon size={14} aria-hidden />}
+                            <div key={item.label} className="xp-taskpane-text flex items-start gap-1.5">
+                                {item.icon && <item.icon size={16} aria-hidden />}
                                 <span>{item.label}</span>
                             </div>
                         ),

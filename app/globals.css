@@ -57,21 +57,7 @@ body {
   display: none;
 }
 
-/* Custom Scrollbar for Windows */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
+/* Scrollbars, and every other Luna surface, live in app/luna.css. */
 
 /* CRT Effect Overlay (Optional, creates retro vibe) */
 .scanlines {
@@ -91,91 +77,3 @@ body {
   pointer-events: none;
   z-index: 9999;
 }
-
-/* ==========================================================================
-   Luna colour schemes
-   --------------------------------------------------------------------------
-   The chrome colours that used to be hardcoded inline in Window, Taskbar,
-   StartMenu and the dialogs, defined once. `:root` is the default Blue scheme
-   with EXACTLY the values those components used, so the desktop looks
-   identical until a visitor picks another scheme in Display Properties.
-
-   A scheme is selected by `data-theme` on any element, so Settings can preview
-   all three side by side by scoping each swatch to its own scheme.
-
-   Olive Green and Silver are approximations of the real Luna schemes, written
-   from memory rather than sampled from them — this is a tribute, not a copy.
-   The start button stays green in all three, as it did in XP.
-   ========================================================================== */
-:root,
-[data-theme='blue'] {
-  --luna-title-active: linear-gradient(to bottom, #0058ee, #0073e6, #0058ee);
-  --luna-title-inactive: linear-gradient(to bottom, #7a96df, #9bb4ea, #7a96df);
-  --luna-title-edge: #003da8;
-  --luna-frame: #0055ea;
-  --luna-taskbar: linear-gradient(to bottom, #245edb 0%, #3c83f6 8%, #245edb 25%, #1941a5 100%);
-  --luna-taskbar-edge: #4a89ff;
-  --luna-tray: linear-gradient(to bottom, #1750c4 0%, #15428b 100%);
-  --luna-task-btn: linear-gradient(to bottom, #4083f5, #2f70e8 50%, #1c5fda);
-  --luna-task-btn-active: linear-gradient(to bottom, #1746a3, #2059ce 50%, #1746a3);
-  --luna-start-bar: linear-gradient(to bottom, #245dca 0%, #3c82f2 100%);
-  --luna-start-edge: #3c82f2;
-  --luna-start-right-bg: #d3e5fa;
-  --luna-start-right-edge: #95bdee;
-  --luna-start-right-text: #00136b;
-  --luna-start-right-rule: #aebad3;
-}
-
-[data-theme='olive'] {
-  --luna-title-active: linear-gradient(to bottom, #7d9450, #9db06a, #7d9450);
-  --luna-title-inactive: linear-gradient(to bottom, #a9b78a, #c1cca6, #a9b78a);
-  --luna-title-edge: #566b2c;
-  --luna-frame: #6b8038;
-  --luna-taskbar: linear-gradient(to bottom, #8b9d5c 0%, #a5b877 8%, #8b9d5c 25%, #6b7d3d 100%);
-  --luna-taskbar-edge: #b7c98a;
-  --luna-tray: linear-gradient(to bottom, #7a8c4a 0%, #5f7033 100%);
-  --luna-task-btn: linear-gradient(to bottom, #a3b46f, #8fa15a 50%, #7a8c4a);
-  --luna-task-btn-active: linear-gradient(to bottom, #5f7033, #728544 50%, #5f7033);
-  --luna-start-bar: linear-gradient(to bottom, #6f8646 0%, #93a962 100%);
-  --luna-start-edge: #93a962;
-  --luna-start-right-bg: #ecefd9;
-  --luna-start-right-edge: #b6c48a;
-  --luna-start-right-text: #2f3d10;
-  --luna-start-right-rule: #b8c197;
-}
-
-[data-theme='silver'] {
-  --luna-title-active: linear-gradient(to bottom, #8d8fa9, #aeb0c8, #8d8fa9);
-  --luna-title-inactive: linear-gradient(to bottom, #c4c5d3, #dcdde6, #c4c5d3);
-  --luna-title-edge: #6c6e88;
-  --luna-frame: #7b7d97;
-  --luna-taskbar: linear-gradient(to bottom, #8b8da8 0%, #a6a8c2 8%, #8b8da8 25%, #6d6f8b 100%);
-  --luna-taskbar-edge: #c2c4d8;
-  --luna-tray: linear-gradient(to bottom, #7d7f9b 0%, #62647f 100%);
-  --luna-task-btn: linear-gradient(to bottom, #a3a5c0, #9092ad 50%, #7d7f9b);
-  --luna-task-btn-active: linear-gradient(to bottom, #62647f, #74768f 50%, #62647f);
-  --luna-start-bar: linear-gradient(to bottom, #7d7f9b 0%, #a3a5c0 100%);
-  --luna-start-edge: #a3a5c0;
-  --luna-start-right-bg: #e6e6ef;
-  --luna-start-right-edge: #babbd0;
-  --luna-start-right-text: #2b2c4a;
-  --luna-start-right-rule: #bfc0d0;
-}
-
-/* Consumers. A class per surface keeps the token names out of the JSX. */
-.luna-title { background: var(--luna-title-active); }
-.luna-title-inactive { background: var(--luna-title-inactive); }
-.luna-title-edge { border-color: var(--luna-title-edge); }
-.luna-frame { border-color: var(--luna-frame); }
-.luna-taskbar { background: var(--luna-taskbar); border-top: 1px solid var(--luna-taskbar-edge); }
-.luna-tray { background: var(--luna-tray); }
-.luna-task-btn { background: var(--luna-task-btn); }
-.luna-task-btn-active { background: var(--luna-task-btn-active); }
-.luna-start-bar { background: var(--luna-start-bar); }
-.luna-start-edge { border-color: var(--luna-start-edge); }
-.luna-start-right {
-  background: var(--luna-start-right-bg);
-  border-color: var(--luna-start-right-edge);
-  color: var(--luna-start-right-text);
-}
-.luna-start-right-rule { background: var(--luna-start-right-rule); }

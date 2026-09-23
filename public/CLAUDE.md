@@ -4,7 +4,9 @@
 
 ```
 public/
-  icons/       application + system icons. Mixed .ico (XP-sourced, large) and .png (small).
+  icons/xp/    THE icon set: every app, place, dialog button and tray glyph (55 files, ~430 KB).
+  icons/       legacy .ico/.png originals. icons/xp/ was exported from these; a few app bodies
+               still reference them directly.
   wallpapers/  desktop backgrounds.
   sounds/      startup sample + music player playlist.
   profile.jpg  the owner's photo.
@@ -15,11 +17,18 @@ public/
 1. **Do not replace custom icons with lucide glyphs.** The `.ico`/`.png` set is a large part of
    the project's character. Lucide is for controls and affordances (close, zoom, chevrons) —
    never for identity.
-2. **Icon paths belong in `constants/apps.ts` (`iconAsset`), not in components.** Several
-   components still hardcode `/icons/...` strings; do not add more.
-3. **Every `<img>` needs a fallback.** `.ico` support varies; `StartMenuLink` already implements
-   an `onError` fallback to a lucide glyph — copy that pattern.
-4. **New raster assets ship as `.png`/`.webp` at the size they are displayed.** No new `.ico`.
+2. **App icon paths belong in `constants/apps.ts` (`iconAsset`), not in components.** The chrome
+   references system icons that belong to no app (tray glyphs, the Turn Off buttons, Show
+   Desktop, Connect To) directly by their `/icons/xp/` path; nothing else should.
+3. **Render icons with `components/ui/XpIcon`.** It sets `srcSet`, so a 16–24px use gets the
+   hand-tuned `-sm.png` frame and anything larger gets the 128px master — crisp on 2x screens.
+4. **The `icons/xp/` conventions.** Existing XP artwork is `<name>.png` at 128px plus
+   `<name>-sm.png` at 32px, taken from the source `.ico`'s own 32×32 frame. Among frames of equal
+   size, always take the 32-bit one: several `.ico` files lead with a 16-colour 256px frame, and
+   exporting that produced visibly dithered icons once. New artwork is hand-written `.svg`
+   (viewBox 48×48, or 16×16 for tray glyphs), self-contained, with ids prefixed per icon so
+   several can be inlined on one page. Some carry a `<style>` media query that swaps in a simpler
+   drawing at 16–24px, as XP shipped separate small frames. No new `.ico`.
 
 ## Licensing — settled, do not re-open
 
@@ -41,8 +50,7 @@ screen. XP homage is fine; claiming Microsoft authored this build is not.
 ## Other cleanups
 
 - `Bliss.jpg` and `bliss.png` are duplicates of the same wallpaper (1.2 MB together). Keep one — both are offered in Display Properties, which is the only reason to keep two.
-- Several `.ico` files are enormous for their display size: `Folder Closed.ico` 465 KB,
-  `My Computer.ico` 416 KB, `Music.ico` 236 KB — all rendered at 48 px. A first desktop paint
-  pulls roughly 2 MB of icons. Re-export at 2× display size as `.png`; keep the artwork, drop
-  the bytes.
+- The chrome no longer loads any `.ico`: the desktop, Start menu, taskbar and title bars all use
+  `icons/xp/`, ~430 KB for the whole set against ~3 MB of `.ico`. The originals stay because a
+  few app bodies still point at them; move those to `icons/xp/` and the `.ico` files can go.
 - No favicon and no OG image exist. Both are required before the link is shared anywhere.

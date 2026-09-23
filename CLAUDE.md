@@ -78,21 +78,23 @@ impressive.
 | Rendering | Effectively 100% client | `page.tsx` returns `null` until `mounted`; a `<noscript>` block in the layout still gives the name, the summary and the links |
 | Language | TypeScript 5, `strict: true` | `any` still present in several contracts |
 | State | Zustand 4 + `persist` (localStorage) | `store/useSystemStore.ts`, key `gaurav-xp-os` |
-| Styling | Tailwind 3 + inline `style` for gradients | `utils/cn.ts` = clsx + tailwind-merge |
+| Styling | Tailwind 3 + `app/luna.css` | `luna.css` is the XP visual style (scheme tokens + `.xp-*` classes); `utils/cn.ts` = clsx + tailwind-merge |
 | Animation | Framer Motion 11 | Drag, window transitions, mount fades |
-| Icons | `/public/icons/*.ico\|png` + lucide-react | Custom `.ico`/`.png` for identity; lucide for controls |
-| Audio | WebAudio oscillators for UI, `<audio>` for samples | `utils/sound.ts`; `startup.mp3` is the XP boot sound |
+| Icons | `/public/icons/xp/` (PNG + SVG) + lucide-react | XP artwork for identity, rendered by `components/ui/XpIcon`; lucide for controls. See `public/CLAUDE.md` |
+| Audio | WebAudio synthesis of XP's sound scheme, `<audio>` for samples | `utils/sound.ts`; `startup.mp3` plays as the desktop appears after logon |
 | Data | `content/` -> `system/vfs.ts` | Single source of truth (introduced 2026-08-19) |
 
 ### Directory map
 
 ```
-app/          layout + the single page; boot/login/desktop/shutdown state machine
+app/          layout + the single page; boot/login/desktop/shutdown state machine;
+              luna.css (the XP visual style) and globals.css
 components/
   os/         shell chrome: BootScreen, LoginScreen, Desktop, Window, Taskbar,
-              StartMenu, DesktopIcon, ExplorerLayout
+              StartMenu, DesktopIcon, ExplorerLayout, ExitWindows (Log Off / Turn Off),
+              SessionScreens, Dialog, RunDialog, Tooltips, captionZoom
   apps/       one component per application window
-  ui/         shared primitives (ContextMenu, Disclosure)
+  ui/         shared primitives (ContextMenu, XpIcon, MenuBar, AppDialog, xp-controls, Disclosure)
 constants/    apps.ts — the app registry (id, title, icon, default size, capabilities)
 content/      Typed source of truth for all portfolio facts. No JSX, no styling.
 system/       Headless runtime: virtual filesystem, shell, event bus. No React.
@@ -122,9 +124,19 @@ store/ is a leaf that components/ and system/ may both touch.
 ### Boot -> login -> desktop -> shutdown
 
 State machine lives in `store/useSystemStore.ts` (`isBooting`, `isLoggedIn`, `isShuttingDown`)
-and renders from `app/page.tsx`. Boot gates on a click (required for the browser audio autoplay
-policy — do not remove that gate without replacing the gesture). Boot is a fixed 4.5 s timer,
-not tied to real loading. Shutdown is a 2.4 s overlay that returns to the login screen.
+and renders from `app/page.tsx`. Boot starts on its own and is a fixed 4 s timer, not tied to real
+loading. The browser's audio gesture is the click on the account at the Welcome screen, which plays
+XP's sequence ("Loading your personal settings...", then "welcome") and the startup sound as the
+desktop appears — where XP played it. Any future sound before that click would be refused.
+
+Leaving goes through XP's dialogs (`ExitWindows`), over a screen that drains to grey. Log Off,
+Turn Off and Restart first call `requestEndSession()`, so each window with unsaved work is brought
+forward and asked; the first Cancel keeps the session. Log Off shows "Saving your settings..." and
+returns to the Welcome screen. Turn Off shows "... is shutting down..." for 2.8 s and leaves the
+machine powered off — a black screen whose one button reloads (`page.tsx` owns that state); Restart
+reloads at the same point (`components/os/power.ts` carries the choice). Switch User shows the
+Welcome screen over a session that keeps running ("N programs running"). Stand By darkens the screen
+until input.
 
 ### Window manager (`store/useSystemStore.ts` + `components/os/Window.tsx`)
 
@@ -132,8 +144,12 @@ not tied to real loading. Shutdown is a 2.4 s overlay that returns to the login 
 - Windows are absolutely positioned; drag via Framer `useDragControls` started from the title bar.
 - `zIndex` is renormalised to a compact `10..10+n` band on every focus, so windows can never
   climb over the taskbar (`z-50`).
-- Resize via a manual pointer-event handler on the bottom-right grip; `canResize` / `canMaximize`
+- Resize from every edge and corner (invisible `.xp-resize` handles); `canResize` / `canMaximize`
   come from the app registry.
+- XP's window behaviours: the system menu (right-click the title bar or a task button, click the
+  title-bar icon; double-click the icon closes), and the caption ghost that flies between a title
+  bar and its taskbar button on minimise, restore and maximise (`captionZoom.ts`, transform only).
+  Windows appear and close without animation, as XP's did.
 - Window ids are readable pids (`w1`, `w2`, …) because `ps` and `kill` expose them to the user.
 - `restoreWindow` (un-minimise, keeps maximised) and `unmaximizeWindow` are separate on purpose.
 - Positions are clamped so a window can never be dragged fully off-screen.
@@ -184,7 +200,7 @@ pid publishes nothing.
 
 ### Colour schemes and the screen saver
 
-The Luna chrome colours are CSS variables in `app/globals.css` (`--luna-*`), selected by
+The Luna chrome colours are CSS variables in `app/luna.css` (`--luna-*`), selected by
 `data-theme` on `<html>` (Blue / Olive Green / Silver). Components use `luna-*` classes, never the
 hex values. `Desktop` sets the attribute from `themeId`; any subtree can set its own `data-theme`.
 Schemes apply the moment they are chosen — Display Properties has no preview-before-apply. The screen saver
@@ -193,8 +209,13 @@ canvas animations with XP's names; it is the one thing allowed to animate indefi
 
 ### Audio (`utils/sound.ts`)
 
-Synthesised UI sounds via a single lazily-created `AudioContext`; `startup` is the only sampled
-file. Volume/mute read from the store on every call. Never autoplay before a user gesture.
+XP's default sound scheme, synthesised through a single lazily-created `AudioContext` (additive
+bells and pads through a generated reverb); `startup` is the only sampled file. The scheme voices
+the session (startup, logon, logoff, shutdown), message boxes (`utils/dialog.ts` picks Ding,
+Exclamation or Critical Stop from the symbol; Question is silent, as in XP), the Recycle Bin, and
+Explorer's navigation click — and is silent for opening, closing and minimising windows, as XP was.
+Legacy names (`open`, `close`, `click`...) still resolve. Volume/mute read from the store on every
+call. Never autoplay before a user gesture.
 
 ### Persistence
 
@@ -207,22 +228,30 @@ localStorage, since a visitor can edit it and older saves lack newer keys.
 
 ## 4. Design language
 
-**Current (XP-literal):** `#245edb` taskbar blue, `#ece9d8` control beige, `#316ac5` selection,
-title-bar gradient `#0058ee -> #0073e6`, Tahoma/Verdana, 3-D bevels via inset box-shadows,
-XP-style green start button, windows at `rounded-t-xl`.
+**The XP look is defined once, in `app/luna.css`.** Two layers:
 
-**Target: the same palette, defined once.** The XP look is the identity and does not change. What
-should change is that these values live inline in ~40 components, so nothing can be adjusted
-consistently and the Display Properties Themes tab has nothing to drive. Moving them into
-`tailwind.config.ts` + CSS variables — **with exactly the values above** — is a consolidation, not
-a redesign: the desktop looks identical afterwards, and Blue / Olive Green / Silver become
-implementable as real XP themes.
+- **Scheme tokens** (`--luna-*`, selected by `[data-theme]`): Blue carries the multi-stop gradients
+  of the Luna bitmaps — title bar `#0058ee`-based with its darker ends, the 16-stop taskbar from
+  `#1f2f86` to `#1941a5`, the lighter tray, the Start menu header and footer — plus `#ece9d8`
+  control face and `#316ac5` selection. Olive Green and Silver are approximations, tuned for text
+  contrast (Silver takes dark caption text).
+- **`.xp-*` component classes**: window frame and caption buttons, taskbar, Start menu, menus,
+  buttons, inputs, checkboxes and radios, group boxes, tabs, progress, trackbars, status bars,
+  scrollbars, task panes, tooltips, balloons, the logon/boot/exit screens. System chrome and app
+  bodies use the same classes (the in-app `MenuBar`, `AppDialog` and `xp-controls` are built on
+  them), so an in-app dialog cannot drift from a system one.
 
-Until that migration lands, do not add new hardcoded hex values to components; reuse the existing
-ones. Any new surface must adopt the XP grammar so it looks like it shipped with the rest.
+Fonts are XP's: Tahoma 11px for UI, Trebuchet MS bold 13px for captions, Franklin Gothic Medium
+italic for "start" and "welcome". The taskbar is 30px (36px on phones; `TASKBAR_HEIGHT` /
+`taskbarHeight()` in `utils/viewport.ts` and `--xp-taskbar-h` are the same number). Do not add hex
+values to components: add a token or a class to `luna.css`. Native `title` tooltips on the chrome
+are replaced by `data-tip`, drawn as XP tooltips by `components/os/Tooltips.tsx`.
 
 **Motion:** 120–200 ms, ease-out, transform/opacity only. Nothing loops forever. Motion states a
-change; it never decorates. `prefers-reduced-motion` is honoured via `MotionConfig reducedMotion="user"` in `app/page.tsx`, plus `useReducedMotion()` directly in `BootScreen` for its looping progress bar.
+change; it never decorates. Stated exceptions: the grey fade behind Log Off / Turn Off takes 2.2 s
+because XP's did (opacity of a `backdrop-filter` layer); the boot chunks loop only while the boot
+screen is up. `prefers-reduced-motion` is honoured via `MotionConfig reducedMotion="user"` in
+`app/page.tsx`, by `luna.css` media queries for the CSS animations, and by `captionZoom.ts`.
 
 ---
 
@@ -289,7 +318,7 @@ Properties (wallpaper switch, icon reset) - Media player (real playback, real pl
 | Unbounded z-index (windows drew over the taskbar after ~40 focuses) | z-order renormalised to a compact band on every focus |
 | Restore un-maximised a minimised window | `restoreWindow` / `unmaximizeWindow` split; minimise-restore is lossless |
 | Windows draggable off-screen (persisted) | Clamped so a grabbable strip always remains |
-| 4 px gap under maximised windows | Maximise height matches the 36 px taskbar |
+| 4 px gap under maximised windows | Maximise height matches the taskbar (`--xp-taskbar-h`) |
 | `window` prop shadowed the global in `Window.tsx` | Renamed to `win` |
 | `npm run lint` prompted interactively | `.eslintrc.json`; 0 errors |
 | `ps` pids ran into the STATE column (`l9zk988fnrunning`), so `kill` was unusable | Readable `w1`, `w2`… pids and measured column widths |
@@ -316,9 +345,9 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | Paint | Still an `<iframe>` to `jspaint.app` — not the owner's work, blockable by the host. |
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
-| Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~3 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
+| Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Desktop keyboard navigation (window focus is still pointer-driven; message boxes do trap focus). A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rename, no mkdir. |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rename, no mkdir. |
 
 ---
 
@@ -423,6 +452,62 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-09-24 - The XP fidelity pass: Luna drawn properly, high-res icons, XP's own behaviours
+
+**Why:** the owner asked for the desktop to be "exactly like" Windows XP — the feel, high-resolution
+icons, and XP's specialities. The chrome was a skin of approximations: a four-stop taskbar, lucide
+glyphs in the caption buttons, italic active task buttons, an All Programs flyout that rendered as an
+empty box, 48 px icons blurred on 2x screens, several apps showing another app's icon (Calculator and
+the picture viewer had the Display icon, Command Prompt a gear window), and a web-toy blip on every
+window open and close.
+**Decisions:**
+- **`app/luna.css` is the XP visual style**, imported before `globals.css` so a Tailwind utility can
+  still override it. `--luna-*` scheme tokens keep their names and `[data-theme]` selectors; Blue now
+  carries the multi-stop gradients of the Luna bitmaps (title bar, taskbar, tray, Start menu), and
+  Olive/Silver were refined for contrast (Silver takes dark caption text). `.xp-*` classes — window
+  frame, caption buttons, menus, buttons, inputs, checkboxes, tabs, group boxes, progress, trackbars,
+  scrollbars, task panes, tooltips, balloons — are one contract for system chrome and app bodies;
+  the in-app MenuBar, AppDialog and xp-controls in components/ui are built on it.
+- **The taskbar is Luna's 30 px** (phones keep 36 so task buttons stay tappable).
+  `TASKBAR_HEIGHT` / `taskbarHeight()` in `utils/viewport.ts` and `--xp-taskbar-h` are the two halves
+  of one number.
+- **Icons live in `public/icons/xp/`** (see `public/CLAUDE.md`). The existing XP artwork was
+  re-exported from its `.ico` 256 px frames (128 px master + the file's own hand-tuned 32 px frame);
+  the missing ones — Recycle Bin empty and full, Command Prompt, Notepad, Calculator, Solitaire, Task
+  Manager, Event Viewer, Picture Viewer, the Turn Off / Log Off buttons, Show Desktop, Connect To and
+  the tray glyphs — were drawn as SVG in XP's style. ~430 KB for the set, against ~3 MB of `.ico`.
+  `XpIcon` picks the right file by display size.
+- **The boot gate is gone.** It existed only because the startup sound played at the end of boot and
+  browsers refuse audio before a gesture. XP played that sound when the desktop appeared after
+  logging on, so it moved there, and the click on the account is the gesture.
+- **XP's default sound scheme**: session sounds, message-box Ding / Exclamation / Critical Stop, the
+  Recycle Bin, Explorer's navigation click — and silence for opening, closing and minimising windows,
+  as XP was. Synthesised; `startup.mp3` stays the only recording. Legacy sound names still work.
+- **XP's behaviours, not just its colours:** the system menu (right-click a title bar or a task
+  button, or click the title-bar icon; double-click the icon closes); resizing from every edge;
+  the caption ghost that flies to the taskbar on minimise; Show Desktop toggles back; rubber-band
+  multi-select, Ctrl+click, Ctrl+A and arrow keys on the desktop; Arrange Icons By Name / Type and
+  Show Desktop Icons; Refresh redraws instead of reloading the page (it used to reboot the OS);
+  the Recycle Bin shows its full artwork and its menu can empty it; Log Off and Turn Off open XP's
+  dialogs over a screen that drains to grey; Stand By darkens until input; Switch User keeps the
+  session behind the Welcome screen, which says "N programs running"; Log Off shows "Saving your
+  settings..."; Turn Off ends powered off, with one button that restarts; XP's yellow tooltips
+  replace native ones on the chrome (`data-tip`); message boxes centre their buttons and ding and
+  flash when clicked beside; Run opens bottom-left, where XP opened it. Shortcuts show the program's
+  name ("Notepad"), while its window keeps the document title ("Untitled - Notepad").
+**Alternatives rejected:** downloading high-resolution XP icon packs or more XP sound files (their
+provenance is unknown, and they would widen the licensing exposure §9 accepted for a fixed list of
+files); a library such as XP.css (a new dependency that styles bare elements globally, restyling
+every app body at once); stripping native `title` attributes page-wide to replace their tooltips
+(it would mutate attributes other components and the tests select on).
+**Motion, stated:** the grey fade behind Turn Off takes 2.2 s because XP's did; it animates opacity
+of a `backdrop-filter` layer only. The caption ghost is 220 ms of transform. The boot chunks loop
+only while the boot screen is up. Windows appear and close instantly, as XP's did — the old
+scale-in is gone. `prefers-reduced-motion` skips all of it.
+**Consequences:** `components/os/` gained `ExitWindows`, `SessionScreens`, `Tooltips`,
+`captionZoom` and `power`; `ContextMenu` became a portaled XP menu with bold default items,
+shortcut text and cascading submenus. `page.tsx` owns the powered-off state. Log Off, Turn Off and Restart call `requestEndSession()` first, so unsaved work is asked about before the session ends.
+
 ### 2026-09-24 - Fixes from the review of e7c7906
 
 Sixteen findings across files, the shell and the viewers. The one that lost data: two tabs of the site
@@ -430,7 +515,7 @@ each wrote their own copy of the store, so a file saved in one tab was gone afte
 anything at all; the store now re-reads storage when another tab writes it. A save the browser refused
 to keep is rolled back and reported rather than shown as saved, and that refusal is logged once, not
 on every click. `requestEndSession` asks each window with unsaved work in turn, for Log Off and Turn
-Off to call (wiring it into those buttons is in the chrome session's files, not yet done), and a logoff
+Off to call (Log Off, Turn Off and Restart now call it before ending the session), and a logoff
 clears any prompt left open. `touch` no longer turned a picture
 into text, and a `.png` name only takes a picture. Delete and Enter pressed in Explorer, the picture viewer or a file
 dialog no longer reach the desktop and offer to recycle a desktop icon. Explorer's history was

@@ -15,6 +15,17 @@ import { useEffect, useState } from 'react';
  */
 export const MOBILE_BREAKPOINT = 768;
 
+/**
+ * Height of the taskbar in px. 30 is Luna's own; it was 36 before the fidelity pass. Phones keep 36
+ * so the task buttons stay tappable. `--xp-taskbar-h` in `app/luna.css` is the CSS side of the same
+ * two numbers — change them together. Code that needs the live value calls `taskbarHeight()`.
+ */
+export const TASKBAR_HEIGHT = 30;
+export const TASKBAR_HEIGHT_MOBILE = 36;
+
+export const taskbarHeight = (): number =>
+    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT ? TASKBAR_HEIGHT_MOBILE : TASKBAR_HEIGHT;
+
 export function useIsMobile(): boolean {
     // Server and first client render must agree, so start false and correct after mount.
     const [isMobile, setIsMobile] = useState(false);

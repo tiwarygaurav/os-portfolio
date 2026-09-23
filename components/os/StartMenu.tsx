@@ -1,17 +1,20 @@
 "use client";
 
-import { useSystemStore } from '@/store/useSystemStore';
+import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { APPS, CATEGORY_LABELS, appList, type AppConfig } from '@/constants/apps';
-import { Power, LogOut, ChevronRight, Music, Instagram, Github, Linkedin, Mail, Calculator, StickyNote, HardDrive, TerminalSquare, Image as ImageIcon, Monitor, FolderOpen, Globe, Play, Cpu } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
-import { playSound } from '@/utils/sound';
 import { LINKS, PROFILE } from '@/content';
+import ContextMenu, { isInsideMenu, type MenuItem } from '@/components/ui/ContextMenu';
+import XpIcon from '@/components/ui/XpIcon';
+import { shortcutName } from '@/utils/shortcut';
 
 interface StartMenuProps {
     onClose: () => void;
     /** Opens the Run dialog, which the desktop owns. */
     onOpenRun: () => void;
+    /** Opens the Log Off / Turn Off Computer dialogs, which the desktop owns. */
+    onExit: (kind: 'logoff' | 'shutdown') => void;
     /**
      * The element that opened the menu (the Start button). A mousedown on it is not "outside":
      * the button toggles the menu itself, and closing here first made the toggle re-open it.
@@ -19,39 +22,53 @@ interface StartMenuProps {
     triggerRef?: React.RefObject<HTMLElement>;
 }
 
-/** Glyph for a social link label. Falls back to a globe for anything unrecognised. */
-function SOCIAL_ICONS({ l }: { l: string }) {
-    if (l === 'GitHub') return <Github size={16} />;
-    if (l === 'LinkedIn') return <Linkedin size={16} />;
-    if (l === 'Instagram') return <Instagram size={16} />;
-    return <Globe size={16} />;
-}
+/** XP opened a flyout after the pointer rested on its item, not instantly. */
+const FLYOUT_DELAY_MS = 300;
+
+/** The top of the left column: pinned programs, in bold, with what they are in grey. */
+const PINNED: { id: string; subtitle: string }[] = [
+    { id: 'projects', subtitle: 'Case studies and code' },
+    { id: 'contact', subtitle: 'E-mail' },
+];
+
+/** Below the pinned programs XP listed the ones used most. These are the ones worth using most. */
+const MOST_USED = ['about', 'skills', 'resume', 'terminal', 'music', 'minesweeper'];
 
 /**
- * All Programs, grouped from the registry rather than a hand-written list.
- *
- * The previous version repeated every app id and label here, so a new app silently failed to
- * appear -- and two of the labels had already drifted from the registry titles.
+ * All Programs, grouped from the registry rather than a hand-written list, so a new app appears
+ * here by declaring its category. XP kept system utilities under Accessories > System Tools; they
+ * get a group of their own here because there are several.
  */
-const PROGRAM_GROUPS: { title: string; apps: AppConfig[] }[] = (
-    ['accessory', 'game', 'portfolio', 'system'] as const
-)
+const PROGRAM_GROUPS: { title: string; apps: AppConfig[] }[] = (['accessory', 'game', 'portfolio', 'system'] as const)
     .map((category) => ({
-        title: CATEGORY_LABELS[category],
+        title: category === 'system' ? 'System Tools' : CATEGORY_LABELS[category],
         apps: appList().filter((a) => a.category === category && a.surfaces.includes('start')),
     }))
     .filter((g) => g.apps.length > 0);
 
-export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuProps) {
+/** Links that open outside the desktop, under XP's own "Connect To". URLs come from `@/content`. */
+const CONNECTIONS = LINKS.filter((l) => l.known);
+
+type Flyout = { kind: 'programs' | 'connect'; x: number; y: number };
+
+/**
+ * The XP Start menu, laid out as XP laid it out: the user's picture and name over the orange rule;
+ * pinned and most-used programs on the white left; bold system places on the blue right; Log Off
+ * and Turn Off Computer along the bottom.
+ */
+export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit }: StartMenuProps) {
     const actions = useSystemStore((s) => s.actions);
-    const [allProgramsOpen, setAllProgramsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const [flyout, setFlyout] = useState<Flyout | null>(null);
+    const hoverTimer = useRef<number>();
 
     useEffect(() => {
         const onMouseDown = (e: MouseEvent) => {
             const target = e.target as Node;
             if (menuRef.current?.contains(target)) return;
             if (triggerRef?.current?.contains(target)) return;
+            // The flyouts are portaled; a click inside one is a click inside the Start menu.
+            if (isInsideMenu(e.target)) return;
             onClose();
         };
         const onKeyDown = (e: KeyboardEvent) => {
@@ -62,251 +79,197 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun }: StartMenuP
         return () => {
             document.removeEventListener('mousedown', onMouseDown);
             document.removeEventListener('keydown', onKeyDown);
+            window.clearTimeout(hoverTimer.current);
         };
     }, [onClose, triggerRef]);
 
-    const handleAppClick = (appId: string) => {
+    const open = (appId: string, payload?: WindowPayload) => {
         const app = APPS[appId];
-        if (app) {
-            playSound('open');
-            actions.openWindow(app.id, app.title);
-            onClose();
-        }
-    };
-
-    const handleLogout = () => {
-        playSound('logoff');
-        actions.logout();
-    };
-
-    const handleShutdown = () => {
-        playSound('shutdown');
-        actions.shutdown();
+        if (!app) return;
+        actions.openWindow(app.id, app.title, payload);
         onClose();
     };
 
+    /** Hovering any item decides, after a moment, which flyout (if any) should be showing. */
+    const hover = (kind: Flyout['kind'] | null, el?: HTMLElement) => {
+        window.clearTimeout(hoverTimer.current);
+        hoverTimer.current = window.setTimeout(() => {
+            if (!kind || !el) return setFlyout(null);
+            const r = el.getBoundingClientRect();
+            setFlyout(kind === 'programs' ? { kind, x: r.right, y: r.bottom } : { kind, x: r.right - 2, y: r.top - 3 });
+        }, FLYOUT_DELAY_MS);
+    };
+
+    const toggleFlyout = (kind: Flyout['kind'], el: HTMLElement) => {
+        window.clearTimeout(hoverTimer.current);
+        if (flyout?.kind === kind) return setFlyout(null);
+        const r = el.getBoundingClientRect();
+        setFlyout(kind === 'programs' ? { kind, x: r.right, y: r.bottom } : { kind, x: r.right - 2, y: r.top - 3 });
+    };
+
+    const programItems: MenuItem[] = PROGRAM_GROUPS.map((group) => ({
+        label: group.title,
+        icon: <XpIcon src="/icons/xp/folder-closed.png" size={16} />,
+        items: group.apps.map((a) => ({
+            label: shortcutName(a.title),
+            icon: a.iconAsset ? <XpIcon src={a.iconAsset} size={16} /> : <a.icon size={14} />,
+            action: () => open(a.id),
+        })),
+    }));
+
+    const connectItems: MenuItem[] = CONNECTIONS.map((l) => ({
+        label: l.label === 'Email' ? 'E-mail' : l.label,
+        icon: <XpIcon src={l.label === 'Email' ? '/icons/xp/phone.png' : '/icons/xp/connect-to.svg'} size={16} />,
+        action: () => {
+            // E-mail goes to the Contact window, which validates and hands off to the mail client.
+            if (l.label === 'Email') return open('contact');
+            window.open(l.url, '_blank', 'noopener,noreferrer');
+            onClose();
+        },
+    }));
+
+    const itemProps = (onClick: () => void) => ({
+        type: 'button' as const,
+        onClick,
+        onMouseEnter: () => hover(null),
+    });
 
     return (
         <motion.div
             ref={menuRef}
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 20, opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed bottom-9 left-0 z-[9999] flex max-h-[calc(100vh-2.25rem)] w-full max-w-[380px] flex-col overflow-y-auto bg-white font-sans sm:overflow-visible"
-            style={{
-                boxShadow: "2px 2px 12px rgba(0,0,0,0.5), -1px -1px 3px rgba(255,255,255,0.3)",
-                borderTopLeftRadius: 8,
-                borderTopRightRadius: 8,
-            }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
+            className="xp-startmenu max-h-[calc(100dvh-var(--xp-taskbar-h))] overflow-y-auto sm:overflow-visible"
+            role="group"
+            aria-label="Start menu"
         >
-            {/* Header */}
-            <div className="luna-start-bar h-16 p-2 flex items-center gap-3 border-b-[2px] border-orange-300 relative overflow-hidden rounded-t-lg">
-                <div className="absolute top-0 left-0 w-full h-[1px] bg-white/30" />
-                <div className="w-12 h-12 rounded border-2 border-white overflow-hidden shrink-0 shadow-md bg-white">
-                    <img
-                        src="/profile.jpg"
-                        alt={PROFILE.name}
-                        className="w-full h-full object-cover"
-                    />
-                </div>
-                <span className="font-bold text-lg text-white drop-shadow-md select-none">{PROFILE.name}</span>
+            <div className="xp-startmenu-header">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/profile.jpg" alt={PROFILE.name} className="xp-startmenu-avatar" draggable={false} />
+                <span className="xp-startmenu-user">{PROFILE.name}</span>
             </div>
+            <div className="xp-startmenu-rule" />
 
-            {/* Body */}
-            <div className="luna-start-edge flex bg-white border-l border-r relative">
-                {/* Left Column */}
-                <div className="w-1/2 bg-white py-2 flex flex-col">
-                    <StartMenuItem
-                        icon="/icons/Folder Open.ico"
-                        label="My Projects"
-                        onClick={() => handleAppClick('projects')}
-                        bold
-                    />
-                    <StartMenuItem
-                        icon="/icons/Phone.ico"
-                        label="Contact Me"
-                        onClick={() => handleAppClick('contact')}
-                        bold
-                    />
+            <div className="xp-startmenu-body flex-col sm:flex-row">
+                <div className="xp-startmenu-left w-full sm:w-1/2">
+                    {PINNED.map(({ id, subtitle }) => {
+                        const app = APPS[id];
+                        if (!app) return null;
+                        return (
+                            <button key={id} className="xp-startmenu-item" {...itemProps(() => open(id))}>
+                                {app.iconAsset && <XpIcon src={app.iconAsset} size={32} />}
+                                <span>
+                                    <b>{shortcutName(app.title)}</b>
+                                    <small>{subtitle}</small>
+                                </span>
+                            </button>
+                        );
+                    })}
+                    <div className="xp-startmenu-sep" />
+                    {MOST_USED.map((id) => {
+                        const app = APPS[id];
+                        if (!app) return null;
+                        return (
+                            <button key={id} className="xp-startmenu-item" {...itemProps(() => open(id))}>
+                                {app.iconAsset && <XpIcon src={app.iconAsset} size={32} />}
+                                <span>{shortcutName(app.title)}</span>
+                            </button>
+                        );
+                    })}
 
-                    <div className="h-[1px] bg-gradient-to-r from-transparent via-gray-300 to-transparent my-1 mx-2" />
-
-                    <StartMenuItem icon="/icons/User Personalization.ico" label="About Me" onClick={() => handleAppClick('about')} />
-                    <StartMenuItem icon="/icons/media-player.png" label="Media Player" onClick={() => handleAppClick('music')} />
-                    <StartMenuItem icon="/icons/paint.png" label="Paint" onClick={() => handleAppClick('paint')} />
-                    <StartMenuItem icon="/icons/Minesweeper.ico" label="Minesweeper" onClick={() => handleAppClick('minesweeper')} />
-                    <StartMenuItem fallback={<Calculator size={20} />} label="Calculator" onClick={() => handleAppClick('calculator')} />
-                    <StartMenuItem fallback={<StickyNote size={20} />} label="Notepad" onClick={() => handleAppClick('notepad')} />
-
-                    <div className="mt-auto pt-4 px-2 relative">
-                        <div className="h-[1px] bg-gray-200 mb-1" />
+                    <div className="mt-auto pt-2">
+                        <div className="xp-startmenu-sep" />
                         <button
-                            onMouseEnter={() => setAllProgramsOpen(true)}
-                            onClick={() => setAllProgramsOpen(v => !v)}
-                            className="w-full flex items-center justify-center gap-1 py-1 hover:bg-[#2f7bf2] hover:text-white transition-colors group"
+                            type="button"
+                            className={`xp-startmenu-allprograms${flyout?.kind === 'programs' ? ' is-active' : ''}`}
+                            aria-haspopup="menu"
+                            aria-expanded={flyout?.kind === 'programs'}
+                            onMouseEnter={(e) => hover('programs', e.currentTarget)}
+                            onClick={(e) => toggleFlyout('programs', e.currentTarget)}
                         >
-                            <span className="font-bold text-sm">All Programs</span>
-                            <div className="bg-[#2f8b19] rounded-full p-0.5 group-hover:bg-white">
-                                <ChevronRight size={10} className="text-white group-hover:text-[#2f8b19]" />
-                            </div>
+                            All Programs
+                            <i aria-hidden />
                         </button>
-
-                        {allProgramsOpen && (
-                            <div
-                                className="absolute bottom-0 left-0 z-[10000] w-56 border border-gray-500 bg-white py-1 shadow-2xl sm:left-full"
-                                onMouseLeave={() => setAllProgramsOpen(false)}
-                            >
-                                {PROGRAM_GROUPS.map((group) => (
-                                    <div key={group.title} className="relative group">
-                                        <div className="flex items-center justify-between px-3 py-1.5 text-xs font-bold hover:bg-[#316ac5] hover:text-white cursor-pointer">
-                                            <span>{group.title}</span>
-                                            <ChevronRight size={12} />
-                                        </div>
-                                        <div
-                                            className="absolute top-0 left-0 hidden w-52 border border-gray-500 bg-white py-1 shadow-2xl group-hover:block sm:left-full"
-                                        >
-                                            {group.apps.map(a => (
-                                                <button
-                                                    key={a.id}
-                                                    onClick={() => { handleAppClick(a.id); setAllProgramsOpen(false); }}
-                                                    className="w-full text-left px-3 py-1 text-xs hover:bg-[#316ac5] hover:text-white flex items-center gap-2"
-                                                >
-                                                    {a.iconAsset && (
-                                                        <img src={a.iconAsset} alt="" className="w-4 h-4 object-contain" />
-                                                    )}
-                                                    {a.title}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                     </div>
                 </div>
 
-                {/* Right Column */}
-                <div className="luna-start-right w-1/2 py-2 border-l flex flex-col">
-                    <StartMenuLink fallback={<HardDrive size={16} />} icon="/icons/My Computer.ico" label="My Computer" onClick={() => handleAppClick('mycomputer')} />
-                    <StartMenuLink fallback={<FolderOpen size={16} />} icon="/icons/documents.png" label="My Documents" onClick={() => handleAppClick('resume')} />
-                    <StartMenuLink fallback={<Music size={16} />} icon="/icons/Music.ico" label="My Music" onClick={() => handleAppClick('music')} />
+                <div className="xp-startmenu-right w-full sm:w-1/2">
+                    <button className="xp-startmenu-item is-place" {...itemProps(() => open('explorer', { path: '/home/guest/My Documents' }))}>
+                        <XpIcon src="/icons/documents.png" size={24} />
+                        My Documents
+                    </button>
+                    <button className="xp-startmenu-item is-place" {...itemProps(() => open('explorer', { path: '/home/guest/My Pictures' }))}>
+                        <XpIcon src="/icons/xp/my-pictures.png" size={24} />
+                        My Pictures
+                    </button>
+                    <button className="xp-startmenu-item is-place" {...itemProps(() => open('music'))}>
+                        <XpIcon src="/icons/music.png" size={24} />
+                        My Music
+                    </button>
+                    <button className="xp-startmenu-item is-place" {...itemProps(() => open('mycomputer'))}>
+                        <XpIcon src="/icons/xp/my-computer.png" size={24} />
+                        My Computer
+                    </button>
 
-                    <div className="luna-start-right-rule h-[1px] my-1 mx-2" />
+                    <div className="xp-startmenu-sep" />
 
-                    <StartMenuLink fallback={<Monitor size={16} />} icon="/icons/control-panel.png" label="Control Panel" onClick={() => handleAppClick('settings')} />
-                    <StartMenuLink fallback={<TerminalSquare size={16} />} icon="/icons/278.ico" label="Command Prompt" onClick={() => handleAppClick('terminal')} />
-                    <StartMenuLink fallback={<ImageIcon size={16} />} icon="/icons/Display.ico" label="Picture Viewer" onClick={() => handleAppClick('imageviewer')} />
+                    <button className="xp-startmenu-item" {...itemProps(() => open('settings'))}>
+                        <XpIcon src="/icons/control-panel.png" size={24} />
+                        Control Panel
+                    </button>
+                    <button
+                        type="button"
+                        className={`xp-startmenu-item has-submenu${flyout?.kind === 'connect' ? ' is-active' : ''}`}
+                        aria-haspopup="menu"
+                        aria-expanded={flyout?.kind === 'connect'}
+                        onMouseEnter={(e) => hover('connect', e.currentTarget)}
+                        onClick={(e) => toggleFlyout('connect', e.currentTarget)}
+                    >
+                        <XpIcon src="/icons/xp/connect-to.svg" size={24} />
+                        Connect To
+                    </button>
 
-                    <div className="luna-start-right-rule h-[1px] my-1 mx-2" />
+                    <div className="xp-startmenu-sep" />
 
                     {/*
                       * Run. XP's own command palette, and the fastest route to anything on this
                       * desktop -- it resolves app names, filesystem paths and URLs.
                       */}
-                    <StartMenuLink
-                        fallback={<Play size={16} />}
-                        icon="/icons/run.png"
-                        label="Run..."
-                        onClick={() => { onOpenRun(); onClose(); }}
-                    />
-                    <StartMenuLink
-                        fallback={<Cpu size={16} />}
-                        icon="/icons/control-panel.png"
-                        label="Task Manager"
-                        onClick={() => handleAppClick('taskmgr')}
-                    />
-
-                    <div className="luna-start-right-rule h-[1px] my-1 mx-2" />
-
-                    {/* URLs come from `@/content` — they were duplicated here before. */}
-                    <div className="px-2 text-[10px] text-gray-600 font-bold pb-1">CONNECT WITH ME</div>
-                    {LINKS.filter((l) => l.known && l.label !== 'Email').map((l) => (
-                        <StartMenuLink
-                            key={l.url}
-                            fallback={<SOCIAL_ICONS l={l.label} />}
-                            label={l.label}
-                            onClick={() => window.open(l.url, '_blank', 'noopener,noreferrer')}
-                        />
-                    ))}
-                    <StartMenuLink fallback={<Mail size={16} />} label="Email" onClick={() => handleAppClick('contact')} />
+                    <button className="xp-startmenu-item" {...itemProps(() => { onOpenRun(); onClose(); })}>
+                        <XpIcon src="/icons/run.png" size={24} />
+                        Run...
+                    </button>
                 </div>
             </div>
 
-            {/* Footer */}
-            <div
-                className="luna-start-bar h-10 flex items-center justify-end gap-3 px-3 border-t-2 border-orange-300 rounded-b-lg"
-            >
+            <div className="xp-startmenu-footer">
                 <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-1 px-2 py-1 hover:bg-[#2f7bf2] rounded transition-colors text-white shadow-sm active:translate-y-px"
-                    title="Log Off"
+                    type="button"
+                    className="xp-startmenu-footer-btn"
+                    onClick={() => { onClose(); onExit('logoff'); }}
                 >
-                    <div className="bg-[#e7a32b] p-0.5 rounded shadow-sm border border-white/30">
-                        <LogOut size={14} className="text-white" />
-                    </div>
-                    <span className="text-sm">Log Off</span>
+                    <XpIcon src="/icons/xp/log-off.svg" size={22} />
+                    Log Off
                 </button>
                 <button
-                    onClick={handleShutdown}
-                    className="flex items-center gap-1 px-2 py-1 hover:bg-[#2f7bf2] rounded transition-colors text-white shadow-sm active:translate-y-px"
-                    title="Shut Down"
+                    type="button"
+                    className="xp-startmenu-footer-btn"
+                    onClick={() => { onClose(); onExit('shutdown'); }}
                 >
-                    <div className="bg-[#d12828] p-0.5 rounded shadow-sm border border-white/30">
-                        <Power size={14} className="text-white" />
-                    </div>
-                    <span className="text-sm">Turn Off Computer</span>
+                    <XpIcon src="/icons/xp/turn-off.svg" size={22} />
+                    Turn Off Computer
                 </button>
             </div>
+
+            <ContextMenu
+                x={flyout?.x ?? 0}
+                y={flyout?.y ?? 0}
+                anchor={flyout?.kind === 'programs' ? 'bottom-left' : 'top-left'}
+                isOpen={flyout !== null}
+                onClose={() => setFlyout(null)}
+                items={flyout?.kind === 'programs' ? programItems : connectItems}
+            />
         </motion.div>
-    );
-}
-
-function StartMenuItem({ icon, label, onClick, bold, fallback }: { icon?: string, label: string, onClick: () => void, bold?: boolean, fallback?: React.ReactNode }) {
-    return (
-        <button
-            onClick={onClick}
-            className="w-full text-left px-2 py-1.5 hover:bg-[#316ac5] hover:text-white flex items-center gap-2 group transition-colors"
-        >
-            {icon ? (
-                <img
-                    src={icon}
-                    alt={label}
-                    className="w-6 h-6 object-contain shrink-0"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-            ) : (
-                <div className="w-6 h-6 flex items-center justify-center shrink-0 text-gray-700 group-hover:text-white">{fallback}</div>
-            )}
-            <span className={`text-sm text-gray-800 group-hover:text-white ${bold ? 'font-bold' : ''}`}>
-                {label}
-            </span>
-        </button>
-    );
-}
-
-function StartMenuLink({ icon, label, onClick, fallback }: { icon?: string, label: string, onClick: () => void, fallback?: React.ReactNode }) {
-    const [iconBroken, setIconBroken] = useState(false);
-    const showFallback = !icon || iconBroken;
-
-    return (
-        <button
-            onClick={onClick}
-            className="w-full text-left px-2 py-1 hover:bg-[#316ac5] hover:text-white flex items-center gap-2 group transition-colors"
-        >
-            <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                {showFallback ? (
-                    <div className="group-hover:text-white">{fallback}</div>
-                ) : (
-                    <img
-                        src={icon}
-                        alt={label}
-                        className="w-4 h-4 object-contain"
-                        onError={() => setIconBroken(true)}
-                    />
-                )}
-            </div>
-            <span className="text-sm font-medium">{label}</span>
-        </button>
     );
 }

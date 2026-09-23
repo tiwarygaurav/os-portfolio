@@ -2,12 +2,13 @@
 
 import { useSystemStore, type AppWindow } from '@/store/useSystemStore';
 import { APPS, isAppId, type AppComponent } from '@/constants/apps';
-import { X, Square } from 'lucide-react';
 import { motion, useDragControls, useMotionValue } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { playSound } from '@/utils/sound';
 import { useIsMobile } from '@/utils/viewport';
+import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
+import XpIcon from '@/components/ui/XpIcon';
+import { boxOf, playCaptionZoom, taskButtonBox, titleBarBox, TITLE_BAR_HEIGHT } from './captionZoom';
 
 /**
  * App bodies, code-split and loaded on first open.
@@ -30,7 +31,7 @@ function bodyFor(appId: string): AppComponent {
         ? dynamic(config.load, {
             ssr: false,
             loading: () => (
-                <div className="flex h-full items-center justify-center bg-[#ece9d8] text-xs text-gray-600">
+                <div className="xp-face flex h-full items-center justify-center text-gray-600">
                     Opening…
                 </div>
             ),
@@ -45,10 +46,26 @@ function bodyFor(appId: string): AppComponent {
     return Body;
 }
 
+/** Smallest a window can be resized to. */
+const MIN_WIDTH = 280;
+const MIN_HEIGHT = 220;
+
+type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+const EDGES: Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
 interface WindowProps {
     win: AppWindow;
 }
 
+/**
+ * A Luna window: the blue frame with its three-ring bevel, the Trebuchet MS caption, and the
+ * minimise / maximise / close buttons, drawn in `app/luna.css`.
+ *
+ * What XP did, it does here: every edge and corner resizes; right-clicking the title bar or
+ * clicking its icon opens the system menu; double-clicking the icon closes the window; and
+ * minimising or maximising flies a caption ghost rather than scaling the window (see
+ * `captionZoom.ts`). Windows appear instantly when opened — XP did not animate that.
+ */
 export default function Window({ win }: WindowProps) {
     const actions = useSystemStore((s) => s.actions);
     const activeWindowId = useSystemStore((s) => s.activeWindowId);
@@ -66,8 +83,10 @@ export default function Window({ win }: WindowProps) {
 
     const controls = useDragControls();
     const winRef = useRef<HTMLDivElement>(null);
+    const titleRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState(win.size);
     const [isResizing, setIsResizing] = useState(false);
+    const [sysMenu, setSysMenu] = useState<{ x: number; y: number } | null>(null);
 
     /*
      * Drag position, owned here rather than left to `animate`.
@@ -98,29 +117,75 @@ export default function Window({ win }: WindowProps) {
         }
     }, [win.position.x, win.position.y, win.isMaximized, x, y]);
 
-    const handlePointerDown = () => {
-        actions.focusWindow(win.id);
+    const focus = () => actions.focusWindow(win.id);
+
+    const minimize = () => {
+        // The window hides at once; its caption flies to the taskbar button.
+        void playCaptionZoom(boxOf(titleRef.current), taskButtonBox(win.id), win.title, 'in');
+        actions.minimizeWindow(win.id);
     };
 
-    const startResize = (e: React.PointerEvent) => {
+    const toggleMaximize = () => {
+        if (!canMaximize) return;
+        const from = boxOf(titleRef.current);
+        if (win.isMaximized) {
+            void playCaptionZoom(
+                from,
+                titleBarBox({ x: win.position.x, y: win.position.y, width: size.width, maximized: false }),
+                win.title,
+            );
+            actions.unmaximizeWindow(win.id);
+        } else {
+            void playCaptionZoom(from, titleBarBox({ x: 0, y: 0, width: 0, maximized: true }), win.title);
+            actions.maximizeWindow(win.id);
+        }
+    };
+
+    const close = () => actions.closeWindow(win.id);
+
+    /** Resize from any edge or corner. Left and top edges move the window as they resize it. */
+    const startResize = (edge: Edge) => (e: React.PointerEvent) => {
         if (!canResize || win.isMaximized) return;
         e.preventDefault();
         e.stopPropagation();
+        focus();
         setIsResizing(true);
         const startX = e.clientX;
         const startY = e.clientY;
-        const startW = size.width;
-        const startH = size.height;
+        const start = { x: x.get(), y: y.get(), w: size.width, h: size.height };
+
+        const rectAt = (ev: PointerEvent) => {
+            const dx = ev.clientX - startX;
+            const dy = ev.clientY - startY;
+            let { x: nx, y: ny, w, h } = start;
+            if (edge.includes('e')) w = Math.max(MIN_WIDTH, start.w + dx);
+            if (edge.includes('s')) h = Math.max(MIN_HEIGHT, start.h + dy);
+            if (edge.includes('w')) {
+                w = Math.max(MIN_WIDTH, start.w - dx);
+                nx = start.x + (start.w - w);
+            }
+            if (edge.includes('n')) {
+                h = Math.max(MIN_HEIGHT, start.h - dy);
+                ny = start.y + (start.h - h);
+                // The title bar may not be pushed above the screen.
+                if (ny < 0) {
+                    h += ny;
+                    ny = 0;
+                }
+            }
+            return { x: nx, y: ny, w, h };
+        };
 
         const onMove = (ev: PointerEvent) => {
-            const newW = Math.max(280, startW + (ev.clientX - startX));
-            const newH = Math.max(220, startH + (ev.clientY - startY));
-            setSize({ width: newW, height: newH });
+            const r = rectAt(ev);
+            setSize({ width: r.w, height: r.h });
+            x.set(r.x);
+            y.set(r.y);
         };
         const onUp = (ev: PointerEvent) => {
-            const newW = Math.max(280, startW + (ev.clientX - startX));
-            const newH = Math.max(220, startH + (ev.clientY - startY));
-            actions.resizeWindow(win.id, { width: newW, height: newH });
+            const r = rectAt(ev);
+            actions.resizeWindow(win.id, { width: r.w, height: r.h });
+            if (r.x !== start.x || r.y !== start.y) actions.moveWindow(win.id, { x: r.x, y: r.y });
             setIsResizing(false);
             document.removeEventListener('pointermove', onMove);
             document.removeEventListener('pointerup', onUp);
@@ -129,6 +194,31 @@ export default function Window({ win }: WindowProps) {
         document.addEventListener('pointermove', onMove);
         document.addEventListener('pointerup', onUp);
     };
+
+    const openSystemMenu = (at: { x: number; y: number }) => {
+        focus();
+        setSysMenu(at);
+    };
+
+    const systemMenu: MenuItem[] = [
+        {
+            label: 'Restore',
+            icon: <i className="xp-sysglyph is-restore" />,
+            disabled: !win.isMaximized || !canMaximize,
+            action: toggleMaximize,
+        },
+        { label: 'Minimize', icon: <i className="xp-sysglyph is-min" />, action: minimize },
+        {
+            label: 'Maximize',
+            icon: <i className="xp-sysglyph is-max" />,
+            disabled: win.isMaximized || !canMaximize,
+            action: toggleMaximize,
+        },
+        { divider: true },
+        { label: 'Close', icon: <i className="xp-sysglyph is-close" />, bold: true, accel: 'Alt+F4', action: close },
+    ];
+
+    const icon = appConfig?.iconAsset;
 
     /*
      * A minimised window is hidden, never unmounted.
@@ -141,6 +231,8 @@ export default function Window({ win }: WindowProps) {
     return (
         <motion.div
             ref={winRef}
+            data-window={win.id}
+            data-app={win.appId}
             drag={!win.isMaximized && !isResizing && !win.isMinimized && !isMobile}
             dragControls={controls}
             dragListener={false}
@@ -157,99 +249,89 @@ export default function Window({ win }: WindowProps) {
                     y.set(moved.position.y);
                 }
             }}
-            initial={{ scale: 0.92, opacity: 0 }}
-            animate={{
-                width: win.isMaximized ? '100%' : size.width,
-                height: win.isMaximized ? 'calc(100% - 36px)' : size.height,
-                top: win.isMaximized ? 0 : undefined,
-                left: win.isMaximized ? 0 : undefined,
-                opacity: 1,
-                scale: 1,
-            }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
             style={{
                 position: 'absolute',
+                left: 0,
+                top: 0,
                 zIndex: win.zIndex,
                 x,
                 y,
+                width: win.isMaximized ? '100%' : size.width,
+                height: win.isMaximized ? 'calc(100% - var(--xp-taskbar-h))' : size.height,
                 display: win.isMinimized ? 'none' : undefined,
             }}
             aria-hidden={win.isMinimized}
-            className={`flex flex-col shadow-2xl overflow-visible ${win.isMaximized ? '' : 'rounded-t-xl rounded-b-md'} ${isActive ? '' : 'opacity-95'}`}
-            onPointerDown={handlePointerDown}
+            className={`xp-window-frame${isActive ? '' : ' is-inactive'}${win.isMaximized ? ' is-maximized' : ''}`}
+            onPointerDown={focus}
         >
-            {/* XP Title Bar */}
             <div
+                ref={titleRef}
+                // `luna-title*` is the scheme contract Display Properties and the tests read;
+                // `.xp-titlebar` draws the bar, and `.is-inactive` on the frame decides its state.
+                className={`xp-titlebar ${isActive ? 'luna-title' : 'luna-title-inactive'}`}
+                style={{ height: TITLE_BAR_HEIGHT }}
                 onPointerDown={(e) => {
+                    if (e.button !== 0) return;
                     if (!win.isMaximized) controls.start(e);
-                    handlePointerDown();
+                    focus();
                 }}
-                onDoubleClick={() => {
-                    if (!canMaximize) return;
-                    if (win.isMaximized) actions.unmaximizeWindow(win.id);
-                    else actions.maximizeWindow(win.id);
+                onDoubleClick={toggleMaximize}
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    openSystemMenu({ x: e.clientX, y: e.clientY });
                 }}
-                className={`flex items-center justify-between px-2 h-7 select-none cursor-default ${isActive
-                    ? 'luna-title'
-                    : 'luna-title-inactive'} text-white border-b luna-title-edge ${win.isMaximized ? '' : 'rounded-t-lg'}`}
             >
-                <div className="flex items-center gap-2 min-w-0">
-                    {appConfig?.iconAsset ? (
-                        <img src={appConfig.iconAsset} alt={win.title} className="w-4 h-4 drop-shadow-md shrink-0" />
-                    ) : (
-                        appConfig?.icon && <appConfig.icon size={16} className="filter drop-shadow-md shrink-0" />
-                    )}
-                    <span className="text-xs font-bold tracking-wide drop-shadow-md truncate">{win.title}</span>
-                </div>
+                {icon ? (
+                    <XpIcon
+                        src={icon}
+                        size={16}
+                        className="xp-titlebar-icon"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                            const r = e.currentTarget.getBoundingClientRect();
+                            openSystemMenu({ x: r.left - 3, y: r.bottom + 5 });
+                        }}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setSysMenu(null);
+                            close();
+                        }}
+                    />
+                ) : (
+                    appConfig?.icon && <appConfig.icon size={16} className="xp-titlebar-icon" />
+                )}
+                <span className="xp-titlebar-text">{win.title}</span>
 
-                <div className="flex items-center gap-0.5 shrink-0">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); playSound('minimize'); actions.minimizeWindow(win.id); }}
-                        className="w-5 h-5 flex items-end justify-center pb-0.5 rounded-[3px] bg-gradient-to-b from-[#3d80f1] to-[#0e4cb0] hover:from-[#5fa6f5] hover:to-[#1c63d4] active:from-[#0e4cb0] active:to-[#3d80f1] border border-white/40"
-                        title="Minimize"
-                    >
-                        <span className="block w-2 h-0.5 bg-white" />
-                    </button>
-
+                <div className="xp-titlebar-controls" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="xp-caption-btn is-min" aria-label="Minimize" data-tip="Minimize" onClick={minimize} />
                     {canMaximize && (
                         <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (win.isMaximized) actions.unmaximizeWindow(win.id);
-                                else actions.maximizeWindow(win.id);
-                            }}
-                            className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-gradient-to-b from-[#3d80f1] to-[#0e4cb0] hover:from-[#5fa6f5] hover:to-[#1c63d4] active:from-[#0e4cb0] active:to-[#3d80f1] border border-white/40"
-                            title={win.isMaximized ? "Restore" : "Maximize"}
-                        >
-                            {win.isMaximized ? <Square size={9} strokeWidth={3} /> : <span className="block w-2.5 h-2 border-2 border-white border-t-[3px]" />}
-                        </button>
+                            type="button"
+                            className={`xp-caption-btn ${win.isMaximized ? 'is-restore' : 'is-max'}`}
+                            aria-label={win.isMaximized ? 'Restore' : 'Maximize'}
+                            data-tip={win.isMaximized ? 'Restore Down' : 'Maximize'}
+                            onClick={toggleMaximize}
+                        />
                     )}
-
-                    <button
-                        onClick={(e) => { e.stopPropagation(); playSound('close'); actions.closeWindow(win.id); }}
-                        className="w-5 h-5 flex items-center justify-center rounded-[3px] bg-gradient-to-b from-[#e74e57] to-[#a91b1b] hover:from-[#f47280] hover:to-[#c0252b] active:from-[#a91b1b] active:to-[#e74e57] border border-white/40 ml-0.5"
-                        title="Close"
-                    >
-                        <X size={12} strokeWidth={3} />
-                    </button>
+                    <button type="button" className="xp-caption-btn is-close" aria-label="Close" data-tip="Close" onClick={close} />
                 </div>
             </div>
 
-            {/* Content Area */}
-            <div className="flex-1 bg-white overflow-hidden relative border-l-2 border-r-2 border-b-2 luna-frame">
+            <div className="xp-window-body">
                 <AppBody windowId={win.id} payload={win.payload} />
             </div>
 
-            {/* Resize handle */}
-            {canResize && !win.isMaximized && (
-                <div
-                    onPointerDown={startResize}
-                    className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
-                    style={{
-                        background: 'linear-gradient(135deg, transparent 50%, #888 50%, #888 60%, transparent 60%, transparent 70%, #888 70%, #888 80%, transparent 80%)'
-                    }}
-                />
-            )}
+            {canResize && !win.isMaximized && EDGES.map((edge) => (
+                <div key={edge} className={`xp-resize ${edge}`} onPointerDown={startResize(edge)} aria-hidden />
+            ))}
+
+            <ContextMenu
+                x={sysMenu?.x ?? 0}
+                y={sysMenu?.y ?? 0}
+                isOpen={sysMenu !== null}
+                onClose={() => setSysMenu(null)}
+                items={systemMenu}
+            />
         </motion.div>
     );
 }

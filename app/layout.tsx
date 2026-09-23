@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { PROFILE, SYSTEM, LINKS } from '@/content';
+// Luna first: its component classes then sit below Tailwind's utilities, so an app body can still
+// override one with a utility, while Preflight's element resets cannot flatten them.
+import './luna.css';
 import './globals.css';
 
 /**

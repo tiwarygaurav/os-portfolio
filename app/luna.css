@@ -1,0 +1,1909 @@
+/* ==========================================================================
+   Luna — the Windows XP visual style, defined once.
+   --------------------------------------------------------------------------
+   Every surface of the XP chrome reads its colours from the scheme tokens
+   below and its shape from the component classes after them. Nothing in a
+   component should restate a Luna value inline: add a token or a class here.
+
+   Two families of class:
+     .luna-*  scheme-driven surfaces (title bars, taskbar, Start menu). Kept
+              for Display Properties' scheme previews, which scope a swatch
+              with [data-theme] and reuse these classes.
+     .xp-*    XP components (windows, buttons, menus, controls). The shared
+              contract for system chrome AND app bodies — in-app dialogs and
+              menu bars use the same classes as the system ones, so the two
+              cannot drift apart.
+
+   Blue is sampled from the Luna bitmaps as closely as CSS gradients allow.
+   Olive Green and Silver are approximations written from memory of those
+   schemes: a tribute, not a copy. The Start button is green in all three,
+   as it was in XP.
+   ========================================================================== */
+
+/* ---- Scheme tokens ----------------------------------------------------- */
+
+:root,
+[data-theme='blue'] {
+  /* Title bar */
+  --luna-title-active: linear-gradient(to bottom, #0058ee 0%, #3593ff 4%, #288eff 6%, #127dff 8%, #036ffc 10%, #0262ee 14%, #0057e5 20%, #0054e3 24%, #0055eb 56%, #005bf5 66%, #026afe 76%, #0062ef 86%, #0052d6 92%, #0040ab 94%, #003092 100%);
+  --luna-title-inactive: linear-gradient(to bottom, #7697e7 0%, #7e9ee3 3%, #94afe8 6%, #97b4e9 8%, #82a5e4 14%, #7c9fe2 17%, #7996de 25%, #7b99e1 56%, #82a9e9 81%, #80a5e7 89%, #7b96e1 94%, #7a93df 97%, #abbae3 100%);
+  --luna-title-ends: #1638e6;
+  --luna-title-text: #fff;
+  --luna-title-text-inactive: #d8e4f8;
+  --luna-title-shadow: #0f1089;
+  --luna-title-edge: #0831d9;
+
+  /* Window frame: base, then the three rings of the bevel (light = top/left). */
+  --luna-frame: #0831d9;
+  --luna-frame-l1: #0831d9;
+  --luna-frame-l2: #166aee;
+  --luna-frame-l3: #0855dd;
+  --luna-frame-d1: #00138c;
+  --luna-frame-d2: #001ea0;
+  --luna-frame-d3: #003bda;
+  --luna-frame-inactive: #6582f5;
+  --luna-frame-inactive-l: #7c98ef;
+  --luna-frame-inactive-d: #4e6bdb;
+
+  /* Caption buttons (the close button is scheme-independent, see below) */
+  --luna-caption: radial-gradient(circle at 90% 90%, #0054e9 0%, #2263d5 55%, #4479e4 70%, #a3bbec 90%, #fff 100%);
+  --luna-caption-glow: #4646ff;
+  --luna-caption-glyph: #fff;
+  --luna-caption-border: #fff;
+
+  /* Taskbar */
+  --luna-taskbar: linear-gradient(to bottom, #1f2f86 0, #3165c4 3%, #3682e5 6%, #4490e6 10%, #3883e5 12%, #2b71e0 15%, #2663da 18%, #235bd6 20%, #2258d5 23%, #2157d6 38%, #245ddb 54%, #2562df 86%, #245fdc 89%, #2158d4 92%, #1d4ec0 95%, #1941a5 98%);
+  --luna-taskbar-edge: #0c2ea1;
+  --luna-taskbar-sep-dark: #1c3fa0;
+  --luna-taskbar-sep-light: #5a92f2;
+  --luna-tray: linear-gradient(to bottom, #0c59b9 1%, #139ee9 6%, #18b5f2 10%, #139beb 14%, #1290e8 19%, #0d8dea 63%, #0d9ff1 81%, #0f9eed 88%, #119be9 91%, #1392e2 94%, #137ed7 97%, #095bc9 100%);
+  --luna-tray-edge: #1042af;
+  --luna-tray-glow: #18bbff;
+  --luna-task-btn: linear-gradient(to bottom, #4d93f7 0%, #3c81f3 12%, #3a7ef2 88%, #2f6fe0 100%);
+  --luna-task-btn-hover: linear-gradient(to bottom, #6bb2ff 0%, #53a3ff 12%, #4f9dff 88%, #418be8 100%);
+  --luna-task-btn-active: linear-gradient(to bottom, #1a4aae 0%, #1e52b7 20%, #1e52b7 100%);
+  --luna-task-btn-text: #fff;
+
+  /* Start menu */
+  --luna-start-bar: linear-gradient(to bottom, #1868ce 0%, #0e60cb 12%, #0e60cb 20%, #1164cf 32%, #1667cf 33%, #1b6cd3 47%, #1e70d9 54%, #2476dc 60%, #297ae0 65%, #3482e3 77%, #3786e5 79%, #428ee9 90%, #4791eb 100%);
+  --luna-start-footer: linear-gradient(to bottom, #4282d6 0%, #3b85e0 3%, #418ae3 5%, #418ae3 17%, #3c87e2 21%, #3786e4 26%, #3482e3 29%, #2e7ee1 39%, #2374df 49%, #2072db 57%, #196edb 62%, #176bd8 72%, #1468d5 75%, #1165d1 83%, #0f61cb 88%);
+  --luna-start-frame: #4282d6;
+  --luna-start-edge: #3c82f2;
+  --luna-start-right-bg: #d3e5fa;
+  --luna-start-right-edge: #95bdee;
+  --luna-start-right-text: #00136b;
+  --luna-start-right-rule: #aebad3;
+  --luna-start-text: #fff;
+  --luna-start-shadow: rgba(0, 0, 0, 0.7);
+
+  /* Selection, menus, controls */
+  --luna-highlight: #316ac5;
+  --luna-highlight-text: #fff;
+  --luna-face: #ece9d8;
+  --luna-face-text: #000;
+  --luna-link: #0c32ad;
+  --luna-link-hover: #2b72ff;
+  --luna-groupbox-text: #0046d5;
+  --luna-button-focus: inset -1px 1px #cee7ff, inset 1px 2px #98b8ea, inset -2px 2px #bcd4f6, inset 1px -1px #89ade4, inset 2px -2px #89ade4;
+
+  /* Scrollbars */
+  --luna-scroll-face: linear-gradient(to right, #cad8fc 0%, #c1d2fb 45%, #b6cbf9 70%, #a9c1f5 100%);
+  --luna-scroll-face-h: linear-gradient(to bottom, #cad8fc 0%, #c1d2fb 45%, #b6cbf9 70%, #a9c1f5 100%);
+  --luna-scroll-face-hover: linear-gradient(to right, #dce7fe 0%, #d2e1fe 45%, #c7d9fd 70%, #bbd0fa 100%);
+  --luna-scroll-face-hover-h: linear-gradient(to bottom, #dce7fe 0%, #d2e1fe 45%, #c7d9fd 70%, #bbd0fa 100%);
+  --luna-scroll-edge: #9fb6ec;
+  --luna-scroll-glyph: '%234d6185';
+  --luna-scroll-grip-light: #eef4fe;
+  --luna-scroll-grip-dark: #8caae6;
+
+  /* Explorer task pane */
+  --luna-pane: linear-gradient(to bottom, #7ba2e7 0%, #6375d6 100%);
+  --luna-pane-head: linear-gradient(to right, #fff 0%, #c6d3f7 100%);
+  --luna-pane-head-text: #215dc6;
+  --luna-pane-head-hover: #428eff;
+  --luna-pane-body: #d6dff7;
+  --luna-pane-special-head: linear-gradient(to right, #0c3eb0 0%, #2d6cd8 100%);
+  --luna-pane-special-body: #eff3ff;
+  --luna-pane-chevron: #215dc6;
+}
+
+[data-theme='olive'] {
+  --luna-title-active: linear-gradient(to bottom, #a7ba7c 0%, #c5d3a2 4%, #b0c28a 7%, #95ab66 12%, #83994e 20%, #7c9247 45%, #7f9549 66%, #849a4d 78%, #7d9347 88%, #6f8540 94%, #5a6d31 100%);
+  --luna-title-inactive: linear-gradient(to bottom, #d0d8b8 0%, #e3e8d0 5%, #d6ddc0 12%, #cdd5b3 40%, #d1d9b8 80%, #c3cba6 100%);
+  --luna-title-ends: #7d9447;
+  --luna-title-text: #fff;
+  --luna-title-text-inactive: #f5f7ec;
+  --luna-title-shadow: #3f4c1c;
+  --luna-title-edge: #6b7f3a;
+
+  --luna-frame: #8fa25c;
+  --luna-frame-l1: #a3b674;
+  --luna-frame-l2: #b7c78e;
+  --luna-frame-l3: #97aa66;
+  --luna-frame-d1: #5c6e2c;
+  --luna-frame-d2: #6b7f3a;
+  --luna-frame-d3: #82964f;
+  --luna-frame-inactive: #c3cba6;
+  --luna-frame-inactive-l: #d3dabb;
+  --luna-frame-inactive-d: #a9b28a;
+
+  --luna-caption: radial-gradient(circle at 90% 90%, #7d9447 0%, #93a964 55%, #a6ba7c 70%, #d6e0bd 90%, #fff 100%);
+  --luna-caption-glow: #6a8034;
+  --luna-caption-glyph: #fff;
+  --luna-caption-border: #fff;
+
+  --luna-taskbar: linear-gradient(to bottom, #6b7d3d 0, #b0c28a 3%, #cfd9b0 6%, #d6dfba 10%, #c4d09f 14%, #b3c388 20%, #a7b97a 38%, #a3b575 54%, #a5b777 86%, #9bad6c 92%, #8a9c5c 96%, #74853f 100%);
+  --luna-taskbar-edge: #6b7d3d;
+  --luna-taskbar-sep-dark: #7f9150;
+  --luna-taskbar-sep-light: #d2dcb3;
+  --luna-tray: linear-gradient(to bottom, #8a9c5c 1%, #d8e1bd 6%, #e2e9ca 10%, #d5dfb8 14%, #cbd6ab 19%, #c8d3a7 63%, #cfd9b0 81%, #cbd6ac 91%, #b8c595 97%, #95a768 100%);
+  --luna-tray-edge: #7f9150;
+  --luna-tray-glow: #edf2dc;
+  --luna-task-btn: linear-gradient(to bottom, #c9d6a6 0%, #b6c68e 12%, #b3c38a 88%, #a2b378 100%);
+  --luna-task-btn-hover: linear-gradient(to bottom, #d9e4ba 0%, #c9d7a2 12%, #c6d49e 88%, #b4c58b 100%);
+  --luna-task-btn-active: linear-gradient(to bottom, #8a9e5c 0%, #93a766 20%, #93a766 100%);
+  --luna-task-btn-text: #000;
+
+  --luna-start-bar: linear-gradient(to bottom, #8aa05a 0%, #7f9650 15%, #869c57 35%, #91a762 55%, #9fb370 75%, #adbf7f 100%);
+  --luna-start-footer: linear-gradient(to bottom, #afc182 0%, #a8ba79 10%, #9db06d 35%, #93a764 60%, #889d59 85%, #7f9450 100%);
+  --luna-start-frame: #9db06d;
+  --luna-start-edge: #93a962;
+  --luna-start-right-bg: #ecefd9;
+  --luna-start-right-edge: #b6c48a;
+  --luna-start-right-text: #2f3d10;
+  --luna-start-right-rule: #b8c197;
+  --luna-start-text: #fff;
+
+  --luna-highlight: #93a070;
+  --luna-highlight-text: #fff;
+  --luna-face: #ece9d8;
+  --luna-face-text: #000;
+  --luna-link: #3d4f10;
+  --luna-link-hover: #6f8a24;
+  --luna-groupbox-text: #5a7219;
+  --luna-button-focus: inset -1px 1px #e4ecc8, inset 1px 2px #bccb92, inset -2px 2px #d0dbad, inset 1px -1px #a8b97c, inset 2px -2px #a8b97c;
+
+  --luna-scroll-face: linear-gradient(to right, #e3e9cc 0%, #dae2bd 45%, #d0d9ae 70%, #c4cf9f 100%);
+  --luna-scroll-face-h: linear-gradient(to bottom, #e3e9cc 0%, #dae2bd 45%, #d0d9ae 70%, #c4cf9f 100%);
+  --luna-scroll-face-hover: linear-gradient(to right, #eef2dd 0%, #e6ecd0 45%, #dde5c3 70%, #d2dcb4 100%);
+  --luna-scroll-face-hover-h: linear-gradient(to bottom, #eef2dd 0%, #e6ecd0 45%, #dde5c3 70%, #d2dcb4 100%);
+  --luna-scroll-edge: #b4c190;
+  --luna-scroll-glyph: '%23566a26';
+  --luna-scroll-grip-light: #f6f8ec;
+  --luna-scroll-grip-dark: #a7b67f;
+
+  --luna-pane: linear-gradient(to bottom, #cbd8ac 0%, #a8b98a 100%);
+  --luna-pane-head: linear-gradient(to right, #fff 0%, #e0e7c6 100%);
+  --luna-pane-head-text: #56662d;
+  --luna-pane-head-hover: #7e9a3a;
+  --luna-pane-body: #f0f3e3;
+  --luna-pane-special-head: linear-gradient(to right, #6c7f3a 0%, #93a964 100%);
+  --luna-pane-special-body: #f7f9ef;
+  --luna-pane-chevron: #56662d;
+}
+
+[data-theme='silver'] {
+  --luna-title-active: linear-gradient(to bottom, #fbfbfc 0%, #f0f0f5 5%, #e3e3eb 12%, #d8d9e3 25%, #d2d3de 50%, #d6d7e1 70%, #dcdde6 82%, #cfd0db 92%, #b9bbcb 100%);
+  --luna-title-inactive: linear-gradient(to bottom, #fcfcfd 0%, #f4f4f7 8%, #ebebf0 30%, #e8e8ee 60%, #ebebf1 85%, #dedee6 100%);
+  --luna-title-ends: #b6b8ca;
+  --luna-title-text: #000;
+  --luna-title-text-inactive: #7a7c90;
+  --luna-title-shadow: #ffffff;
+  --luna-title-edge: #8c8ea6;
+
+  --luna-frame: #c0c1cf;
+  --luna-frame-l1: #e2e3ea;
+  --luna-frame-l2: #f3f3f7;
+  --luna-frame-l3: #cfd0dc;
+  --luna-frame-d1: #7d7f97;
+  --luna-frame-d2: #9496ad;
+  --luna-frame-d3: #b3b5c6;
+  --luna-frame-inactive: #d8d8e2;
+  --luna-frame-inactive-l: #ececf2;
+  --luna-frame-inactive-d: #b9bac8;
+
+  --luna-caption: radial-gradient(circle at 90% 90%, #b3b5c8 0%, #cfd0dd 55%, #e0e1ea 70%, #f4f4f8 90%, #fff 100%);
+  --luna-caption-glow: #a5a7bd;
+  --luna-caption-glyph: #3d3f58;
+  --luna-caption-border: #8c8ea6;
+
+  --luna-taskbar: linear-gradient(to bottom, #8e90a8 0, #e9e9f0 3%, #f7f7fa 6%, #fbfbfc 10%, #eeeef3 14%, #e0e1e9 20%, #d6d7e1 38%, #d0d1dc 54%, #cfd0db 86%, #c5c6d3 92%, #b6b8c8 96%, #a1a3b8 100%);
+  --luna-taskbar-edge: #8e90a8;
+  --luna-taskbar-sep-dark: #a6a8bb;
+  --luna-taskbar-sep-light: #fbfbfd;
+  --luna-tray: linear-gradient(to bottom, #a1a3b8 1%, #f3f3f7 6%, #ffffff 10%, #f1f1f5 14%, #e8e8ef 19%, #e3e3eb 63%, #e8e8ee 81%, #e3e3ea 91%, #d3d4de 97%, #b4b6c8 100%);
+  --luna-tray-edge: #a6a8bb;
+  --luna-tray-glow: #ffffff;
+  --luna-task-btn: linear-gradient(to bottom, #ffffff 0%, #eeeef3 12%, #e6e6ed 88%, #d5d6e0 100%);
+  --luna-task-btn-hover: linear-gradient(to bottom, #ffffff 0%, #f6f6f9 12%, #f0f0f4 88%, #e2e2e9 100%);
+  --luna-task-btn-active: linear-gradient(to bottom, #b9bacb 0%, #c7c8d6 20%, #c7c8d6 100%);
+  --luna-task-btn-text: #000;
+
+  --luna-start-bar: linear-gradient(to bottom, #b8bacb 0%, #aeb0c3 15%, #b6b8c9 35%, #c3c5d3 55%, #cfd0dc 75%, #dadbe4 100%);
+  --luna-start-footer: linear-gradient(to bottom, #dcdde6 0%, #d3d4de 10%, #c7c8d5 35%, #bcbdcc 60%, #b0b2c3 85%, #a6a8bb 100%);
+  --luna-start-frame: #b6b8c9;
+  --luna-start-edge: #a3a5c0;
+  --luna-start-right-bg: #e6e6ef;
+  --luna-start-right-edge: #babbd0;
+  --luna-start-right-text: #2b2c4a;
+  --luna-start-right-rule: #bfc0d0;
+  --luna-start-text: #000;
+  --luna-start-shadow: rgba(255, 255, 255, 0.8);
+
+  --luna-highlight: #8e90a8;
+  --luna-highlight-text: #fff;
+  --luna-face: #e0dfe3;
+  --luna-face-text: #000;
+  --luna-link: #2b2c4a;
+  --luna-link-hover: #5d5f86;
+  --luna-groupbox-text: #3d3f6b;
+  --luna-button-focus: inset -1px 1px #f2f2f8, inset 1px 2px #c9cadc, inset -2px 2px #dcdde9, inset 1px -1px #b4b6ca, inset 2px -2px #b4b6ca;
+
+  --luna-scroll-face: linear-gradient(to right, #f4f4f8 0%, #e9e9f0 45%, #dfdfe8 70%, #d2d3de 100%);
+  --luna-scroll-face-h: linear-gradient(to bottom, #f4f4f8 0%, #e9e9f0 45%, #dfdfe8 70%, #d2d3de 100%);
+  --luna-scroll-face-hover: linear-gradient(to right, #ffffff 0%, #f4f4f8 45%, #ebebf1 70%, #e0e0e8 100%);
+  --luna-scroll-face-hover-h: linear-gradient(to bottom, #ffffff 0%, #f4f4f8 45%, #ebebf1 70%, #e0e0e8 100%);
+  --luna-scroll-edge: #b9bacb;
+  --luna-scroll-glyph: '%23484a64';
+  --luna-scroll-grip-light: #ffffff;
+  --luna-scroll-grip-dark: #b1b3c6;
+
+  --luna-pane: linear-gradient(to bottom, #d9dae4 0%, #b7b9cb 100%);
+  --luna-pane-head: linear-gradient(to right, #fff 0%, #dfe0e8 100%);
+  --luna-pane-head-text: #3d3f58;
+  --luna-pane-head-hover: #6b6d8e;
+  --luna-pane-body: #f2f2f6;
+  --luna-pane-special-head: linear-gradient(to right, #7d7f97 0%, #a3a5bb 100%);
+  --luna-pane-special-body: #f8f8fb;
+  --luna-pane-chevron: #3d3f58;
+}
+
+/* Scheme-independent constants. */
+:root {
+  --xp-font: Tahoma, Verdana, 'DejaVu Sans', sans-serif;
+  --xp-font-caption: 'Trebuchet MS', Tahoma, 'DejaVu Sans', sans-serif;
+  /* The face of "start" and the logon screen's "welcome". */
+  --xp-font-brand: 'Franklin Gothic Medium', 'Franklin Gothic', 'ITC Franklin Gothic', 'Trebuchet MS', Arial, sans-serif;
+  --xp-taskbar-h: 30px;
+  --xp-close: radial-gradient(circle at 90% 90%, #cc4600 0%, #dc6527 55%, #cd7546 70%, #ffccb2 90%, #fff 100%);
+  --xp-close-glow: #da4600;
+  --xp-start: linear-gradient(to bottom, #2c7a25 0%, #4fae46 4%, #6cc261 9%, #58b64e 16%, #45a73d 30%, #3d9e36 50%, #3a9a33 68%, #378f31 84%, #2e7b29 94%, #24651f 100%);
+  --xp-start-pressed: linear-gradient(to bottom, #1d5c18 0%, #2e7f28 6%, #328a2c 20%, #2f8429 55%, #2c7b26 84%, #235f1e 100%);
+}
+
+/* Phones keep a taller bar so the task buttons stay tappable. Mirrors TASKBAR_HEIGHT_MOBILE in utils/viewport.ts. */
+@media (max-width: 767px) {
+  :root { --xp-taskbar-h: 36px; }
+}
+
+/* ---- Scheme surfaces (consumed by Display Properties previews) --------- */
+
+.luna-title { background: var(--luna-title-active); }
+.luna-title-inactive { background: var(--luna-title-inactive); }
+.luna-title-edge { border-color: var(--luna-title-edge); }
+.luna-frame { border-color: var(--luna-frame); }
+.luna-taskbar { background: var(--luna-taskbar); }
+.luna-tray { background: var(--luna-tray); }
+.luna-task-btn { background: var(--luna-task-btn); }
+.luna-task-btn-active { background: var(--luna-task-btn-active); }
+.luna-start-bar { background: var(--luna-start-bar); }
+.luna-start-edge { border-color: var(--luna-start-edge); }
+.luna-start-right {
+  background: var(--luna-start-right-bg);
+  border-color: var(--luna-start-right-edge);
+  color: var(--luna-start-right-text);
+}
+.luna-start-right-rule { background: var(--luna-start-right-rule); }
+
+/* ==========================================================================
+   Windows
+   ========================================================================== */
+
+.xp-window-frame {
+  display: flex;
+  flex-direction: column;
+  padding: 0 3px 3px;
+  border-radius: 8px 8px 0 0;
+  background: var(--luna-frame);
+  box-shadow:
+    inset -1px -1px var(--luna-frame-d1), inset 1px 1px var(--luna-frame-l1),
+    inset -2px -2px var(--luna-frame-d2), inset 2px 2px var(--luna-frame-l2),
+    inset -3px -3px var(--luna-frame-d3), inset 3px 3px var(--luna-frame-l3);
+  font: 11px var(--xp-font);
+  color: #000;
+}
+.xp-window-frame.is-inactive {
+  background: var(--luna-frame-inactive);
+  box-shadow:
+    inset -1px -1px var(--luna-frame-inactive-d), inset 1px 1px var(--luna-frame-inactive-l),
+    inset -2px -2px var(--luna-frame-inactive), inset 2px 2px var(--luna-frame-inactive-l),
+    inset -3px -3px var(--luna-frame-inactive), inset 3px 3px var(--luna-frame-inactive);
+}
+/* A maximised XP window has no side or bottom frame and no rounded corners. */
+.xp-window-frame.is-maximized {
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.xp-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 29px;
+  margin: 0 -3px;
+  padding: 0 5px 0 7px;
+  border-radius: 8px 8px 0 0;
+  background: var(--luna-title-active);
+  color: var(--luna-title-text);
+  font: bold 13px/1 var(--xp-font-caption);
+  text-shadow: 1px 1px var(--luna-title-shadow);
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
+}
+/* The darker ends of the bar: the Luna bitmap is more saturated at both edges. */
+.xp-titlebar::before,
+.xp-titlebar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 15px;
+  pointer-events: none;
+}
+.xp-titlebar::before { left: 0; background: linear-gradient(to right, var(--luna-title-ends), transparent); }
+.xp-titlebar::after { right: 0; background: linear-gradient(to left, var(--luna-title-ends), transparent); }
+.xp-titlebar > * { position: relative; z-index: 1; }
+.xp-titlebar.is-inactive,
+.is-inactive > .xp-titlebar {
+  background: var(--luna-title-inactive);
+  color: var(--luna-title-text-inactive);
+}
+.xp-titlebar.is-inactive::before,
+.xp-titlebar.is-inactive::after,
+.is-inactive > .xp-titlebar::before,
+.is-inactive > .xp-titlebar::after { opacity: 0.35; }
+.is-maximized > .xp-titlebar { margin: 0; border-radius: 0; }
+
+.xp-titlebar-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  flex-shrink: 0;
+  filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.25));
+}
+.xp-titlebar-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 6px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xp-titlebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.is-inactive > .xp-titlebar .xp-titlebar-controls,
+.xp-titlebar.is-inactive .xp-titlebar-controls { opacity: 0.6; }
+
+/* Caption buttons: the glyph is drawn with ::before/::after, so the button needs no children. */
+.xp-caption-btn {
+  position: relative;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  border: 1px solid var(--luna-caption-border);
+  border-radius: 3px;
+  background: var(--luna-caption);
+  box-shadow: inset 0 -1px 2px 1px var(--luna-caption-glow);
+  cursor: default;
+  flex-shrink: 0;
+}
+.xp-caption-btn:hover { filter: brightness(1.2); }
+.xp-caption-btn:active { filter: brightness(0.88); }
+.xp-caption-btn:focus-visible { outline: 1px dotted #fff; outline-offset: 1px; }
+.xp-caption-btn.is-close {
+  border-color: #fff;
+  background: var(--xp-close);
+  box-shadow: inset 0 -1px 2px 1px var(--xp-close-glow);
+}
+.xp-caption-btn::before,
+.xp-caption-btn::after {
+  content: '';
+  position: absolute;
+  display: block;
+}
+/* Minimize: a short bar sat low and left. */
+.xp-caption-btn.is-min::before {
+  left: 4px;
+  top: 12px;
+  width: 7px;
+  height: 3px;
+  background: var(--luna-caption-glyph);
+}
+/* Maximize: a window outline with a heavy top edge. */
+.xp-caption-btn.is-max::before {
+  left: 4px;
+  top: 4px;
+  width: 11px;
+  height: 11px;
+  box-shadow: inset 0 3px var(--luna-caption-glyph), inset 0 0 0 1px var(--luna-caption-glyph);
+}
+/* Restore: two overlapping outlines. */
+.xp-caption-btn.is-restore::before {
+  left: 7px;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  box-shadow: inset 0 2px var(--luna-caption-glyph), inset 0 0 0 1px var(--luna-caption-glyph);
+}
+.xp-caption-btn.is-restore::after {
+  left: 3px;
+  top: 7px;
+  width: 8px;
+  height: 8px;
+  box-shadow: inset 0 2px var(--luna-caption-glyph), inset 0 0 0 1px var(--luna-caption-glyph);
+  background: #1767ff;
+}
+[data-theme='olive'] .xp-caption-btn.is-restore::after { background: #93a964; }
+[data-theme='silver'] .xp-caption-btn.is-restore::after { background: #d8d9e3; }
+/* Close: an X of two bars. */
+.xp-caption-btn.is-close::before,
+.xp-caption-btn.is-close::after {
+  left: 8px;
+  top: 2px;
+  width: 3px;
+  height: 15px;
+  border-radius: 1px;
+  background: #fff;
+  transform: rotate(45deg);
+}
+.xp-caption-btn.is-close::after { transform: rotate(-45deg); }
+/* Help: a question mark, drawn as text because it is one glyph. */
+.xp-caption-btn.is-help::before {
+  content: '?';
+  inset: 0;
+  color: var(--luna-caption-glyph);
+  font: bold 14px/19px var(--xp-font);
+  text-align: center;
+  text-shadow: none;
+}
+.xp-caption-btn:disabled { opacity: 0.5; filter: none; }
+
+.xp-window-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* The beige XP control face, for dialogs and toolbars. */
+.xp-face {
+  background: var(--luna-face);
+  color: var(--luna-face-text);
+  font: 11px var(--xp-font);
+}
+
+/* ==========================================================================
+   Taskbar
+   ========================================================================== */
+
+.xp-taskbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  align-items: stretch;
+  height: var(--xp-taskbar-h);
+  background: var(--luna-taskbar);
+  color: #fff;
+  font: 11px var(--xp-font);
+  user-select: none;
+}
+
+.xp-start-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 21px 0 9px;
+  margin-right: 6px;
+  border: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--xp-start);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset -2px -1px 3px rgba(0, 40, 0, 0.45),
+    inset 2px 0 2px rgba(255, 255, 255, 0.15),
+    2px 0 3px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: italic bold 18px/1 var(--xp-font-brand);
+  letter-spacing: 0.3px;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.75);
+  cursor: default;
+}
+.xp-start-button:hover { filter: brightness(1.12); }
+.xp-start-button[aria-expanded='true'] {
+  background: var(--xp-start-pressed);
+  box-shadow:
+    inset 1px 1px 3px rgba(0, 0, 0, 0.55),
+    inset -2px -1px 3px rgba(0, 40, 0, 0.45),
+    2px 0 3px rgba(0, 0, 0, 0.35);
+  filter: none;
+}
+.xp-start-button:focus-visible { outline: 1px dotted #fff; outline-offset: -4px; }
+.xp-start-flag {
+  width: 20px;
+  height: 18px;
+  filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.45));
+}
+.xp-start-button > span { padding-bottom: 1px; }
+
+.xp-taskbar-sep {
+  width: 2px;
+  margin: 4px 2px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--luna-taskbar-sep-dark);
+  border-right: 1px solid var(--luna-taskbar-sep-light);
+  opacity: 0.8;
+}
+
+.xp-quicklaunch {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 3px;
+  flex-shrink: 0;
+}
+.xp-quicklaunch-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  cursor: default;
+}
+.xp-quicklaunch-btn:hover {
+  border-color: rgba(255, 255, 255, 0.25) rgba(0, 0, 0, 0.3) rgba(0, 0, 0, 0.3) rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+}
+.xp-quicklaunch-btn:active {
+  border-color: rgba(0, 0, 0, 0.35) rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.2) rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.12);
+}
+.xp-quicklaunch-btn img { width: 16px; height: 16px; }
+
+.xp-tasks {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px;
+  overflow-x: auto;
+}
+.xp-task-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 160px;
+  /* A floor, not a squeeze: with many windows the row scrolls rather than collapsing to stubs. */
+  min-width: 104px;
+  height: 22px;
+  margin-top: 2px;
+  padding: 0 8px 0 7px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--luna-task-btn);
+  box-shadow: inset -1px 0 rgba(0, 0, 0, 0.3), inset 1px 1px 1px rgba(255, 255, 255, 0.2);
+  color: var(--luna-task-btn-text);
+  font: 11px var(--xp-font);
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+.xp-task-btn:hover { background: var(--luna-task-btn-hover); }
+.xp-task-btn.is-active {
+  background: var(--luna-task-btn-active);
+  box-shadow: inset 0 0 1px 1px rgba(0, 0, 0, 0.2), inset 1px 0 1px rgba(0, 0, 0, 0.7);
+}
+.xp-task-btn:active { background: var(--luna-task-btn-active); }
+.xp-task-btn img { width: 16px; height: 16px; flex-shrink: 0; }
+.xp-task-btn > span { overflow: hidden; text-overflow: ellipsis; }
+.xp-task-btn:focus-visible { outline: 1px dotted #fff; outline-offset: -3px; }
+
+.xp-tray {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 0 8px 0 9px;
+  margin-left: 4px;
+  background: var(--luna-tray);
+  border-left: 1px solid var(--luna-tray-edge);
+  box-shadow: inset 1px 0 1px var(--luna-tray-glow);
+}
+.xp-tray-btn {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+.xp-tray-btn img { width: 16px; height: 16px; }
+.xp-clock {
+  padding: 0 2px 0 6px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: 11px var(--xp-font);
+  white-space: nowrap;
+  cursor: default;
+}
+[data-theme='silver'] .xp-clock,
+[data-theme='olive'] .xp-clock { color: #000; }
+
+/* ==========================================================================
+   Start menu
+   ========================================================================== */
+
+.xp-startmenu {
+  position: fixed;
+  left: 0;
+  bottom: var(--xp-taskbar-h);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: 100vw;
+  background: var(--luna-start-frame);
+  border-radius: 7px 7px 0 0;
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.55);
+  font: 11px var(--xp-font);
+  user-select: none;
+}
+.xp-startmenu-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 58px;
+  padding: 6px 8px 6px 6px;
+  border-radius: 7px 7px 0 0;
+  background: var(--luna-start-bar);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+}
+.xp-startmenu-avatar {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border: 2px solid rgba(222, 222, 222, 0.85);
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.35);
+}
+.xp-startmenu-user {
+  color: var(--luna-start-text);
+  font: bold 14px var(--xp-font);
+  text-shadow: 1px 1px 2px var(--luna-start-shadow, rgba(0, 0, 0, 0.7));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The orange rule under the header, brightest at the centre. */
+.xp-startmenu-rule {
+  height: 2px;
+  background: linear-gradient(to right, rgba(218, 136, 74, 0) 0%, #da884a 50%, rgba(218, 136, 74, 0) 100%);
+}
+.xp-startmenu-body {
+  display: flex;
+  margin: 0 2px;
+  background: #fff;
+  border-top: 1px solid rgba(58, 58, 255, 0.37);
+}
+.xp-startmenu-left {
+  display: flex;
+  flex-direction: column;
+  width: 50%;
+  padding: 6px 5px 0;
+  background: #fff;
+}
+.xp-startmenu-right {
+  display: flex;
+  flex-direction: column;
+  width: 50%;
+  padding: 6px 5px 5px;
+  background: var(--luna-start-right-bg);
+  border-left: 1px solid var(--luna-start-right-edge);
+  color: var(--luna-start-right-text);
+}
+.xp-startmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 36px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: #000;
+  font: 11px var(--xp-font);
+  text-align: left;
+  cursor: default;
+}
+.xp-startmenu-item img { width: 32px; height: 32px; flex-shrink: 0; }
+.xp-startmenu-item b { display: block; font-weight: bold; }
+.xp-startmenu-item small { display: block; color: #7f7f7f; font-size: 11px; }
+.xp-startmenu-right .xp-startmenu-item {
+  min-height: 28px;
+  color: inherit;
+}
+.xp-startmenu-right .xp-startmenu-item img { width: 24px; height: 24px; }
+.xp-startmenu-right .xp-startmenu-item.is-place { font-weight: bold; }
+.xp-startmenu-item:hover,
+.xp-startmenu-item:focus-visible,
+.xp-startmenu-item.is-active {
+  background: var(--luna-highlight);
+  color: var(--luna-highlight-text);
+  outline: none;
+}
+.xp-startmenu-item:hover small,
+.xp-startmenu-item:focus-visible small,
+.xp-startmenu-item.is-active small { color: var(--luna-highlight-text); }
+.xp-startmenu-item.has-submenu::after {
+  content: '';
+  margin-left: auto;
+  border: 4px solid transparent;
+  border-left: 4px solid currentColor;
+  border-right: 0;
+}
+.xp-startmenu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.13) 50%, rgba(0, 0, 0, 0) 100%);
+}
+.xp-startmenu-right .xp-startmenu-sep {
+  background: linear-gradient(to right, rgba(135, 179, 226, 0) 0%, #87b3e2 50%, rgba(135, 179, 226, 0) 100%);
+}
+.xp-startmenu-allprograms {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  margin: 2px 0 4px;
+  border: 0;
+  background: none;
+  color: #000;
+  font: bold 11px var(--xp-font);
+  cursor: default;
+}
+.xp-startmenu-allprograms:hover,
+.xp-startmenu-allprograms.is-active {
+  background: var(--luna-highlight);
+  color: var(--luna-highlight-text);
+}
+/* The green arrow button beside "All Programs". */
+.xp-startmenu-allprograms i {
+  position: relative;
+  display: block;
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  background: linear-gradient(to bottom, #6fd34f 0%, #37a51d 55%, #26871a 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 60, 0, 0.35), inset 1px 1px rgba(255, 255, 255, 0.5);
+}
+.xp-startmenu-allprograms i::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  border: 4.5px solid transparent;
+  border-left: 6px solid #fff;
+  border-right: 0;
+  filter: drop-shadow(1px 0 0 rgba(0, 60, 0, 0.35));
+}
+.xp-startmenu-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px;
+  background: var(--luna-start-footer);
+}
+.xp-startmenu-footer-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px 2px 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--luna-start-text);
+  font: 11px var(--xp-font);
+  cursor: default;
+}
+.xp-startmenu-footer-btn img {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+}
+.xp-startmenu-footer-btn:hover { background: rgba(60, 80, 210, 0.45); }
+.xp-startmenu-footer-btn:hover img { filter: brightness(1.15); }
+
+/* ==========================================================================
+   Menus (context menus, menu-bar dropdowns, Start flyouts)
+   ========================================================================== */
+
+.xp-menu {
+  min-width: 150px;
+  padding: 2px;
+  background: #fff;
+  border: 1px solid #aca899;
+  box-shadow: 2px 2px 3px -1px rgba(0, 0, 0, 0.45), 3px 3px 5px -2px rgba(0, 0, 0, 0.25);
+  color: #000;
+  font: 11px var(--xp-font);
+  user-select: none;
+}
+.xp-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 20px;
+  padding: 0 20px 0 22px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+.xp-menu-item > img { position: absolute; left: 3px; width: 16px; height: 16px; }
+.xp-menu-item:hover,
+.xp-menu-item:focus-visible,
+.xp-menu-item.is-active {
+  background: var(--luna-highlight);
+  color: var(--luna-highlight-text);
+  outline: none;
+}
+.xp-menu-item:disabled,
+.xp-menu-item[aria-disabled='true'] {
+  color: #aca899;
+  background: none;
+}
+.xp-menu-item.is-default { font-weight: bold; }
+.xp-menu-item.has-submenu::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  top: 6px;
+  border: 4px solid transparent;
+  border-left: 4px solid currentColor;
+  border-right: 0;
+}
+.xp-menu-item[aria-checked='true']::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 5px;
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-50deg);
+}
+.xp-menu-item[role='menuitemradio'][aria-checked='true']::before {
+  left: 8px;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: currentColor;
+  transform: none;
+}
+.xp-menu-accel { margin-left: auto; padding-left: 24px; }
+.xp-menu-sep {
+  height: 1px;
+  margin: 3px 1px;
+  background: #aca899;
+}
+
+.xp-menubar {
+  display: flex;
+  align-items: stretch;
+  height: 20px;
+  padding: 0 1px;
+  background: var(--luna-face);
+  border-bottom: 1px solid #fff;
+  box-shadow: 0 -1px #d8d2bd inset;
+  font: 11px var(--xp-font);
+  user-select: none;
+}
+.xp-menubar-item {
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: #000;
+  font: inherit;
+  cursor: default;
+}
+.xp-menubar-item:hover,
+.xp-menubar-item.is-open {
+  background: var(--luna-highlight);
+  color: var(--luna-highlight-text);
+}
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
+
+.xp-button {
+  box-sizing: border-box;
+  min-width: 75px;
+  min-height: 23px;
+  padding: 0 12px;
+  border: 1px solid #003c74;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #fff 0%, #ecebe6 86%, #d6d0c5 100%);
+  color: #000;
+  font: 11px var(--xp-font);
+  cursor: default;
+}
+.xp-button:not(:disabled):hover {
+  box-shadow: inset -1px 1px #fff0cf, inset 1px 2px #fdd889, inset -2px 2px #fbc761, inset 2px -2px #e5a01a;
+}
+.xp-button:not(:disabled):active {
+  background: linear-gradient(180deg, #cdcac3 0%, #e3e3db 8%, #e5e5de 94%, #f2f2f1 100%);
+  box-shadow: none;
+}
+.xp-button:focus { outline: none; }
+.xp-button:focus-visible:not(:hover),
+.xp-button.is-default:not(:hover):not(:active) {
+  box-shadow: var(--luna-button-focus);
+}
+.xp-button:focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+.xp-button:disabled {
+  border-color: #c9c7ba;
+  background: #f5f4ea;
+  color: #aca899;
+}
+
+.xp-input {
+  box-sizing: border-box;
+  padding: 2px 3px;
+  border: 1px solid #7f9db9;
+  border-radius: 0;
+  background: #fff;
+  color: #000;
+  font: 11px var(--xp-font);
+}
+.xp-input:focus { outline: none; }
+.xp-input:disabled,
+.xp-input[readonly] { background: #ebebe4; color: #7f7c6d; }
+
+select.xp-select {
+  box-sizing: border-box;
+  height: 21px;
+  padding: 0 22px 0 3px;
+  border: 1px solid #7f9db9;
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 17 17'%3E%3Cpath d='M5 7l3.5 3.5L12 7' fill='none' stroke='%234d6185' stroke-width='2'/%3E%3C/svg%3E") right 1px center / 17px 17px no-repeat,
+    linear-gradient(#fff, #fff) right 1px center / 17px 17px no-repeat,
+    #fff;
+  color: #000;
+  font: 11px var(--xp-font);
+  cursor: default;
+}
+select.xp-select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 17 17'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23dce7fe'/%3E%3Cstop offset='1' stop-color='%23adc3f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='.5' y='.5' width='16' height='16' rx='2.5' fill='url(%23g)' stroke='%23b7c8f2'/%3E%3Cpath d='M5 7l3.5 3.5L12 7' fill='none' stroke='%234d6185' stroke-width='2'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 1px center; background-size: 17px 17px; }
+select.xp-select:focus { outline: none; }
+
+input.xp-checkbox,
+input.xp-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1px solid #1c5180;
+  background: linear-gradient(135deg, #dcdcd7 0%, #fff 100%);
+  vertical-align: -2px;
+  cursor: default;
+}
+input.xp-radio { border-radius: 50%; }
+input.xp-checkbox:hover,
+input.xp-radio:hover { box-shadow: inset -2px -2px #f8b636, inset 2px 2px #fedf9c; }
+input.xp-checkbox:active,
+input.xp-radio:active { background: linear-gradient(135deg, #b0b0a7 0%, #e3e1d2 100%); }
+input.xp-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 4px;
+  height: 7px;
+  border: solid #21a121;
+  border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}
+input.xp-radio:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #a2f09b 0%, #55d751 35%, #21a121 100%);
+}
+input.xp-checkbox:disabled,
+input.xp-radio:disabled { border-color: #cac8bb; background: #fff; box-shadow: none; }
+input.xp-checkbox:disabled:checked::after { border-color: #cac8bb; }
+input.xp-radio:disabled:checked::after { background: #cac8bb; }
+input.xp-checkbox:focus-visible,
+input.xp-radio:focus-visible { outline: 1px dotted #000; outline-offset: 2px; }
+
+fieldset.xp-groupbox {
+  margin: 0;
+  padding: 6px 8px 8px;
+  border: 1px solid #d0d0bf;
+  border-radius: 4px;
+}
+fieldset.xp-groupbox > legend {
+  padding: 0 3px;
+  color: var(--luna-groupbox-text);
+  font: 11px var(--xp-font);
+}
+
+.xp-tabs {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  margin: 0;
+  padding: 0 0 0 3px;
+  list-style: none;
+}
+.xp-tab {
+  position: relative;
+  margin: 2px -1px -1px 0;
+  padding: 2px 7px 3px;
+  border: 1px solid #919b9c;
+  border-bottom-color: transparent;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, #fff 0%, #fafaf9 26%, #f0f0ea 95%, #ecebe6 100%);
+  color: #000;
+  font: 11px var(--xp-font);
+  cursor: default;
+}
+.xp-tab:hover {
+  border-top-color: #e68b2c;
+  box-shadow: inset 0 2px #ffc73c;
+}
+.xp-tab[aria-selected='true'] {
+  z-index: 2;
+  margin-top: 0;
+  padding-bottom: 5px;
+  background: #fcfcfe;
+  border-top-color: #e68b2c;
+  box-shadow: inset 0 2px #ffc73c;
+}
+.xp-tab:focus-visible { outline: 1px dotted #000; outline-offset: -4px; }
+.xp-tabpanel {
+  position: relative;
+  padding: 12px;
+  background: #fcfcfe;
+  border: 1px solid #919b9c;
+  box-shadow: inset 1px 1px #fcfcfe, inset -1px -1px #fcfcfe, 1px 2px 2px 0 rgba(208, 206, 191, 0.75);
+}
+
+.xp-progress {
+  box-sizing: border-box;
+  height: 14px;
+  padding: 1px 2px 1px 1px;
+  border: 1px solid #686868;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: inset 0 0 1px #686868;
+  overflow: hidden;
+}
+.xp-progress-bar {
+  height: 100%;
+  background:
+    repeating-linear-gradient(to right, transparent 0 8px, #fff 8px 10px),
+    linear-gradient(to bottom, #acedad 0%, #7be47d 14%, #4cda50 28%, #2ed330 42%, #42d845 57%, #76e275 71%, #8fe791 85%, #fff 100%);
+}
+
+.xp-statusbar {
+  display: flex;
+  gap: 2px;
+  height: 22px;
+  padding: 2px 16px 2px 2px;
+  background: var(--luna-face);
+  border-top: 1px solid #fff;
+  box-shadow: 0 -1px #aca899;
+  font: 11px var(--xp-font);
+}
+.xp-statusbar-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 4px;
+  border: 1px solid;
+  border-color: #aca899 #fff #fff #aca899;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   Tooltips and balloons
+   ========================================================================== */
+
+.xp-tooltip {
+  position: fixed;
+  z-index: 10050;
+  /* Its own width, not what is left of the viewport: it is clamped on-screen after measuring. */
+  width: max-content;
+  max-width: 320px;
+  padding: 2px 5px 3px;
+  background: #ffffe1;
+  border: 1px solid #000;
+  box-shadow: 2px 2px 2px -1px rgba(0, 0, 0, 0.4);
+  color: #000;
+  font: 11px var(--xp-font);
+  pointer-events: none;
+  white-space: pre-line;
+}
+
+.xp-balloon {
+  position: absolute;
+  z-index: 40;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 9px 26px 11px 11px;
+  background: #ffffe1;
+  border: 1px solid #000;
+  border-radius: 7px;
+  box-shadow: 2px 2px 3px -1px rgba(0, 0, 0, 0.35);
+  color: #000;
+  font: 11px/1.35 var(--xp-font);
+}
+.xp-balloon-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  font-weight: bold;
+}
+.xp-balloon-title img { width: 16px; height: 16px; }
+.xp-balloon-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  cursor: default;
+}
+.xp-balloon-close::before,
+.xp-balloon-close::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 2px;
+  height: 8px;
+  background: #555;
+  transform: rotate(45deg);
+}
+.xp-balloon-close::after { transform: rotate(-45deg); }
+.xp-balloon-close:hover {
+  border-color: #c8604c;
+  background: linear-gradient(to bottom, #fde2d9, #f19a80);
+}
+.xp-balloon-close:hover::before,
+.xp-balloon-close:hover::after { background: #fff; }
+.xp-balloon-stem {
+  position: absolute;
+  bottom: -19px;
+  width: 22px;
+  height: 20px;
+  overflow: visible;
+}
+.xp-balloon a,
+.xp-balloon .xp-link { color: #0000ff; text-decoration: underline; cursor: pointer; }
+
+/* ==========================================================================
+   Desktop
+   ========================================================================== */
+
+.xp-desktop-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 76px;
+  padding: 2px 1px;
+  cursor: default;
+  outline: none;
+}
+.xp-desktop-icon-img {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 3px;
+}
+.xp-desktop-icon-img img { width: 48px; height: 48px; display: block; }
+/* XP blends the selection colour into a selected icon, shaped exactly like the artwork. */
+.xp-desktop-icon.is-selected .xp-desktop-icon-img::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--luna-highlight);
+  opacity: 0.5;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+.xp-desktop-icon-label {
+  max-width: 74px;
+  padding: 0 2px 1px;
+  color: #fff;
+  font: 11px/13px var(--xp-font);
+  text-align: center;
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.35);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.xp-desktop-icon.is-selected .xp-desktop-icon-label {
+  background: var(--luna-highlight);
+  color: var(--luna-highlight-text);
+  text-shadow: none;
+  -webkit-line-clamp: unset;
+}
+.xp-desktop-icon.is-selected.is-focused .xp-desktop-icon-label { outline: 1px dotted #ffffff; outline-offset: -1px; }
+
+.xp-marquee {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid var(--luna-highlight);
+  background: rgba(49, 106, 197, 0.28);
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Scrollbars (Chromium, Safari). Firefox only takes colours.
+   ========================================================================== */
+
+::-webkit-scrollbar { width: 17px; height: 17px; }
+::-webkit-scrollbar-track:vertical {
+  background: linear-gradient(to right, #eeede5 0%, #f7f7f3 30%, #fdfdfc 50%, #f6f5f1 85%, #eeede5 100%);
+}
+::-webkit-scrollbar-track:horizontal {
+  background: linear-gradient(to bottom, #eeede5 0%, #f7f7f3 30%, #fdfdfc 50%, #f6f5f1 85%, #eeede5 100%);
+}
+::-webkit-scrollbar-thumb {
+  border: 1px solid var(--luna-scroll-edge);
+  border-radius: 3px;
+  box-shadow: inset 1px 1px #fff, inset -1px -1px rgba(255, 255, 255, 0.5);
+}
+::-webkit-scrollbar-thumb:vertical {
+  background:
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) center calc(50% - 3px) / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) center calc(50% - 2px) / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) center calc(50% - 1px) / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) center 50% / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) center calc(50% + 1px) / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) center calc(50% + 2px) / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) center calc(50% + 3px) / 7px 1px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) center calc(50% + 4px) / 7px 1px no-repeat,
+    var(--luna-scroll-face);
+}
+::-webkit-scrollbar-thumb:horizontal {
+  background:
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) calc(50% - 3px) center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) calc(50% - 2px) center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) calc(50% - 1px) center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) 50% center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) calc(50% + 1px) center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) calc(50% + 2px) center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-light), var(--luna-scroll-grip-light)) calc(50% + 3px) center / 1px 7px no-repeat,
+    linear-gradient(var(--luna-scroll-grip-dark), var(--luna-scroll-grip-dark)) calc(50% + 4px) center / 1px 7px no-repeat,
+    var(--luna-scroll-face-h);
+}
+::-webkit-scrollbar-thumb:vertical:hover { background-color: transparent; filter: brightness(1.05); }
+::-webkit-scrollbar-button:single-button {
+  display: block;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--luna-scroll-edge);
+  border-radius: 3px;
+  box-shadow: inset 1px 1px #fff, inset -1px -1px rgba(255, 255, 255, 0.5);
+  background-repeat: no-repeat;
+  background-position: center;
+}
+::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6' viewBox='0 0 9 6'%3E%3Cpath d='M1 5l3.5-3.5L8 5' fill='none' stroke='%234d6185' stroke-width='2'/%3E%3C/svg%3E"), var(--luna-scroll-face);
+}
+::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6' viewBox='0 0 9 6'%3E%3Cpath d='M1 1l3.5 3.5L8 1' fill='none' stroke='%234d6185' stroke-width='2'/%3E%3C/svg%3E"), var(--luna-scroll-face);
+}
+::-webkit-scrollbar-button:single-button:horizontal:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='9' viewBox='0 0 6 9'%3E%3Cpath d='M5 1L1.5 4.5 5 8' fill='none' stroke='%234d6185' stroke-width='2'/%3E%3C/svg%3E"), var(--luna-scroll-face-h);
+}
+::-webkit-scrollbar-button:single-button:horizontal:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='9' viewBox='0 0 6 9'%3E%3Cpath d='M1 1l3.5 3.5L1 8' fill='none' stroke='%234d6185' stroke-width='2'/%3E%3C/svg%3E"), var(--luna-scroll-face-h);
+}
+::-webkit-scrollbar-button:single-button:hover { filter: brightness(1.06); }
+::-webkit-scrollbar-corner { background: var(--luna-face); }
+@supports (-moz-appearance: none) {
+  * { scrollbar-color: #c1d2fb #f6f5f0; }
+}
+
+/* ==========================================================================
+   Explorer: task pane and address bar
+   ========================================================================== */
+
+.xp-taskpane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 10px;
+  background: var(--luna-pane);
+  font: 11px var(--xp-font);
+}
+.xp-taskpane-section { border-radius: 3px 3px 0 0; }
+.xp-taskpane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 25px;
+  padding: 0 1px 0 11px;
+  border: 0;
+  border-radius: 3px 3px 0 0;
+  background: var(--luna-pane-head);
+  color: var(--luna-pane-head-text);
+  font: bold 11px var(--xp-font);
+  text-align: left;
+  cursor: pointer;
+}
+.xp-taskpane-head:hover { color: var(--luna-pane-head-hover); }
+.xp-taskpane-head:focus-visible { outline: 1px dotted currentColor; outline-offset: -3px; }
+.xp-taskpane-section.is-special .xp-taskpane-head {
+  background: var(--luna-pane-special-head);
+  color: #fff;
+}
+.xp-taskpane-section.is-special .xp-taskpane-head:hover { color: #c6d3f7; }
+/* The round double-chevron button at the right of every header. */
+.xp-taskpane-chevron {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+  border: 1px solid #b9c9ef;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #fff 45%, #dfe7fa 100%);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+  color: var(--luna-pane-chevron);
+}
+.xp-taskpane-head:hover .xp-taskpane-chevron { filter: brightness(1.06) saturate(1.3); }
+.xp-taskpane-section.is-special .xp-taskpane-chevron { border-color: #fff; }
+.xp-taskpane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 10px 12px 12px;
+  background: var(--luna-pane-body);
+  border: 1px solid #fff;
+  border-top: 0;
+}
+.xp-taskpane-section.is-special .xp-taskpane-body { background: var(--luna-pane-special-body); }
+.xp-taskpane-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--luna-link);
+  font: 11px/1.25 var(--xp-font);
+  text-align: left;
+  cursor: pointer;
+}
+.xp-taskpane-link:hover { color: var(--luna-link-hover); text-decoration: underline; }
+.xp-taskpane-link:focus-visible { outline: 1px dotted currentColor; }
+.xp-taskpane-link > img,
+.xp-taskpane-link > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.xp-taskpane-text { color: #000; font: 11px/1.35 var(--xp-font); }
+
+.xp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 24px;
+  padding: 1px 4px;
+  background: linear-gradient(to bottom, #fbfbf8 0%, var(--luna-face) 100%);
+  border-bottom: 1px solid #d8d2bd;
+  font: 11px var(--xp-font);
+}
+.xp-addressbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 2px 6px 2px 4px;
+  background: var(--luna-face);
+  border-top: 1px solid #fff;
+  border-bottom: 1px solid #d8d2bd;
+  color: #7f7c6d;
+  font: 11px var(--xp-font);
+}
+.xp-addressbar-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px 0 2px;
+  border: 1px solid #7f9db9;
+  background: #fff;
+  color: #000;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.xp-addressbar-field > img { width: 16px; height: 16px; flex-shrink: 0; }
+.xp-addressbar-field > span { overflow: hidden; text-overflow: ellipsis; }
+
+/* The caption ghost XP flew between a title bar and its taskbar button (components/os/captionZoom.ts). */
+.xp-zoom-ghost {
+  position: fixed;
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px 6px 0 0;
+  background: var(--luna-title-active);
+  color: var(--luna-title-text);
+  font: bold 13px var(--xp-font-caption);
+  text-shadow: 1px 1px var(--luna-title-shadow);
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Glyphs for a window's system menu (Restore, Minimize, Maximize, Close), drawn like Marlett. */
+.xp-sysglyph { display: block; width: 10px; height: 10px; position: relative; }
+.xp-sysglyph.is-min::before { content: ''; position: absolute; left: 1px; bottom: 1px; width: 6px; height: 2px; background: currentColor; }
+.xp-sysglyph.is-max::before { content: ''; position: absolute; inset: 0; box-shadow: inset 0 2px currentColor, inset 0 0 0 1px currentColor; }
+.xp-sysglyph.is-restore::before,
+.xp-sysglyph.is-restore::after { content: ''; position: absolute; width: 7px; height: 6px; box-shadow: inset 0 2px currentColor, inset 0 0 0 1px currentColor; }
+.xp-sysglyph.is-restore::before { right: 0; top: 0; }
+.xp-sysglyph.is-restore::after { left: 0; bottom: 0; background: #fff; }
+.xp-menu-item.is-active .xp-sysglyph.is-restore::after { background: var(--luna-highlight); }
+.xp-sysglyph.is-close::before,
+.xp-sysglyph.is-close::after { content: ''; position: absolute; left: 4px; top: 0; width: 2px; height: 10px; background: currentColor; transform: rotate(45deg); }
+.xp-sysglyph.is-close::after { transform: rotate(-45deg); }
+
+/* Invisible window edges and corners that resize, as every XP window's frame did. */
+.xp-resize { position: absolute; z-index: 5; }
+.xp-resize.n { top: -2px; left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
+.xp-resize.s { bottom: -2px; left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
+.xp-resize.e { right: -2px; top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.xp-resize.w { left: -2px; top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.xp-resize.ne { right: -2px; top: -2px; width: 10px; height: 10px; cursor: nesw-resize; }
+.xp-resize.nw { left: -2px; top: -2px; width: 10px; height: 10px; cursor: nwse-resize; }
+.xp-resize.se { right: -2px; bottom: -2px; width: 12px; height: 12px; cursor: nwse-resize; }
+.xp-resize.sw { left: -2px; bottom: -2px; width: 10px; height: 10px; cursor: nesw-resize; }
+
+/* ==========================================================================
+   Trackbars (sliders): the sunken groove and Luna's pointed thumb
+   ========================================================================== */
+
+input[type='range'].xp-slider,
+input[type='range'].xp-vslider {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  background: transparent;
+  cursor: default;
+}
+input[type='range'].xp-slider { width: 100%; height: 22px; }
+/* Vertical, maximum at the top, as XP's volume control was. */
+input[type='range'].xp-vslider { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 96px; }
+.xp-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border: 1px solid;
+  border-color: #9d9c99 #fff #fff #9d9c99;
+  border-radius: 1px;
+  background: #ecebe4;
+}
+.xp-vslider::-webkit-slider-runnable-track {
+  width: 4px;
+  border: 1px solid;
+  border-color: #9d9c99 #fff #fff #9d9c99;
+  border-radius: 1px;
+  background: #ecebe4;
+}
+.xp-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 21px;
+  margin-top: -9px;
+  border: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='21' viewBox='0 0 11 21'%3E%3Cdefs%3E%3ClinearGradient id='t' x1='0' x2='1'%3E%3Cstop offset='0' stop-color='%23fff'/%3E%3Cstop offset='1' stop-color='%23d9e1ef'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M1.5 1.5h8v13l-4 5-4-5z' fill='url(%23t)' stroke='%235c82bd' stroke-linejoin='round'/%3E%3Cpath d='M2.5 3v11' stroke='%2334b233' stroke-opacity='.55'/%3E%3C/svg%3E") center / 11px 21px no-repeat;
+}
+.xp-vslider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 21px;
+  height: 11px;
+  margin-left: -9px;
+  border: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='21' height='11' viewBox='0 0 21 11'%3E%3Cdefs%3E%3ClinearGradient id='t' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff'/%3E%3Cstop offset='1' stop-color='%23d9e1ef'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M19.5 1.5v8h-13l-5-4 5-4z' fill='url(%23t)' stroke='%235c82bd' stroke-linejoin='round'/%3E%3Cpath d='M18 2.5H7' stroke='%2334b233' stroke-opacity='.55'/%3E%3C/svg%3E") center / 21px 11px no-repeat;
+}
+.xp-slider:hover::-webkit-slider-thumb,
+.xp-vslider:hover::-webkit-slider-thumb { filter: sepia(0.6) saturate(3) hue-rotate(-20deg) brightness(1.05); }
+.xp-slider:focus,
+.xp-vslider:focus { outline: none; }
+.xp-slider:focus-visible,
+.xp-vslider:focus-visible { outline: 1px dotted #000; }
+.xp-slider::-moz-range-track,
+.xp-vslider::-moz-range-track { background: #ecebe4; border: 1px solid #9d9c99; height: 3px; width: 3px; }
+.xp-slider::-moz-range-thumb,
+.xp-vslider::-moz-range-thumb { width: 11px; height: 19px; border: 1px solid #5c82bd; border-radius: 2px; background: linear-gradient(to right, #fff, #d9e1ef); }
+
+/* ==========================================================================
+   Log Off / Turn Off Computer
+   --------------------------------------------------------------------------
+   XP drained the colour out of the whole screen while these dialogs waited
+   for an answer. The grey is a backdrop-filter layer whose *opacity* animates,
+   so the effect stays inside the transform/opacity motion rule.
+   ========================================================================== */
+
+.xp-exit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10010;
+  -webkit-backdrop-filter: grayscale(1);
+  backdrop-filter: grayscale(1);
+  animation: xp-desaturate 2.2s linear forwards;
+}
+@keyframes xp-desaturate {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.xp-exit-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10011;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.xp-exit {
+  width: 313px;
+  max-width: 100%;
+  border: 1px solid #001a70;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), 4px 6px 16px rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 11px var(--xp-font);
+  user-select: none;
+}
+.xp-exit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 42px;
+  padding: 0 8px 0 10px;
+  background: linear-gradient(to right, #06349e 0%, #0a3aad 70%, #0d44c2 100%);
+  font: 16px var(--xp-font);
+}
+.xp-exit-head img { width: 32px; height: 29px; filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.4)); }
+.xp-exit-body {
+  position: relative;
+  display: flex;
+  justify-content: space-around;
+  padding: 20px 14px 18px;
+  background: linear-gradient(to bottom, #8aa6ec 0%, #6d8fe3 12%, #5a7edc 100%);
+  box-shadow: inset 0 1px #b8ccf7;
+}
+.xp-exit-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 72px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: 11px var(--xp-font);
+  cursor: default;
+}
+.xp-exit-btn img { width: 33px; height: 33px; border-radius: 4px; }
+.xp-exit-btn:hover img,
+.xp-exit-btn:focus-visible img { filter: brightness(1.15) drop-shadow(0 0 3px rgba(255, 255, 255, 0.7)); }
+.xp-exit-btn:focus { outline: none; }
+.xp-exit-btn:focus-visible span { outline: 1px dotted #fff; outline-offset: 1px; }
+.xp-exit-btn:disabled { opacity: 0.5; }
+.xp-exit-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  height: 42px;
+  padding: 0 10px;
+  background: linear-gradient(to right, #06349e 0%, #0a3aad 70%, #0d44c2 100%);
+}
+.xp-exit-tip {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 2px);
+  left: 50%;
+  width: 200px;
+  margin-left: -34px;
+  padding: 4px 6px 5px;
+  background: #ffffe1;
+  border: 1px solid #000;
+  box-shadow: 2px 2px 2px -1px rgba(0, 0, 0, 0.4);
+  color: #000;
+  font: 11px/1.35 var(--xp-font);
+  text-align: left;
+  pointer-events: none;
+}
+.xp-exit-tip b { display: block; margin-bottom: 2px; }
+
+/* Stand By: the screen goes dark until the mouse moves or a key is pressed. */
+.xp-standby { position: fixed; inset: 0; z-index: 10030; background: #000; cursor: none; }
+
+/* ==========================================================================
+   The Welcome screen, and the screens that share its layout
+   (Saving your settings, shutting down)
+   ========================================================================== */
+
+.xp-logon {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #5a7edc;
+  color: #fff;
+  font-family: var(--xp-font);
+  user-select: none;
+}
+.xp-logon-top,
+.xp-logon-bottom {
+  position: relative;
+  flex-shrink: 0;
+  background: #00309c;
+}
+.xp-logon-top { height: 12.5%; min-height: 48px; }
+.xp-logon-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 12.5%;
+  min-height: 64px;
+  padding: 0 clamp(16px, 4vw, 48px);
+}
+/* The light rule under the top band and the orange one over the bottom band, brightest left of centre. */
+.xp-logon-top::after,
+.xp-logon-bottom::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+.xp-logon-top::after {
+  bottom: 0;
+  background: linear-gradient(to right, #00309c 0%, #5f86e0 18%, #c9d7f7 38%, #5f86e0 70%, #00309c 100%);
+}
+.xp-logon-bottom::before {
+  top: 0;
+  background: linear-gradient(to right, #00309c 0%, #ca6c1b 18%, #f99736 38%, #ca6c1b 70%, #00309c 100%);
+}
+.xp-logon-mid {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background:
+    radial-gradient(ellipse 55% 85% at 0% 0%, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.16) 45%, rgba(255, 255, 255, 0) 100%),
+    #5a7edc;
+}
+.xp-logon-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 6% 0;
+  flex-shrink: 0;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.75) 50%, rgba(255, 255, 255, 0) 100%);
+}
+.xp-logon-prompt { font-size: clamp(14px, 1.6vw, 18px); text-align: right; }
+.xp-logon-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(340px, 100%);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px 0 0 7px;
+  background: none;
+  color: #fff;
+  font-family: var(--xp-font);
+  text-align: left;
+  cursor: pointer;
+}
+.xp-logon-user:hover,
+.xp-logon-user.is-selected {
+  background: linear-gradient(to right, #0f3fa8 0%, rgba(15, 63, 168, 0.55) 45%, rgba(90, 126, 220, 0) 100%);
+}
+.xp-logon-user:focus { outline: none; }
+.xp-logon-user:focus-visible { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+.xp-logon-avatar {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border: 2px solid #fff;
+  border-radius: 5px;
+  object-fit: cover;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.35);
+}
+.xp-logon-user:hover .xp-logon-avatar,
+.xp-logon-user.is-selected .xp-logon-avatar { border-color: #ffc93c; }
+.xp-logon-name { display: block; font-size: 20px; line-height: 1.2; }
+.xp-logon-status { display: block; margin-top: 3px; font-size: 12px; color: #d8e3fb; }
+.xp-logon-power {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: clamp(13px, 1.4vw, 16px) var(--xp-font);
+  cursor: pointer;
+}
+.xp-logon-power img { width: 24px; height: 24px; }
+.xp-logon-power:hover span { text-decoration: underline; }
+.xp-logon-power:focus { outline: none; }
+.xp-logon-power:focus-visible span { outline: 1px dotted #fff; }
+.xp-logon-hint { max-width: 300px; font-size: 11px; line-height: 1.4; text-align: right; }
+/* "welcome", in the face of the Start button. */
+.xp-logon-welcome {
+  font: italic clamp(40px, 7vw, 76px)/1 var(--xp-font-brand);
+  text-shadow: 2px 3px 4px rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.5px;
+}
+.xp-logon-busy { font-size: clamp(15px, 1.8vw, 20px); }
+
+/* ==========================================================================
+   Boot screen
+   ========================================================================== */
+
+.xp-boot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  cursor: wait;
+  user-select: none;
+}
+/* The progress box: three blue chunks travelling left to right, and round again. */
+.xp-boot-bar {
+  position: relative;
+  width: 124px;
+  height: 16px;
+  padding: 2px 0;
+  border: 1px solid #b2b2b2;
+  border-radius: 3px;
+  background: #000;
+  overflow: hidden;
+}
+.xp-boot-chunks {
+  display: flex;
+  gap: 2px;
+  height: 100%;
+  width: max-content;
+  animation: xp-boot-chunks 2.1s linear infinite;
+}
+.xp-boot-chunks i {
+  display: block;
+  width: 8px;
+  height: 100%;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, #2838c7 0%, #5979ef 17%, #869ef3 32%, #869ef3 45%, #5979ef 59%, #2838c7 100%);
+}
+@keyframes xp-boot-chunks {
+  from { transform: translateX(-32px); }
+  to { transform: translateX(126px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xp-boot-chunks { animation: none; transform: translateX(46px); }
+  .xp-exit-backdrop { animation: none; opacity: 1; }
+}
+
+/* Powered off: a black screen and the one button that does anything. */
+.xp-off {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+.xp-off-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 0;
+  background: none;
+  color: #8a8a8a;
+  font: 12px var(--xp-font);
+  cursor: pointer;
+}
+.xp-off-btn img { width: 44px; height: 44px; opacity: 0.8; transition: opacity 150ms ease-out; }
+.xp-off-btn:hover img,
+.xp-off-btn:focus-visible img { opacity: 1; }
+.xp-off-btn:hover span { color: #cfcfcf; }
+.xp-off-btn:focus { outline: none; }
+
+/* Inline command text, in XP's console face ("l" and "1" stay distinct). */
+.xp-code { font-family: 'Lucida Console', Consolas, 'Courier New', monospace; font-size: 11px; }
+
+/* A phone needs its taskbar width for task buttons; Quick Launch is a desktop nicety. */
+@media (max-width: 639px) {
+  .xp-quicklaunch,
+  .xp-quicklaunch + .xp-taskbar-sep { display: none; }
+  .xp-start-button { margin-right: 2px; }
+}
