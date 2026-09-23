@@ -41,11 +41,14 @@ export type SystemEvent =
     // Shell and filesystem
     | { type: 'shell:command'; input: string; ok: boolean }
     | { type: 'fs:read'; path: string }
+    | { type: 'fs:write'; path: string; created: boolean; bytes: number }
+    | { type: 'fs:delete'; path: string }
     // Settings
     | { type: 'setting:changed'; key: string; value: string }
     // Recycle bin
     | { type: 'recycle:deleted'; name: string }
-    | { type: 'recycle:restored'; name: string }
+    /** `fromBin` is false when the icon had already been emptied from the bin and was put back anyway. */
+    | { type: 'recycle:restored'; name: string; fromBin: boolean }
     | { type: 'recycle:emptied'; count: number }
     // Dialogs
     | { type: 'dialog:shown'; title: string }
@@ -127,6 +130,17 @@ export function describe(e: SystemEvent): Description {
             };
         case 'fs:read':
             return { log: 'System', level: 'information', source: 'Filesystem', category: 'Read', code: 3101, message: `Read ${e.path}.` };
+        case 'fs:write':
+            return {
+                log: 'System',
+                level: 'information',
+                source: 'Filesystem',
+                category: 'Write',
+                code: e.created ? 3102 : 3103,
+                message: `${e.created ? 'Created' : 'Saved'} ${e.path} (${e.bytes} bytes).`,
+            };
+        case 'fs:delete':
+            return { log: 'System', level: 'warning', source: 'Filesystem', category: 'Delete', code: 3104, message: `Deleted ${e.path}.` };
 
         case 'setting:changed':
             return { log: 'System', level: 'information', source: 'Settings', category: 'Configuration', code: 4001, message: `${e.key} was set to "${e.value}".` };
@@ -134,7 +148,14 @@ export function describe(e: SystemEvent): Description {
         case 'recycle:deleted':
             return { log: 'Application', level: 'information', source: 'RecycleBin', category: 'Delete', code: 5001, message: `"${e.name}" was sent to the Recycle Bin.` };
         case 'recycle:restored':
-            return { log: 'Application', level: 'information', source: 'RecycleBin', category: 'Restore', code: 5002, message: `"${e.name}" was restored from the Recycle Bin.` };
+            return {
+                log: 'Application',
+                level: 'information',
+                source: 'RecycleBin',
+                category: 'Restore',
+                code: 5002,
+                message: e.fromBin ? `"${e.name}" was restored from the Recycle Bin.` : `"${e.name}" was put back on the desktop.`,
+            };
         case 'recycle:emptied':
             return { log: 'Application', level: 'warning', source: 'RecycleBin', category: 'Delete', code: 5003, message: `The Recycle Bin was emptied (${e.count} item${e.count === 1 ? '' : 's'}).` };
 
@@ -168,8 +189,27 @@ export function publish(event: SystemEvent, now: number = Date.now()): LogEntry 
     // A new array every time: `getLog()` is a snapshot, and React's `useSyncExternalStore`
     // decides whether to re-render by comparing snapshots by identity.
     log = log.length >= LOG_LIMIT ? [...log.slice(log.length - LOG_LIMIT + 1), entry] : [...log, entry];
-    listeners.forEach((fn) => fn());
+    notify();
     return entry;
+}
+
+/**
+ * Tell every subscriber. One that throws must not stop the others — the Event Viewer would miss
+ * the entry — nor throw out of the store action that published after its `set()` already ran.
+ */
+function notify(): void {
+    listeners.forEach((fn) => {
+        try {
+            fn();
+        } catch (err) {
+            // Through globalThis: system/ is compiled without DOM or Node types, and the console
+            // is a property of whichever host is running it.
+            (globalThis as { console?: { error?: (...args: unknown[]) => void } }).console?.error?.(
+                'system/bus: a subscriber threw',
+                err,
+            );
+        }
+    });
 }
 
 /** The current log, oldest first. The same array is returned until something is published. */
@@ -190,12 +230,15 @@ export function on<T extends SystemEventType>(
 ): () => void {
     let last = log.length ? log[log.length - 1].seq : 0;
     return subscribe(() => {
-        for (const entry of log) {
-            if (entry.seq > last && entry.event.type === type) {
-                fn(entry.event as Extract<SystemEvent, { type: T }>, entry);
-            }
+        // Take the new entries and move the cursor *before* running any handler. A handler that
+        // publishes re-enters this function; with the cursor still behind, it used to be handed
+        // the same event again, and again — 500 times, until the log evicted it.
+        const fresh = log.filter((e) => e.seq > last);
+        if (!fresh.length) return;
+        last = fresh[fresh.length - 1].seq;
+        for (const entry of fresh) {
+            if (entry.event.type === type) fn(entry.event as Extract<SystemEvent, { type: T }>, entry);
         }
-        last = log.length ? log[log.length - 1].seq : last;
     });
 }
 
@@ -205,5 +248,8 @@ export function on<T extends SystemEventType>(
  */
 export function clearLog(): void {
     log = [];
-    listeners.forEach((fn) => fn());
+    notify();
 }
+
+/** How many events this session has published, including any since cleared or evicted. */
+export const publishedCount = (): number => seq;

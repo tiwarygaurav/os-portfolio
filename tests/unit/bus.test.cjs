@@ -57,3 +57,45 @@ test('failures and kills are warnings, and say who did it', () => {
     assert.equal(kill.source, 'Shell');
     assert.match(kill.message, /from the Command Prompt/);
 });
+
+test('a handler that publishes is not handed its own event again', () => {
+    let calls = 0;
+    const off = bus.on('app:opened', () => {
+        calls++;
+        bus.publish({ type: 'app:message', source: 'test', level: 'information', message: 'reacting' });
+    });
+    bus.publish({ type: 'app:opened', appId: 'notepad', pid: 'w1', title: 'Notepad' });
+    off();
+    assert.equal(calls, 1, 'the cursor must move before handlers run');
+    assert.equal(bus.getLog().length, 2);
+});
+
+test('a throwing subscriber does not stop the others, and is not re-fed the same event', () => {
+    const seen = [];
+    let throws = 0;
+    const offA = bus.on('recycle:deleted', () => {
+        throws++;
+        throw new Error('boom');
+    });
+    const offB = bus.on('recycle:deleted', (e) => seen.push(e.name));
+    const original = globalThis.console.error;
+    globalThis.console.error = () => {};
+    try {
+        bus.publish({ type: 'recycle:deleted', name: 'Paint' });
+        bus.publish({ type: 'system:login' });
+    } finally {
+        globalThis.console.error = original;
+        offA();
+        offB();
+    }
+    assert.deepEqual(seen, ['Paint']);
+    assert.equal(throws, 1);
+});
+
+test('publishedCount survives clearing', () => {
+    bus.publish({ type: 'system:boot' });
+    const before = bus.publishedCount();
+    bus.clearLog();
+    assert.equal(bus.publishedCount(), before);
+    assert.equal(bus.getLog().length, 0);
+});

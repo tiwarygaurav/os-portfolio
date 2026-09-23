@@ -10,7 +10,8 @@ import { defineConfig, devices } from '@playwright/test';
  * Runs against a production build: `npm run build`, then `npm run test:e2e`. The server is started
  * for you, or an already-running one on the same port is reused.
  */
-const PORT = 3111;
+/** Override with PLAYWRIGHT_PORT to test a build served from another checkout (e.g. a mirror). */
+const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3111);
 
 export default defineConfig({
     testDir: './tests/e2e',

@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ArrowUp, FolderClosed, FileText, Link2, AppWindow } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowUp, FolderClosed, FileText, Link2, AppWindow, Image as ImageIcon } from 'lucide-react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
-import { HOME_PATH, isDir, isFile, listDir, lookup, resolvePath, type VNode } from '@/system/vfs';
+import { DOCUMENTS_PATH, GUEST_PATH, HOME_PATH, PICTURES_PATH, isDir, isFile, listDir, lookup, resolvePath, type VNode } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
 import { useProcesses } from '@/utils/processes';
 import { playSound } from '@/utils/sound';
-import { xpAlert } from '@/utils/dialog';
+import { xpAlert, xpConfirm } from '@/utils/dialog';
+import { useFsRevision } from '@/utils/fs';
 
 /**
  * Windows Explorer, over the same virtual filesystem the Command Prompt walks.
@@ -39,12 +40,15 @@ function NodeIcon({ node, size = 16 }: { node: VNode; size?: number }) {
     if (isDir(node)) return <FolderClosed size={size} className="shrink-0 text-[#f0b765]" aria-hidden />;
     if (node.mime === 'application/x-link') return <Link2 size={size} className="shrink-0 text-[#7a5cd6]" aria-hidden />;
     if (node.mime === 'application/x-app') return <AppWindow size={size} className="shrink-0 text-[#2f8b19]" aria-hidden />;
+    if (node.src) return <ImageIcon size={size} className="shrink-0 text-[#2f8b19]" aria-hidden />;
     return <FileText size={size} className="shrink-0 text-[#5a8ac6]" aria-hidden />;
 }
 
 export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const actions = useSystemStore((s) => s.actions);
     const procs = useProcesses();
+    // The visitor's files are mounted into the VFS from the store; a save or delete must re-list.
+    const revision = useFsRevision();
 
     const start = payload?.path ? resolvePath(HOME_PATH, payload.path) : HOME_PATH;
 
@@ -55,8 +59,10 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const [address, setAddress] = useState(prettyPath(start));
 
     const path = history[cursor];
-    const children = useMemo(() => listDir(path, procs) ?? [], [path, procs]);
-    const node = useMemo(() => lookup(path, procs), [path, procs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `revision` is the signal that /home/guest changed
+    const children = useMemo(() => listDir(path, procs) ?? [], [path, procs, revision]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const node = useMemo(() => lookup(path, procs), [path, procs, revision]);
 
     const navigate = useCallback((next: string) => {
         setHistory((prev) => [...prev.slice(0, cursor + 1), next]);
@@ -112,6 +118,21 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     };
 
     const selectedNode = selected ? children.find((c) => c.name === selected) : undefined;
+    const selectedPath = selectedNode ? `${path === '/' ? '' : path}/${selectedNode.name}` : null;
+
+    /** Delete a file the visitor saved. Built-in files are read-only and never offer this. */
+    const deleteSelected = async () => {
+        if (!selectedNode || !isFile(selectedNode) || !selectedNode.writable || !selectedPath) return;
+        const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to delete '${selectedNode.name}'?`, {
+            confirmLabel: 'Yes',
+            cancelLabel: 'No',
+            icon: 'warning',
+        });
+        if (!ok) return;
+        const problem = actions.deleteUserFile(selectedPath);
+        if (problem) void xpAlert('Windows Explorer', [problem], 'error');
+        else setSelected(null);
+    };
 
     return (
         <div className="flex h-full flex-col bg-[#ece9d8] font-sans text-black">
@@ -161,8 +182,18 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                         ? `Folder — ${(listDir(`${path === '/' ? '' : path}/${selectedNode.name}`, procs) ?? []).length} items`
                                         : selectedNode.mime === 'application/x-link'
                                             ? 'Shortcut'
-                                            : `${selectedNode.content.split('\n').length} lines`}
+                                            : selectedNode.src
+                                                ? 'Picture'
+                                                : `${selectedNode.content.split('\n').length} lines`}
                                 </p>
+                                {isFile(selectedNode) && selectedNode.modified !== undefined && (
+                                    <p className="mt-1 text-[10px] text-blue-100">
+                                        Date Modified: {new Date(selectedNode.modified).toLocaleString()}
+                                    </p>
+                                )}
+                                {isFile(selectedNode) && !selectedNode.writable && !isDir(selectedNode) && (
+                                    <p className="mt-1 text-[10px] text-blue-100">Read-only</p>
+                                )}
                                 {isDir(selectedNode) && selectedNode.description && (
                                     <p className="mt-1 text-[10px] text-blue-100">{selectedNode.description}</p>
                                 )}
@@ -180,7 +211,15 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                         )}
                     </Panel>
 
+                    {selectedNode && isFile(selectedNode) && selectedNode.writable && (
+                        <Panel title="File Tasks">
+                            <PlaceLink label="Delete this file" onClick={() => void deleteSelected()} />
+                        </Panel>
+                    )}
+
                     <Panel title="Other Places">
+                        <PlaceLink label="My Documents" onClick={() => navigate(DOCUMENTS_PATH)} />
+                        <PlaceLink label="My Pictures" onClick={() => navigate(PICTURES_PATH)} />
                         <PlaceLink label="Home" onClick={() => navigate(HOME_PATH)} />
                         <PlaceLink label="Projects" onClick={() => navigate(`${HOME_PATH}/projects`)} />
                         <PlaceLink label="Experience" onClick={() => navigate(`${HOME_PATH}/experience`)} />
@@ -190,9 +229,10 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
 
                     <Panel title="This is real">
                         <p className="text-[10px] leading-relaxed text-blue-100">
-                            Everything here is generated from the same typed content the windows render. The
-                            Command Prompt walks this exact tree — try{' '}
-                            <span className="font-mono">ls {prettyPath(path)}</span> there.
+                            {path === GUEST_PATH || path.startsWith(GUEST_PATH + '/')
+                                ? 'This is your folder. What you save here stays in this browser, and the Command Prompt sees the same files — try '
+                                : 'Everything here is generated from the same typed content the windows render. The Command Prompt walks this exact tree — try '}
+                            <span className="font-mono">ls {prettyPath(path).includes(' ') ? `"${prettyPath(path)}"` : prettyPath(path)}</span> there.
                         </p>
                     </Panel>
                 </div>
@@ -213,6 +253,11 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                             onDoubleClick={() => activate(child, childPath)}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') { e.preventDefault(); activate(child, childPath); }
+                                                if (e.key === 'Delete' && isFile(child) && child.writable) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    void deleteSelected();
+                                                }
                                             }}
                                             className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
                                                 isSelected ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'

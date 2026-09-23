@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { bootAndLogin, run, shell, terminalText, win } from './helpers';
+import { bootAndLogin, run, shell, terminalText, win, windows } from './helpers';
 
 test.beforeEach(async ({ page }) => {
     await bootAndLogin(page);
@@ -13,6 +13,13 @@ test('history lists what was actually typed', async ({ page }) => {
     const text = await terminalText(page);
     expect(text).toContain('whoami');
     expect(text).not.toContain('No history yet');
+});
+
+test('open refuses inherited keys through the real app registry', async ({ page }) => {
+    const before = await windows(page).count();
+    await shell(page, 'open constructor');
+    await expect(win(page, 'Command Prompt')).toContainText('no such path, and no app registered');
+    expect(await windows(page).count()).toBe(before);
 });
 
 test('inherited object keys are not commands', async ({ page }) => {
@@ -52,7 +59,7 @@ test('Tab completes against the working directory', async ({ page }) => {
 
 test('events reads the same log as the Event Viewer', async ({ page }) => {
     await shell(page, 'events 5');
-    await expect(win(page, 'Command Prompt')).toContainText(/events? this session/);
+    await expect(win(page, 'Command Prompt')).toContainText(/events? in the log \(\d+ published this session\)/);
     await expect(win(page, 'Command Prompt')).toContainText('WindowManager');
 });
 
@@ -61,6 +68,6 @@ test('/etc/system.conf is generated from what is really persisted', async ({ pag
     const text = await terminalText(page);
     const persisted = text.split('\n').find((l) => l.startsWith('persisted'));
     expect(persisted).toBe(
-        'persisted      = volume, mute, wallpaper, colour scheme, screen saver, icon positions, recycle bin, deleted desktop icons',
+        'persisted      = volume, mute, wallpaper, colour scheme, screen saver, your files (/home/guest), icon positions, recycle bin, deleted desktop icons',
     );
 });

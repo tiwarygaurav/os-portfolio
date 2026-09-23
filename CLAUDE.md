@@ -160,9 +160,18 @@ list processes). Adding a command must not require touching the renderer.
 
 ### Virtual filesystem (`system/vfs.ts`)
 
-A tree built at module load from `content/`. `/home/gaurav/**` mirrors the portfolio; `/proc` is
-generated per call from live window state. Files can carry an `open` hint `{ appId, payload }`
-so `open <path>` launches the matching GUI app — this is what keeps shell and GUI in sync.
+A tree built at module load from `content/`. `/home/gaurav/**` mirrors the portfolio and is
+read-only; `/proc` is generated per call from live window state. Files can carry an `open` hint
+`{ appId, payload }` so `open <path>` launches the matching GUI app — this is what keeps shell and
+GUI in sync. A text file with no window of its own defaults to Notepad, as XP's associations did.
+
+**`/home/guest` is the visitor's, and writable.** My Documents, My Pictures (with a read-only
+Sample Pictures) and the guest root. Files live in the store's persisted `userFiles`, capped at
+2,000,000 characters, and the store mounts them into the VFS with `mountUserFiles` on every
+change — the VFS stays headless and never imports the store. `validateUserPath` is the one place
+that decides what can be written, so Notepad's Save As, the shell's `>` and `rm`, and the store all
+refuse the same paths with the same words. Notepad, the picture viewer, Explorer and the shell all
+read and write the same files; `components/os/FileDialog.tsx` is the shared XP Open / Save As dialog.
 
 ### Event bus (`system/bus.ts`)
 
@@ -177,8 +186,8 @@ pid publishes nothing.
 
 The Luna chrome colours are CSS variables in `app/globals.css` (`--luna-*`), selected by
 `data-theme` on `<html>` (Blue / Olive Green / Silver). Components use `luna-*` classes, never the
-hex values. `Desktop` sets the attribute from `themeId`; any subtree can set its own `data-theme`,
-which is how Display Properties previews a scheme before applying it. The screen saver
+hex values. `Desktop` sets the attribute from `themeId`; any subtree can set its own `data-theme`.
+Schemes apply the moment they are chosen — Display Properties has no preview-before-apply. The screen saver
 (`components/os/ScreenSaver.tsx`) is a real idle timer over pointer/key/wheel/touch input plus four
 canvas animations with XP's names; it is the one thing allowed to animate indefinitely.
 
@@ -309,7 +318,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Icon weight | `.ico` files up to 465 KB rendered at 48 px; ~3 MB on first desktop paint. Re-export at 2x display size — keep the same artwork. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Desktop keyboard navigation (window focus is still pointer-driven; message boxes do trap focus). A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. |
+| Not implemented | Desktop keyboard navigation (window focus is still pointer-driven; message boxes do trap focus). A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rename, no mkdir. |
 
 ---
 
@@ -413,6 +422,39 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - A writable /home/guest, and Notepad saves real files
+
+**Why:** every file on the desktop was read-only, so Notepad's Save was a download and Open said "not
+available", the picture viewer cycled a hardcoded list of four images, and nothing a visitor made
+could be found again. The shell prompt has always said `guest@portfolio`; guest now has a home.
+**Design:** files live in the store (persisted, validated on hydration, capped), and the store pushes
+them into the headless VFS rather than the VFS importing the store. One validator for every writer.
+XP's own layout — My Documents, My Pictures, Sample Pictures — and XP's own words for the
+"save the changes?" and "already exists" prompts. Built-in files stay read-only; Notepad opens them
+and says so, and Save becomes Save As.
+**Consequences:** the shell gained `>`/`>>` redirection (a quoted `">"` is text), `touch`, `rm` and
+`df`; Tab completion quotes names with spaces. Notepad registers a close guard with the store, so
+the title-bar X and Alt+F4 ask about unsaved work (`kill` and End Task bypass it, as ending a
+process did in XP). The picture viewer shows the pictures in a real folder. First-load JS grew by
+~4 kB because the store now imports the VFS to validate and mount files. A full or blocked
+localStorage no longer throws out of `set()`: the write is reported in the Event Viewer instead.
+**Not done:** no rename, no mkdir, no drag-and-drop between folders; Paint's Save / Set As Background
+over these files is portfolio-ce's.
+
+### 2026-09-24 - Fixes from the adversarial review of 12f97f7
+
+Thirty-three confirmed findings, about twenty distinct. The ones that mattered: waking the screen
+saver with a key never reset the idle clock (the key was stopped before the bubble-phase idle
+listener saw it), so it returned within five seconds; the click or tap that woke it went on to act on
+whatever was underneath; input inside Paint's iframe or the PDF was invisible to the idle timer.
+`on()` re-delivered an event to a handler that published. The log recorded a logoff for a session
+that never logged on, missed Show the Desktop and Cascade, and said nothing when Restore Deleted
+Icons brought back an icon the bin had already emptied. `exit` was logged as a kill. Four e2e tests
+could not fail with their fix reverted (z-order, the kill row, the Run error, the phone taskbar
+width); they now can. Display Properties' "preview before applying" claim was untrue and is gone.
+Findings in the chrome (caption buttons and task panes under Olive/Silver, caption contrast) went to
+the session that owns those files.
 
 ### 2026-09-23 - The verification harness moves into the repo as a test suite
 

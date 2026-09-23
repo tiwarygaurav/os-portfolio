@@ -66,12 +66,12 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 | `MusicPlayerApp` | **Fixed** | Keeps the original XP playlist and files. `isPlaying` now follows the audio element's own events, taskbar volume + mute apply, and failures are reported. |
 | `MinesweeperApp` | Complete | First-click-safe generation, flood fill, flagging, win detection. Correct. |
 | `CalculatorApp` | Complete | Incl. memory, `sqrt`, `%`, `1/x`, backspace. |
-| `SettingsApp` | **Complete** | Every tab is real: Themes (Windows XP / Modified), Desktop (wallpaper, icon reset, restore deleted icons), Screen Saver (four savers, wait, Preview), Appearance (Blue / Olive Green / Silver, previewed via scoped `data-theme`), Settings (read from the browser). |
+| `SettingsApp` | **Complete** | Every tab is real: Themes (Windows XP / Modified), Desktop (wallpaper, icon reset, restore deleted icons), Screen Saver (four savers, wait, Preview), Appearance (Blue / Olive Green / Silver, applied as soon as chosen), Settings (read from the browser). |
 | `EventViewerApp` | **New** | Application / Security / System logs over `system/bus.ts`. Nothing seeded; Clear all events is real. |
-| `MyComputerApp` | Partial, honest | Inert toolbar removed; volumes report real counts from `content/`. |
-| `NotepadApp` | Works | Exit, Status Bar and a real caret readout; Paste uses the async Clipboard API and says so when refused. |
+| `MyComputerApp` | Partial, honest | Inert toolbar removed; volumes report real counts from `content/`. My Documents and My Pictures open the real folders in Explorer. |
+| `NotepadApp` | **Real files** | Open / Save / Save As over the VFS through `FileDialog`; `payload.path` opens a file; XP's "save the changes?" on New, Open, Exit and the title-bar X (a store close guard); read-only portfolio files open with Save redirected to Save As; titled `<name> - Notepad`. |
 | `TaskManagerApp` | **New** | Applications / Processes / Performance over the live window list. End Task really closes. No metric is drawn that the browser cannot supply — a minimised window shows "Minimized", never a fabricated "Not Responding". |
-| `ImageViewerApp` | Works | Zoom/rotate/navigate. Image list still hardcoded. |
+| `ImageViewerApp` | **Real folder** | Shows the pictures in the opened picture's folder (Sample Pictures by default); Previous/Next walk the same files Explorer lists; visitor pictures can be deleted, built-in ones cannot and the button says why. |
 | `RecycleBinApp` | Works | Real state, restore + empty. |
 | `PaintApp` | **Third-party** | An `<iframe>` to `jspaint.app`. Not the owner's work, and blockable by the host. Unresolved. |
 | `ExplorerApp` | **New** | Windows Explorer over `system/vfs.ts`. Folders navigate, the way real Explorer does; a file's `open` hint launches its app, same as the shell. Back/Forward/Up/address bar are real. |

@@ -5,6 +5,14 @@ import { PERSISTED_KEYS, type PersistedKey } from '@/store/persistence';
 import { isMobileViewport } from '@/utils/viewport';
 import { publish } from '@/system/bus';
 import {
+    USER_FILES_QUOTA,
+    mimeForName,
+    mountUserFiles,
+    userFilesSize,
+    validateUserPath,
+    type UserFile,
+} from '@/system/vfs';
+import {
     DEFAULT_SCREEN_SAVER,
     DEFAULT_THEME,
     isThemeId,
@@ -87,6 +95,9 @@ interface SystemState {
     recycleBin: RecycledItem[];
     deletedAppIds: string[];
 
+    /** Files the visitor saved under /home/guest, keyed by absolute path. Persisted. */
+    userFiles: Record<string, UserFile>;
+
     /** Open XP message boxes, newest last. Never persisted. */
     dialogs: DialogRequest[];
 
@@ -125,6 +136,8 @@ interface SystemState {
         minimizeAll: () => void;
         /** Re-lay the open windows in an XP cascade from the top-left. */
         cascadeWindows: () => void;
+        /** @internal The layout half of `cascadeWindows`; kept pure so publishing stays outside `set`. */
+        __cascade: () => void;
         /** Force every window maximised when the viewport crosses into the mobile breakpoint. */
         syncViewportBreakpoint: (mobile: boolean) => void;
 
@@ -135,6 +148,24 @@ interface SystemState {
         restoreItem: (id: string) => void;
         /** Put every deleted desktop icon back. */
         restoreAllItems: () => void;
+
+        /**
+         * Create or overwrite a file under /home/guest. Returns why it failed, or null. The mime
+         * type follows the extension unless given. Refuses read-only paths and anything that
+         * would push the visitor's files past their share of localStorage.
+         */
+        writeUserFile: (path: string, file: { content: string; mime?: UserFile['mime'] }) => string | null;
+        /** Delete a visitor's file. Returns why it failed, or null. */
+        deleteUserFile: (path: string) => string | null;
+
+        /** Retitle a window, e.g. "notes.txt - Notepad". */
+        setWindowTitle: (id: string, title: string) => void;
+        /**
+         * Let an app intercept an ordinary close (title-bar X, Alt+F4, File > Exit) to ask about
+         * unsaved work. The guard resolves true to allow the close. `kill` and End Task bypass it,
+         * as ending a process did in XP. Returns the unregister function.
+         */
+        registerCloseGuard: (id: string, guard: () => Promise<boolean>) => () => void;
         emptyRecycleBin: () => void;
 
         /** Show an XP message box. Resolves with the id of the button chosen. */
@@ -151,6 +182,59 @@ interface SystemState {
  */
 const dialogResolvers = new Map<string, (buttonId: string) => void>();
 let dialogCounter = 0;
+
+/** Close guards registered by apps with unsaved work. Functions, so they live outside the state. */
+const closeGuards = new Map<string, () => Promise<boolean>>();
+const guardsPending = new Set<string>();
+
+/**
+ * localStorage that cannot throw. A full or blocked storage used to be able to throw out of
+ * `set()`, taking the action that triggered the save down with it. Now the change still applies
+ * for this session, and the failure is reported in the Event Viewer instead of silently lost.
+ */
+const safeLocalStorage: StateStorage = {
+    getItem: (name) => {
+        try {
+            return localStorage.getItem(name);
+        } catch {
+            return null;
+        }
+    },
+    setItem: (name, value) => {
+        try {
+            localStorage.setItem(name, value);
+        } catch {
+            publish({
+                type: 'app:message',
+                source: 'Storage',
+                level: 'error',
+                message: 'Settings and files could not be saved: this browser refused the write (storage full or blocked).',
+            });
+        }
+    },
+    removeItem: (name) => {
+        try {
+            localStorage.removeItem(name);
+        } catch {
+            /* nothing to report: removal only happens on reset */
+        }
+    },
+};
+
+/** Keep only well-formed visitor files from whatever localStorage handed back. */
+function sanitizeUserFiles(v: unknown): Record<string, UserFile> {
+    if (!v || typeof v !== 'object') return {};
+    const out: Record<string, UserFile> = {};
+    const mimes: UserFile['mime'][] = ['text/plain', 'text/markdown', 'image/png', 'image/jpeg'];
+    for (const [path, f] of Object.entries(v as Record<string, unknown>)) {
+        if (!f || typeof f !== 'object') continue;
+        const { content, mime, modified } = f as Partial<UserFile>;
+        if (typeof content !== 'string' || !mimes.includes(mime as UserFile['mime'])) continue;
+        if (validateUserPath(path)) continue;
+        out[path] = { content, mime: mime as UserFile['mime'], modified: typeof modified === 'number' ? modified : 0 };
+    }
+    return out;
+}
 
 /** Fallback for app ids missing from the registry; every registered app declares its own size. */
 const DEFAULT_WINDOW_SIZE = { width: 800, height: 600 };
@@ -276,6 +360,7 @@ export const useSystemStore = create<SystemState>()(
 
             recycleBin: [],
             deletedAppIds: [],
+            userFiles: {},
             dialogs: [],
 
             actions: {
@@ -288,8 +373,11 @@ export const useSystemStore = create<SystemState>()(
                     publish({ type: 'system:login' });
                 },
                 logout: () => {
+                    // Also called after Turn Off from the logon screen, where nobody was logged on:
+                    // the log must not record a logoff for a session that never existed.
+                    const wasLoggedIn = get().isLoggedIn;
                     set({ isLoggedIn: false, windows: [], activeWindowId: null, screenSaverActive: false });
-                    publish({ type: 'system:logoff' });
+                    if (wasLoggedIn) publish({ type: 'system:logoff' });
                 },
                 shutdown: () => {
                     set({ isShuttingDown: true });
@@ -298,7 +386,10 @@ export const useSystemStore = create<SystemState>()(
                 cancelShutdown: () => set({ isShuttingDown: false }),
 
                 setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), isMuted: v === 0 }),
-                toggleMute: () => set(state => ({ isMuted: !state.isMuted })),
+                toggleMute: () => {
+                    set(state => ({ isMuted: !state.isMuted }));
+                    publish({ type: 'setting:changed', key: 'mute', value: get().isMuted ? 'on' : 'off' });
+                },
                 setWallpaper: (id) => {
                     if (get().wallpaperId === id) return;
                     set({ wallpaperId: id });
@@ -382,6 +473,22 @@ export const useSystemStore = create<SystemState>()(
 
                 /** Remove and re-pack the survivors so the z band stays `Z_BASE..Z_BASE+n-1`. */
                 closeWindow: (id, by) => {
+                    const guard = closeGuards.get(id);
+                    if (guard && !by) {
+                        // Ask first. Only one prompt at a time per window: a second X while the
+                        // first question is open must not stack another.
+                        if (guardsPending.has(id)) return;
+                        guardsPending.add(id);
+                        void guard().then((allow) => {
+                            guardsPending.delete(id);
+                            if (allow) {
+                                closeGuards.delete(id);
+                                get().actions.closeWindow(id);
+                            }
+                        });
+                        return;
+                    }
+                    closeGuards.delete(id);
                     const target = get().windows.find(w => w.id === id);
                     set(state => ({
                         windows: renormalize(byZ(state.windows.filter(w => w.id !== id))),
@@ -462,10 +569,14 @@ export const useSystemStore = create<SystemState>()(
                     windows: state.windows.map(w => w.id === id ? { ...w, size } : w)
                 })),
 
-                minimizeAll: () => set(state => ({
-                    windows: state.windows.map(w => ({ ...w, isMinimized: true })),
-                    activeWindowId: null,
-                })),
+                minimizeAll: () => {
+                    const changed = get().windows.filter(w => !w.isMinimized);
+                    set(state => ({
+                        windows: state.windows.map(w => ({ ...w, isMinimized: true })),
+                        activeWindowId: null,
+                    }));
+                    changed.forEach(w => publish({ type: 'app:minimized', pid: w.id, title: w.title }));
+                },
 
                 /**
                  * Cascade, un-minimising and un-maximising as XP did, and clamped so a long
@@ -477,7 +588,13 @@ export const useSystemStore = create<SystemState>()(
                  * floating window there). Cascading into floating boxes with no maximise button,
                  * no drag and no resize grip would strand every one of them.
                  */
-                cascadeWindows: () => set(state => {
+                cascadeWindows: () => {
+                    const restored = get().windows.filter(w => w.isMinimized);
+                    get().actions.__cascade();
+                    restored.forEach(w => publish({ type: 'app:restored', pid: w.id, title: w.title }));
+                },
+
+                __cascade: () => set(state => {
                     const ordered = byZ(state.windows);
                     if (isMobileViewport()) {
                         return {
@@ -520,7 +637,11 @@ export const useSystemStore = create<SystemState>()(
                     desktopIcons: { ...state.desktopIcons, [id]: clampIconToViewport({ x, y }) }
                 })),
 
-                resetDesktopIcons: () => set({ desktopIcons: {} }),
+                resetDesktopIcons: () => {
+                    if (Object.keys(get().desktopIcons).length === 0) return;
+                    set({ desktopIcons: {} });
+                    publish({ type: 'setting:changed', key: 'icon positions', value: 'default' });
+                },
 
                 deleteIcon: (appId, name, icon) => {
                     if (get().deletedAppIds.includes(appId)) return;
@@ -540,7 +661,7 @@ export const useSystemStore = create<SystemState>()(
                         deletedAppIds: state.deletedAppIds.filter(a => a !== id),
                         recycleBin: state.recycleBin.filter(r => r.id !== id)
                     }));
-                    if (item) publish({ type: 'recycle:restored', name: item.name });
+                    if (item) publish({ type: 'recycle:restored', name: item.name, fromBin: true });
                 },
 
                 /**
@@ -549,10 +670,54 @@ export const useSystemStore = create<SystemState>()(
                  * Recycle Bin to recover it; Display Properties offers this instead.
                  */
                 restoreAllItems: () => {
-                    const items = get().recycleBin;
-                    if (items.length === 0 && get().deletedAppIds.length === 0) return;
+                    // Publish per *deleted icon*, not per bin entry: an icon whose bin entry was
+                    // already emptied still comes back, and the log used to say nothing about it.
+                    const { recycleBin, deletedAppIds } = get();
+                    if (recycleBin.length === 0 && deletedAppIds.length === 0) return;
                     set({ deletedAppIds: [], recycleBin: [] });
-                    items.forEach((item) => publish({ type: 'recycle:restored', name: item.name }));
+                    deletedAppIds.forEach((id) => {
+                        const item = recycleBin.find(r => r.id === id);
+                        publish({ type: 'recycle:restored', name: item?.name ?? APPS[id]?.title ?? id, fromBin: Boolean(item) });
+                    });
+                },
+
+                writeUserFile: (path, { content, mime }) => {
+                    const invalid = validateUserPath(path);
+                    if (invalid) return invalid;
+                    const current = get().userFiles;
+                    const created = current[path] === undefined;
+                    const next = { ...current, [path]: { content, mime: mime ?? mimeForName(path), modified: Date.now() } };
+                    if (userFilesSize(next) > USER_FILES_QUOTA) {
+                        return 'There is not enough space left in this browser to save that file. Delete something from /home/guest first.';
+                    }
+                    set({ userFiles: next });
+                    publish({ type: 'fs:write', path, created, bytes: content.length });
+                    return null;
+                },
+
+                deleteUserFile: (path) => {
+                    const current = get().userFiles;
+                    if (current[path] === undefined) {
+                        return validateUserPath(path) ?? 'The file does not exist.';
+                    }
+                    const next = { ...current };
+                    delete next[path];
+                    set({ userFiles: next });
+                    publish({ type: 'fs:delete', path });
+                    return null;
+                },
+
+                setWindowTitle: (id, title) => {
+                    const target = get().windows.find(w => w.id === id);
+                    if (!target || target.title === title) return;
+                    set(state => ({ windows: state.windows.map(w => w.id === id ? { ...w, title } : w) }));
+                },
+
+                registerCloseGuard: (id, guard) => {
+                    closeGuards.set(id, guard);
+                    return () => {
+                        if (closeGuards.get(id) === guard) closeGuards.delete(id);
+                    };
                 },
 
                 emptyRecycleBin: () => {
@@ -587,7 +752,7 @@ export const useSystemStore = create<SystemState>()(
         }),
         {
             name: 'gaurav-xp-os',
-            storage: createJSONStorage(() => (typeof window !== 'undefined' ? localStorage : ({
+            storage: createJSONStorage(() => (typeof window !== 'undefined' ? safeLocalStorage : ({
                 getItem: () => null, setItem: () => { }, removeItem: () => { }
             } satisfies StateStorage))),
             // Derived from `store/persistence.ts`, which `/etc/system.conf` also renders, so the
@@ -602,8 +767,19 @@ export const useSystemStore = create<SystemState>()(
                     ...saved,
                     themeId: isThemeId(saved.themeId) ? saved.themeId : DEFAULT_THEME,
                     screenSaver: sanitizeScreenSaver(saved.screenSaver),
+                    userFiles: sanitizeUserFiles(saved.userFiles),
                 };
             },
         }
     )
 );
+
+/*
+ * Keep the virtual filesystem's view of /home/guest in step with the store. The VFS is headless
+ * and must not import the store, so the store pushes to it: once now, and on every change —
+ * including the rehydration from localStorage, which arrives as an ordinary state change.
+ */
+mountUserFiles(useSystemStore.getState().userFiles);
+useSystemStore.subscribe((state, prev) => {
+    if (state.userFiles !== prev.userFiles) mountUserFiles(state.userFiles);
+});

@@ -6,6 +6,7 @@ import { APPS } from '@/constants/apps';
 import { PROFILE, SYSTEM } from '@/content';
 import {
     WELCOME,
+    applyCompletion,
     complete,
     prettyPath,
     runCommand,
@@ -30,6 +31,8 @@ type Entry =
 export default function TerminalApp() {
     const openWindow = useSystemStore((s) => s.actions.openWindow);
     const closeWindow = useSystemStore((s) => s.actions.closeWindow);
+    const writeUserFile = useSystemStore((s) => s.actions.writeUserFile);
+    const deleteUserFile = useSystemStore((s) => s.actions.deleteUserFile);
     const windows = useSystemStore((s) => s.windows);
     const procs = useProcesses();
 
@@ -65,14 +68,17 @@ export default function TerminalApp() {
                 openWindow(app.id, app.title, payload);
                 return true;
             },
-            closeProcess: (pid) => {
+            closeProcess: (pid, how) => {
                 if (!windows.some((w) => w.id === pid)) return false;
-                closeWindow(pid, 'shell');
+                // `exit` is the terminal closing itself normally; only `kill` is a forced end.
+                closeWindow(pid, how === 'exit' ? undefined : 'shell');
                 return true;
             },
             openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
+            writeFile: (path, content) => writeUserFile(path, { content }),
+            deleteFile: (path) => deleteUserFile(path),
         }),
-        [cwd, processes, windows, openWindow, closeWindow],
+        [cwd, processes, windows, openWindow, closeWindow, writeUserFile, deleteUserFile],
     );
 
     useEffect(() => {
@@ -115,8 +121,9 @@ export default function TerminalApp() {
             e.preventDefault();
             const matches = complete(input, ctx);
             if (matches.length === 1) {
-                const head = input.split(' ').slice(0, -1);
-                setInput([...head, matches[0]].join(' '));
+                // Quote-aware: "My Documents" has a space, so the line cannot be rebuilt by
+                // splitting on spaces.
+                setInput(applyCompletion(input, matches[0]));
             } else if (matches.length > 1) {
                 setEntries((prev) => [
                     ...prev,

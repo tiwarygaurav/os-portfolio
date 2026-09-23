@@ -55,6 +55,19 @@ promise you are making to a visitor's browser for the next year.
    cross the shell boundary and must stay serialisable. Typing it as a per-app discriminated union
    is the remaining debt.
 
+## Visitor files
+
+`userFiles: Record<path, { content, mime, modified }>` is persisted and sanitised on hydration
+(anything failing `validateUserPath` or with the wrong shape is dropped). `writeUserFile` and
+`deleteUserFile` return the refusal reason or null, enforce `USER_FILES_QUOTA`, and publish
+`fs:write` / `fs:delete`. After every change the store calls `mountUserFiles` so the headless VFS sees
+the same files. Storage itself goes through `safeLocalStorage`, which cannot throw: a full or
+blocked localStorage is reported as an Event Viewer error instead of breaking the action.
+
+`registerCloseGuard(id, guard)` lets an app answer "may I close?" asynchronously (Notepad asks about
+unsaved work). An ordinary `closeWindow(id)` runs the guard; `closeWindow(id, 'shell' | 'task-manager')`
+bypasses it. `setWindowTitle` retitles a window (`notes.txt - Notepad`).
+
 ## Events
 
 Actions publish to `system/bus.ts` **after** `set()`, never inside a `set` updater (updaters must be

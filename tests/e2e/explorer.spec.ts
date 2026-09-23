@@ -43,12 +43,11 @@ test('Explorer browses the same filesystem the shell walks', async ({ page }) =>
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('dialog').getByRole('button', { name: 'OK' }).click();
 
-    // A file with no owning app shows its content rather than doing nothing.
+    // A text file with no window of its own opens in Notepad, as XP's file associations did.
     await addr.fill('~/projects/os-portfolio');
     await addr.press('Enter');
     await files.filter({ hasText: 'stack.txt' }).first().dblclick();
-    await expect(page.getByRole('dialog')).toContainText('TypeScript');
-    await page.getByRole('dialog').getByRole('button', { name: 'OK' }).click();
+    await expect(win(page, 'stack.txt - Notepad').locator('textarea')).toHaveValue(/TypeScript/);
 });
 
 test('Run hands a folder with no owning app to Explorer', async ({ page }) => {

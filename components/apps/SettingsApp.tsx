@@ -52,8 +52,10 @@ function wallpaperStyle(id: string): React.CSSProperties {
 }
 
 /**
- * A miniature active and inactive window drawn with a given scheme. `data-theme` scopes the Luna
- * variables to this subtree, so the preview shows a scheme before it is applied.
+ * A miniature active and inactive window in the current scheme. Schemes apply the moment they are
+ * chosen, so this shows what is already on screen, at the scale of the little monitor. It sets
+ * `data-theme` on its own subtree so it stays correct even where the page root has none (it is
+ * mounted inside the desktop, which always sets one, but the component does not rely on that).
  */
 function SchemePreview({ themeId, wallpaperId }: { themeId: ThemeId; wallpaperId: string }) {
     return (
@@ -106,19 +108,30 @@ export default function SettingsApp() {
                         </p>
                         <label className="block">
                             <span className="mb-1 block">Theme:</span>
+                            {/*
+                              * With the XP theme already applied there is nothing to choose, so the
+                              * list is disabled and says why rather than offering a no-op.
+                              */}
                             <select
                                 value={isXpTheme ? 'xp' : 'modified'}
+                                disabled={isXpTheme}
+                                aria-describedby="theme-note"
                                 onChange={(e) => {
                                     if (e.target.value !== 'xp') return;
                                     actions.setWallpaper(XP_THEME.wallpaperId);
                                     actions.setTheme(XP_THEME.themeId);
                                 }}
-                                className="w-full border border-[#7f9db9] bg-white px-1 py-0.5"
+                                className="w-full border border-[#7f9db9] bg-white px-1 py-0.5 disabled:bg-gray-100 disabled:text-gray-600"
                             >
                                 <option value="xp">Windows XP</option>
                                 {/* Shown only while it is true, as XP did. It cannot be chosen. */}
                                 {!isXpTheme && <option value="modified" disabled>Modified Theme</option>}
                             </select>
+                            <span id="theme-note" className="mt-0.5 block text-[11px] text-gray-500">
+                                {isXpTheme
+                                    ? 'Windows XP is the only theme. Change the background or colour scheme and this becomes "Modified Theme", with Windows XP to go back.'
+                                    : 'Choose Windows XP to go back to Bliss and the Blue scheme.'}
+                            </span>
                         </label>
                         <p className="text-gray-600">Sample:</p>
                         <MonitorPreview>
@@ -248,8 +261,8 @@ export default function SettingsApp() {
                             </select>
                         </label>
                         <p className="leading-relaxed text-gray-600">
-                            The scheme recolours every window, the taskbar, the Start menu and the message boxes. Olive
-                            Green and Silver are approximations of the XP originals.
+                            The scheme applies as soon as you choose it and is saved. Olive Green and Silver are
+                            approximations of the XP originals.
                         </p>
                     </div>
                 )}

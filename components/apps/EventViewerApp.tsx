@@ -157,7 +157,7 @@ export default function EventViewerApp() {
                 ) : (
                     <p className="text-gray-600">
                         Select an event to see what happened. Everything here was recorded by this session — open a
-                        window, run a command or change a setting, and it appears.
+                        window, run a command, save a file or change a display setting, and it appears.
                     </p>
                 )}
                 <div className="mt-2 flex items-center justify-between gap-2">

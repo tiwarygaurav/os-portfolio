@@ -14,6 +14,11 @@ const bus = require('../../.test-out/system/bus.js');
 const { PERSISTED_KEYS, PERSISTED_KEY_LABELS } = require('../../.test-out/store/persistence.js');
 
 const APP_IDS = ['about', 'projects', 'terminal', 'resume', 'notepad'];
+/**
+ * A plain object literal, like the real `APPS` registry, so an unguarded `APPS[id]` lookup in the
+ * stub would find `constructor` exactly as the renderer once did.
+ */
+const REGISTRY = Object.fromEntries(APP_IDS.map((id) => [id, { id }]));
 
 function session() {
     const state = {
@@ -32,7 +37,7 @@ function session() {
         processes: () => state.procs,
         appIds: () => APP_IDS,
         openApp: (id, payload) => {
-            if (!APP_IDS.includes(id)) return false;
+            if (!Object.prototype.hasOwnProperty.call(REGISTRY, id)) return false;
             state.opened.push({ id, payload });
             return true;
         },
@@ -43,6 +48,8 @@ function session() {
             return true;
         },
         openUrl: () => {},
+        writeFile: () => 'read-only in this test',
+        deleteFile: () => 'read-only in this test',
     };
     const run = (input) => {
         state.history.push(input);
@@ -137,7 +144,7 @@ test('cat publishes a filesystem read on the bus, and events prints the log', ()
     assert.equal(log.at(-1).event.path, '~/about.md');
 
     const out = s.text(s.run('events 5'));
-    assert.match(out, /1 of 1 event this session/);
+    assert.match(out, /1 of 1 event in the log \(\d+ published this session\)/);
     assert.match(out, /Filesystem: Read ~\/about\.md\./);
     assert.match(s.text(s.run('events zero')), /not a positive count/);
 });

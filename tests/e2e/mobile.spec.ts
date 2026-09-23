@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { bootAndLogin, settledBox, win } from './helpers';
+import { bootAndLogin, run, settledBox, win } from './helpers';
 
 /** Runs in the `phone` project (iPhone 13 viewport, touch). See playwright.config.ts. */
 
@@ -11,6 +11,42 @@ test('a tapped icon opens full-screen with no horizontal overflow', async ({ pag
     expect(Math.round(box.width)).toBe(vw);
     expect(Math.round(box.x)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+});
+
+test('taskbar buttons keep their floor width and the row scrolls instead of collapsing', async ({ page }) => {
+    await bootAndLogin(page);
+    for (const cmd of ['about', 'projects', 'skills', 'resume', 'contact', 'notepad']) await run(page, cmd);
+    const widths = await Promise.all(
+        ['About Me', 'My Projects', 'Untitled - Notepad'].map((t) =>
+            page.locator('button', { hasText: t }).last().evaluate((el) => el.getBoundingClientRect().width),
+        ),
+    );
+    // Below 640px there used to be no floor, so six buttons collapsed to ~28px unlabelled stubs.
+    for (const w of widths) expect(w).toBeGreaterThanOrEqual(104);
+    const row = page.locator('button', { hasText: 'About Me' }).last().locator('xpath=..');
+    expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+});
+
+test('the shell root uses the dynamic viewport height, not 100vh', async ({ page }) => {
+    await bootAndLogin(page);
+    // Headless Chromium has no collapsing toolbar, so 100vh and 100dvh coincide here and a size
+    // check alone could not tell them apart. Check the rule that differs on a real phone.
+    const rule = await page.evaluate(() => {
+        const main = document.querySelector('main')!;
+        return { cls: main.classList.contains('h-viewport'), h: main.getBoundingClientRect().height, vh: window.innerHeight };
+    });
+    expect(rule.cls).toBe(true);
+    expect(Math.round(rule.h)).toBe(rule.vh);
+    const usesDvh = await page.evaluate(() =>
+        Array.from(document.styleSheets).some((sheet) => {
+            try {
+                return Array.from(sheet.cssRules).some((r) => r.cssText.includes('.h-viewport') && r.cssText.includes('100dvh'));
+            } catch {
+                return false;
+            }
+        }),
+    );
+    expect(usesDvh).toBe(true);
 });
 
 test('a maximised window fills the visible viewport above the taskbar', async ({ page }) => {

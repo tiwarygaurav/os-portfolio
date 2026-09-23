@@ -9,7 +9,7 @@
  * caller, so the shell has no dependency on the store either.
  */
 
-import { getLog, publish, type LogEntry } from './bus';
+import { getLog, publish, publishedCount, type LogEntry } from './bus';
 import {
     HOME_PATH,
     allPaths,
@@ -20,6 +20,9 @@ import {
     renderTree,
     resolvePath,
     searchFiles,
+    GUEST_PATH,
+    USER_FILES_QUOTA,
+    guestUsage,
     type ProcEntry,
     type VNode,
 } from './vfs';
@@ -66,10 +69,18 @@ export interface ShellContext {
     processes: () => ProcEntry[];
     /** Returns false when no app is registered under that id, so the shell can report honestly. */
     openApp: (appId: string, payload?: Record<string, string>) => boolean;
-    closeProcess: (pid: string) => boolean;
+    /**
+     * Close a window. `how` is what the event log records: `kill` is a forced end, `exit` the
+     * terminal closing itself the ordinary way.
+     */
+    closeProcess: (pid: string, how?: 'kill' | 'exit') => boolean;
     openUrl: (url: string) => void;
     /** Registered app ids, for `apps` and for completion. */
     appIds: () => string[];
+    /** Create or overwrite a file under /home/guest. Returns why it failed, or null. */
+    writeFile: (path: string, content: string) => string | null;
+    /** Delete a file under /home/guest. Returns why it failed, or null. */
+    deleteFile: (path: string) => string | null;
 }
 
 interface Command {
@@ -122,7 +133,8 @@ function runEvents(args: string[]): ShellResult {
         return pair(`${time} ${level.padEnd(5)}`, `${e.source}: ${e.message}`);
     };
     return out(
-        muted(`${tail.length} of ${log.length} event${log.length === 1 ? '' : 's'} this session`),
+        // The log is bounded and can be cleared, so its length is not the session's total.
+        muted(`${tail.length} of ${log.length} event${log.length === 1 ? '' : 's'} in the log (${publishedCount()} published this session)`),
         ...tail.map(line),
         blank(),
         muted('The Event Viewer (Start > Run > eventvwr) shows the same log.'),
@@ -222,6 +234,64 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
             if (node.open)
                 lines.push(blank(), muted(`Tip: \`open ${prettyPath(target)}\` opens this in a window.`));
             return out(...lines);
+        },
+    },
+
+    touch: {
+        name: 'touch',
+        summary: 'Create an empty file in /home/guest, or update its time.',
+        usage: 'touch <file>...',
+        run: (args, ctx) => {
+            if (!args.length) return out(error('touch: missing file operand'));
+            const lines: ShellLine[] = [];
+            for (const arg of args) {
+                const target = resolvePath(ctx.cwd, arg);
+                const node = lookup(target, ctx.processes());
+                if (node && isDir(node)) continue;
+                const problem = ctx.writeFile(target, node && isFile(node) && node.writable && !node.src ? node.content : '');
+                if (problem) lines.push(error(`touch: cannot touch '${prettyPath(target)}': ${problem}`));
+            }
+            return out(...lines);
+        },
+    },
+
+    rm: {
+        name: 'rm',
+        summary: 'Delete a file you saved in /home/guest.',
+        usage: 'rm <file>...',
+        run: (args, ctx) => {
+            if (!args.length) return out(error('rm: missing operand'));
+            const lines: ShellLine[] = [];
+            for (const arg of args) {
+                const target = resolvePath(ctx.cwd, arg);
+                const node = lookup(target, ctx.processes());
+                const say = (why: string) => lines.push(error(`rm: cannot remove '${prettyPath(target)}': ${why}`));
+                if (!node) say('No such file or directory');
+                else if (isDir(node)) say('Is a directory');
+                else if (!node.writable) say('Read-only file system. Only files you saved under /home/guest can be removed.');
+                else {
+                    const problem = ctx.deleteFile(target);
+                    if (problem) say(problem);
+                }
+            }
+            return out(...lines);
+        },
+    },
+
+    df: {
+        name: 'df',
+        summary: 'How much room your files in /home/guest are using.',
+        run: () => {
+            const used = guestUsage();
+            const pct = Math.round((used / USER_FILES_QUOTA) * 100);
+            const kb = (n: number) => `${Math.round(n / 1024)}K`.padStart(7);
+            return out(
+                heading('Filesystem     Size    Used   Avail  Use%  Mounted on'),
+                text(`localStorage ${kb(USER_FILES_QUOTA)} ${kb(used)} ${kb(USER_FILES_QUOTA - used)}  ${String(pct).padStart(3)}%  ${GUEST_PATH}`),
+                text('content/       (built into the page, read-only)       /home/' + HOME_PATH.split('/').pop()),
+                blank(),
+                muted('Files you save in /home/guest live in this browser only. Nobody else can see them.'),
+            );
         },
     },
 
@@ -334,7 +404,7 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
         usage: 'kill <pid>',
         run: (args, ctx) => {
             if (!args[0]) return out(error('kill: missing pid'));
-            const ok = ctx.closeProcess(args[0]);
+            const ok = ctx.closeProcess(args[0], 'kill');
             return ok
                 ? out(success(`Closed ${args[0]}.`))
                 : out(error(`kill: ${args[0]}: no such process`));
@@ -565,7 +635,7 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
         hidden: true,
         run: (_args, ctx) => {
             const self = ctx.processes().find((p) => p.appId === 'terminal');
-            if (self) ctx.closeProcess(self.pid);
+            if (self) ctx.closeProcess(self.pid, 'exit');
             return out(muted('Closing.'));
         },
     },
@@ -585,31 +655,95 @@ export const WELCOME: ShellLine[] = [
     blank(),
 ];
 
-/** Split a command line, honouring double quotes. */
-function tokenize(input: string): string[] {
-    const tokens: string[] = [];
+interface Token {
+    value: string;
+    /** Any part of it was quoted. A quoted ">" is text, never a redirection. */
+    quoted: boolean;
+}
+
+/** Split a command line, honouring double and single quotes. */
+function tokenize(input: string): Token[] {
+    const tokens: Token[] = [];
     let current = '';
-    let quoted = false;
+    let quote: '"' | "'" | null = null;
+    let wasQuoted = false;
+    let started = false;
     for (const ch of input) {
-        if (ch === '"') {
-            quoted = !quoted;
+        if (quote) {
+            if (ch === quote) quote = null;
+            else current += ch;
             continue;
         }
-        if (ch === ' ' && !quoted) {
-            if (current) tokens.push(current);
+        if (ch === '"' || ch === "'") {
+            quote = ch;
+            wasQuoted = true;
+            started = true;
+            continue;
+        }
+        if (ch === ' ') {
+            if (started) tokens.push({ value: current, quoted: wasQuoted });
             current = '';
+            wasQuoted = false;
+            started = false;
             continue;
         }
         current += ch;
+        started = true;
     }
-    if (current) tokens.push(current);
+    if (started) tokens.push({ value: current, quoted: wasQuoted });
     return tokens;
 }
 
-export function runCommand(input: string, ctx: ShellContext): ShellResult {
-    const tokens = tokenize(input.trim());
-    if (!tokens.length) return { lines: [] };
+/** The text a line contributes when output is redirected to a file. Hints and errors do not. */
+function lineText(l: ShellLine): string | null {
+    switch (l.kind) {
+        case 'muted':
+        case 'error':
+            return null;
+        case 'blank':
+            return '';
+        case 'pair':
+            return `${l.key}  ${l.value}`;
+        default:
+            return l.text;
+    }
+}
 
+/**
+ * `command > file` and `command >> file`. Only files under /home/guest can be written, and the
+ * refusal says so; errors from the command itself still print, as stderr would.
+ */
+function redirect(tokens: Token[], at: number, ctx: ShellContext): ShellResult {
+    const append = tokens[at].value === '>>';
+    const targetTok = tokens[at + 1];
+    if (!targetTok) return out(error("syntax error near unexpected token `newline'"));
+    if (tokens.length > at + 2) return out(error(`syntax error near unexpected token \`${tokens[at + 2].value}'`));
+
+    const result = at === 0 ? { lines: [] } : execute(tokens.slice(0, at).map((t) => t.value), ctx);
+    const stderr = result.lines.filter((l) => l.kind === 'error');
+    const body = result.lines.map(lineText).filter((t): t is string => t !== null);
+    while (body.length && body[body.length - 1] === '') body.pop();
+
+    const target = resolvePath(ctx.cwd, targetTok.value);
+    const existing = lookup(target, ctx.processes());
+    if (existing && isDir(existing)) return { ...result, lines: [...stderr, error(`${prettyPath(target)}: Is a directory`)] };
+    if (append && existing && isFile(existing) && existing.src) {
+        return { ...result, lines: [...stderr, error(`${prettyPath(target)}: cannot append text to an image`)] };
+    }
+
+    const before = append && existing && isFile(existing) ? existing.content : '';
+    const joined = body.length ? body.join('\n') + '\n' : '';
+    const content = before && !before.endsWith('\n') && joined ? `${before}\n${joined}` : before + joined;
+    const problem = ctx.writeFile(target, content);
+    return {
+        ...result,
+        clear: false,
+        lines: [...stderr, ...(problem ? [error(`${prettyPath(target)}: ${problem}`)] : [])],
+    };
+}
+
+function execute(tokens: string[], ctx: ShellContext): ShellResult {
+    if (!tokens.length) return { lines: [] };
     const [name, ...args] = tokens;
     const command = findCommand(name);
     if (command) return command.run(args, ctx);
@@ -627,12 +761,50 @@ export function runCommand(input: string, ctx: ShellContext): ShellResult {
     );
 }
 
+export function runCommand(input: string, ctx: ShellContext): ShellResult {
+    const tokens = tokenize(input.trim());
+    if (!tokens.length) return { lines: [] };
+    const at = tokens.findIndex((t) => !t.quoted && (t.value === '>' || t.value === '>>'));
+    if (at !== -1) return redirect(tokens, at, ctx);
+    return execute(tokens.map((t) => t.value), ctx);
+}
+
+/**
+ * Where the argument being completed starts in `input`, respecting quotes, and its unquoted value.
+ * Names such as "My Documents" contain a space, so splitting on spaces is not enough.
+ */
+function lastArgument(input: string): { start: number; value: string; isFirst: boolean } {
+    let quote: string | null = null;
+    let start = 0;
+    for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
+        if (quote) {
+            if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'") {
+            quote = ch;
+        } else if (ch === ' ') {
+            start = i + 1;
+        }
+    }
+    const raw = input.slice(start);
+    return { start, value: raw.replace(/["']/g, ''), isFirst: input.slice(0, start).trim() === '' };
+}
+
+/** How a completion is written back: quoted when it contains a space, left open on folders. */
+const quoteCandidate = (value: string, isDirectory: boolean): string =>
+    value.includes(' ') ? `"${value}${isDirectory ? '' : '"'}` : value;
+
+/** Replace the argument being completed with `candidate` (as returned by `complete`). */
+export function applyCompletion(input: string, candidate: string): string {
+    return input.slice(0, lastArgument(input).start) + candidate;
+}
+
 /** Tab completion: command names at position 0, filesystem paths after. */
 export function complete(input: string, ctx: ShellContext): string[] {
-    const tokens = input.split(' ');
-    const last = tokens[tokens.length - 1] ?? '';
+    const { value: last, isFirst } = lastArgument(input);
+    const first = tokenize(input)[0]?.value ?? '';
 
-    if (tokens.length <= 1) {
+    if (isFirst) {
         return Object.keys(COMMANDS).filter((c) => c.startsWith(last.toLowerCase()));
     }
 
@@ -649,10 +821,10 @@ export function complete(input: string, ctx: ShellContext): string[] {
 
     const paths = children
         .filter((c) => c.name.startsWith(leaf))
-        .map((c) => head + c.name + (isDir(c) ? '/' : ''));
+        .map((c) => quoteCandidate(head + c.name + (isDir(c) ? '/' : ''), isDir(c)));
 
     // `open ter<tab>` should also reach app ids, which are not filesystem entries.
-    if (tokens[0] === 'open') {
+    if (first === 'open') {
         paths.push(...ctx.appIds().filter((id) => id.startsWith(last) && !paths.includes(id)));
     }
 

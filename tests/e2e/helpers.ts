@@ -5,11 +5,16 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * gate, the login tile, Start > Run — so a test that passes proves the real route works.
  */
 
-/** Click through the boot gate, wait out the boot, and log in. */
+/**
+ * Get past the boot and log in. Works with or without a click-to-boot gate: some builds need a
+ * gesture before the boot (for audio), others take it at the logon screen instead.
+ */
 export async function bootAndLogin(page: Page): Promise<void> {
     await page.goto('/');
-    await page.getByRole('button', { name: /^Start / }).click();
-    const tile = page.locator('div.cursor-pointer').filter({ has: page.locator('img[alt="User"]') }).first();
+    const gate = page.getByRole('button', { name: /^Start / });
+    const tile = page.locator('[data-logon-user], div.cursor-pointer:has(img[alt="User"])').first();
+    await gate.or(tile).first().waitFor({ timeout: 15_000 });
+    if (await gate.isVisible()) await gate.click();
     await tile.waitFor({ timeout: 15_000 });
     await tile.click();
     await expect(page.getByText('start', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
@@ -18,7 +23,7 @@ export async function bootAndLogin(page: Page): Promise<void> {
 /** A window's outer frame, found by its exact title-bar text. */
 export function win(page: Page, title: string): Locator {
     return page
-        .locator('div.flex.flex-col.shadow-2xl')
+        .locator('[data-window], div.flex.flex-col.shadow-2xl')
         .filter({ has: page.locator(`span:text-is("${title}")`) })
         .first();
 }
@@ -48,7 +53,7 @@ export async function terminalText(page: Page): Promise<string> {
 
 /** Window frames currently in the DOM (minimised ones included — they are hidden, not unmounted). */
 export function windows(page: Page): Locator {
-    return page.locator('div.flex.flex-col.shadow-2xl');
+    return page.locator('[data-window], div.flex.flex-col.shadow-2xl');
 }
 
 /**

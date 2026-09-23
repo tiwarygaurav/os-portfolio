@@ -4,6 +4,7 @@
 import { useSystemStore } from '@/store/useSystemStore';
 import { HardDrive } from 'lucide-react';
 import { PROJECTS, ROLES, SYSTEM } from '@/content';
+import { DOCUMENTS_PATH, PICTURES_PATH } from '@/system/vfs';
 
 interface Drive {
     id: string;
@@ -51,8 +52,10 @@ export default function MyComputerApp() {
     ];
 
     const folders: Drive[] = [
-        { id: 'docs', label: 'Resume', icon: '/icons/documents.png', type: 'folder', onOpen: () => actions.openWindow('resume') },
-        { id: 'pictures', label: 'My Pictures', icon: '/icons/Display.ico', type: 'folder', onOpen: () => actions.openWindow('imageviewer') },
+        // Real folders now: what a visitor saves in Notepad lands in My Documents.
+        { id: 'docs', label: 'My Documents', icon: '/icons/documents.png', type: 'folder', onOpen: () => actions.openWindow('explorer', undefined, { path: DOCUMENTS_PATH }) },
+        { id: 'pictures', label: 'My Pictures', icon: '/icons/Display.ico', type: 'folder', onOpen: () => actions.openWindow('explorer', undefined, { path: PICTURES_PATH }) },
+        { id: 'resume', label: 'Resume', icon: '/icons/List File.ico', type: 'folder', onOpen: () => actions.openWindow('resume') },
         { id: 'music', label: 'My Music', icon: '/icons/Music.ico', type: 'folder', onOpen: () => actions.openWindow('music') },
         { id: 'profile', label: 'My Profile', icon: '/icons/User Personalization.ico', type: 'folder', onOpen: () => actions.openWindow('about') },
     ];
@@ -86,7 +89,7 @@ export default function MyComputerApp() {
                     </ExplorerPanel>
 
                     <ExplorerPanel title="Other Places">
-                        <SidebarLink label="My Documents" onClick={() => actions.openWindow('resume')} />
+                        <SidebarLink label="My Documents" onClick={() => actions.openWindow('explorer', undefined, { path: DOCUMENTS_PATH })} />
                         <SidebarLink label="My Projects" onClick={() => actions.openWindow('projects')} />
                         <SidebarLink label="Control Panel" onClick={() => actions.openWindow('settings')} />
                     </ExplorerPanel>

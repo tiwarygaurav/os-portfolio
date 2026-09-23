@@ -36,7 +36,9 @@ export type VMime =
     | 'text/plain'
     | 'application/json'
     | 'application/x-link'
-    | 'application/x-app';
+    | 'application/x-app'
+    | 'image/png'
+    | 'image/jpeg';
 
 export interface VFile {
     kind: 'file';
@@ -48,6 +50,14 @@ export interface VFile {
     open?: { appId: string; payload?: Record<string, string> };
     /** For `application/x-link` files: the external target. */
     href?: string;
+    /** For images: a URL the browser can load — a public asset or, for a visitor's file, a data: URL. */
+    src?: string;
+    /** True for files a visitor may overwrite or delete: everything they saved under /home/guest. */
+    writable?: boolean;
+    /** Last write, ms since the epoch. Visitor files only. */
+    modified?: number;
+    /** Stored size in bytes (characters), where it is meaningful. */
+    size?: number;
 }
 
 export interface VDir {
@@ -232,6 +242,7 @@ const renderMotd = (): string =>
         'help      list commands',
         'ls ~      look around',
         'open ~/projects/os-portfolio   read about the desktop you are inside',
+        'cd /home/guest                 your own folder: what you save there stays in this browser',
     ].join('\n');
 
 const renderSystemConf = (): string =>
@@ -339,6 +350,158 @@ const projectDir = (p: Project): VDir => {
 
 const HOME = `/home/${PROFILE.handle}`;
 
+/* ------------------------------------------------------------ /home/guest (writable) */
+
+/**
+ * The visitor's own folder. The shell prompt has always said `guest@portfolio`; this is guest's
+ * home. Everything under `/home/${PROFILE.handle}` is the portfolio and read-only. Files saved here
+ * live in the store (`userFiles`), persist in this browser only, and are mounted into the tree
+ * with `mountUserFiles` so the shell, Explorer, Notepad and the picture viewer all see the same
+ * files. The layout is XP's: My Documents, My Pictures, and Sample Pictures inside My Pictures.
+ */
+export const GUEST_PATH = '/home/guest';
+export const DOCUMENTS_PATH = `${GUEST_PATH}/My Documents`;
+export const PICTURES_PATH = `${GUEST_PATH}/My Pictures`;
+export const SAMPLE_PICTURES_PATH = `${PICTURES_PATH}/Sample Pictures`;
+
+/** The only folders a visitor can save into. There is no mkdir: the layout is fixed, like XP's. */
+export const WRITABLE_DIRS = [GUEST_PATH, DOCUMENTS_PATH, PICTURES_PATH] as const;
+
+/** What the store keeps per visitor file. Images hold a PNG/JPEG data: URL as their content. */
+export interface UserFile {
+    content: string;
+    mime: 'text/plain' | 'text/markdown' | 'image/png' | 'image/jpeg';
+    modified: number;
+}
+
+/** Room the visitor's files may take in localStorage, in characters. The browser allows ~5M. */
+export const USER_FILES_QUOTA = 2_000_000;
+
+/** Characters XP refused in a file name, plus control characters. */
+const INVALID_NAME = /[\\/:*?"<>|\u0000-\u001f]/;
+
+/** Mime type implied by a file name, as XP's file associations would have it. */
+export function mimeForName(name: string): UserFile['mime'] {
+    const ext = name.toLowerCase().split('.').pop() ?? '';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'md') return 'text/markdown';
+    return 'text/plain';
+}
+
+/**
+ * Why `absPath` cannot be written, or null if it can. Headless, so the shell, the store and the
+ * Save As dialog all refuse the same paths with the same words.
+ */
+export function validateUserPath(absPath: string): string | null {
+    const cut = absPath.lastIndexOf('/');
+    const parent = absPath.slice(0, cut) || '/';
+    const name = absPath.slice(cut + 1);
+    if (!(WRITABLE_DIRS as readonly string[]).includes(parent)) {
+        if (parent === SAMPLE_PICTURES_PATH) return 'Sample Pictures is read-only.';
+        if (parent === HOME || parent.startsWith(HOME + '/')) {
+            return 'The portfolio is read-only. Save to My Documents or My Pictures instead.';
+        }
+        return `You can only save in ${WRITABLE_DIRS.map((d) => d.replace(GUEST_PATH, '/home/guest')).join(', ')}.`;
+    }
+    if (!name.trim()) return 'A file name cannot be empty.';
+    if (name !== name.trim()) return 'A file name cannot start or end with a space.';
+    if (name === '.' || name === '..') return 'That name is reserved.';
+    if (name.length > 64) return 'A file name can be at most 64 characters.';
+    if (INVALID_NAME.test(name)) return 'A file name cannot contain any of the following characters: \\ / : * ? " < > |';
+    const reserved = [DOCUMENTS_PATH, PICTURES_PATH, SAMPLE_PICTURES_PATH];
+    if (reserved.includes(absPath)) return 'A folder with that name already exists.';
+    return null;
+}
+
+/** True when a path is one a visitor saved (as opposed to a built-in, read-only file). */
+export const isUserPath = (absPath: string): boolean => userFiles[absPath] !== undefined;
+
+let userFiles: Record<string, UserFile> = {};
+let guestCache: VDir | null = null;
+
+/**
+ * Mount the visitor's files. Called by the store whenever `userFiles` changes, and by tests.
+ * The object is kept by reference — the store replaces it on every write, never mutates it.
+ */
+export function mountUserFiles(files: Record<string, UserFile>): void {
+    if (files === userFiles) return;
+    userFiles = files;
+    guestCache = null;
+}
+
+const fmtSize = (chars: number) =>
+    chars < 1024 ? `${chars} bytes` : `${Math.round(chars / 1024)} KB`;
+
+function userFileNode(absPath: string, f: UserFile): VFile {
+    const name = absPath.slice(absPath.lastIndexOf('/') + 1);
+    const image = f.mime === 'image/png' || f.mime === 'image/jpeg';
+    return {
+        kind: 'file',
+        name,
+        mime: f.mime,
+        // An image's content is its data: URL; `cat` and `grep` should see a description instead.
+        content: image
+            ? `${f.mime === 'image/png' ? 'PNG' : 'JPEG'} image, ${fmtSize(f.content.length)}. Open it to view.`
+            : f.content,
+        src: image ? f.content : undefined,
+        writable: true,
+        modified: f.modified,
+        size: f.content.length,
+        open: image
+            ? { appId: 'imageviewer', payload: { path: absPath } }
+            : { appId: 'notepad', payload: { path: absPath } },
+    };
+}
+
+/** Built-in pictures, so My Pictures is not empty on a first visit. Read-only. */
+const SAMPLE_PICTURES: { name: string; src: string; mime: VFile['mime']; note: string }[] = [
+    { name: 'Bliss.jpg', src: '/wallpapers/Bliss.jpg', mime: 'image/jpeg', note: 'The Windows XP wallpaper.' },
+    { name: 'Profile.png', src: '/icons/profile-picture-chess.png', mime: 'image/png', note: 'The logon picture.' },
+    { name: 'Avatar.jpg', src: '/profile.jpg', mime: 'image/jpeg', note: `${PROFILE.name}.` },
+    { name: 'Windows XP.png', src: '/icons/windows-xp-logo-black-text.png', mime: 'image/png', note: 'The Windows XP logo.' },
+];
+
+function guestDir(): VDir {
+    if (guestCache) return guestCache;
+    const inDir = (d: string) =>
+        Object.keys(userFiles)
+            .filter((p) => p.slice(0, p.lastIndexOf('/')) === d)
+            .sort((a, b) => a.localeCompare(b))
+            .map((p) => userFileNode(p, userFiles[p]));
+
+    const samples = dir(
+        'Sample Pictures',
+        SAMPLE_PICTURES.map((pic) => ({
+            kind: 'file' as const,
+            name: pic.name,
+            mime: pic.mime,
+            content: `${pic.mime === 'image/png' ? 'PNG' : 'JPEG'} image. ${pic.note} Open it to view.`,
+            src: pic.src,
+            open: { appId: 'imageviewer', payload: { path: `${SAMPLE_PICTURES_PATH}/${pic.name}` } },
+        })),
+        'Built-in pictures (read-only)',
+    );
+
+    guestCache = dir(
+        'guest',
+        [
+            dir('My Documents', inDir(DOCUMENTS_PATH), 'Your documents. Saved in this browser.'),
+            dir('My Pictures', [samples, ...inDir(PICTURES_PATH)], 'Your pictures. Saved in this browser.'),
+            ...inDir(GUEST_PATH),
+        ],
+        'Your folder. Anything you save here stays in this browser.',
+    );
+    return guestCache;
+}
+
+/** Characters the mounted visitor files take now; what `df` reports. */
+export const guestUsage = (): number => userFilesSize(userFiles);
+
+/** Total characters the visitor's files would take if `next` were saved. */
+export const userFilesSize = (files: Record<string, UserFile>): number =>
+    Object.entries(files).reduce((n, [k, f]) => n + k.length + f.content.length, 0);
+
 const buildRoot = (): VDir =>
     dir('/', [
         dir('home', [
@@ -399,8 +562,25 @@ const buildRoot = (): VDir =>
         dir('var', [dir('log', [file('boot.log', renderBootLog(), 'text/plain')])]),
     ]);
 
+/**
+ * Default associations, the way XP's file types worked: a text file with no window of its own
+ * opens in Notepad. Applied once to the static tree, so `open`, Run and Explorer all agree —
+ * double-clicking `stack.txt` in Explorer used to show its text in a message box instead.
+ */
+function associate(node: VNode, path: string): void {
+    if (isDir(node)) {
+        node.children.forEach((c) => associate(c, `${path === '/' ? '' : path}/${c.name}`));
+        return;
+    }
+    if (node.open || node.href) return;
+    if (node.mime === 'text/plain' || node.mime === 'text/markdown' || node.mime === 'application/json') {
+        node.open = { appId: 'notepad', payload: { path } };
+    }
+}
+
 /** Built once — content is static, so rebuilding per call would be waste. */
 const ROOT: VDir = buildRoot();
+associate(ROOT, '/');
 
 /**
  * The filesystem root for this call: the static tree plus the live `/proc`.
@@ -409,7 +589,13 @@ const ROOT: VDir = buildRoot();
  * and `renderTree` forgot `/proc` altogether, so `ls /` listed the process table while `tree /`
  * — the command whose entire job is showing the filesystem at a glance — did not.
  */
-const rootFor = (procs: ProcEntry[]): VDir => dir('', [...ROOT.children, procDir(procs)]);
+const rootFor = (procs: ProcEntry[]): VDir =>
+    dir('', [
+        ...ROOT.children.map((c) =>
+            c.name === 'home' && isDir(c) ? dir('home', [...c.children, guestDir()], c.description) : c,
+        ),
+        procDir(procs),
+    ]);
 
 /* ------------------------------------------------------------- /proc (live) */
 

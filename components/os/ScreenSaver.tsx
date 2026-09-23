@@ -21,8 +21,18 @@ import type { ScreenSaverId } from '@/constants/prefs';
 /** Input that counts as "the visitor is here". */
 const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
 
-/** Ignore input this soon after starting, so the click on Preview does not dismiss it at once. */
+/** Input this soon after starting does not dismiss it (it is still swallowed), so the release of the
+ *  Preview click, or a key already on its way, cannot close the saver the instant it opens. */
 const GRACE_MS = 500;
+/** After a pointer wake, keep swallowing the rest of that gesture — the tap's click, the
+ *  right-click's context menu — for this long, so it cannot land on whatever is underneath. */
+const SWALLOW_MS = 450;
+
+/** Focus inside an embedded document (Paint's iframe, the resume's PDF) hides input from us. */
+const focusIsEmbedded = () => {
+    const el = typeof document !== 'undefined' ? document.activeElement : null;
+    return !!el && ['IFRAME', 'OBJECT', 'EMBED'].includes(el.tagName);
+};
 /** A pointer must travel this far to dismiss; a jittery mouse should not. */
 const MOVE_THRESHOLD = 6;
 
@@ -37,14 +47,29 @@ export default function ScreenSaver() {
         if (kind === 'none') return;
         let last = Date.now();
         const touch = () => { last = Date.now(); };
-        ACTIVITY_EVENTS.forEach((t) => window.addEventListener(t, touch, { passive: true }));
+        /*
+         * Capture phase, registered before the saver's own listener: the key or click that wakes
+         * the saver is stopped by it, and a bubble-phase listener here never saw that event — so
+         * the idle clock was never reset and the saver came straight back within five seconds.
+         * Listeners on the same target and phase all run even after stopPropagation.
+         */
+        ACTIVITY_EVENTS.forEach((t) => window.addEventListener(t, touch, { capture: true, passive: true }));
         const timer = window.setInterval(() => {
             const state = useSystemStore.getState();
-            if (state.screenSaverActive) return;
+            if (state.screenSaverActive) {
+                last = Date.now();
+                return;
+            }
+            // Drawing in Paint or scrolling the resume PDF happens inside an embedded document
+            // whose events never reach this window. While one has focus, count it as activity.
+            if (focusIsEmbedded()) {
+                last = Date.now();
+                return;
+            }
             if (Date.now() - last >= idleMinutes * 60_000) setActive(true);
         }, 5_000);
         return () => {
-            ACTIVITY_EVENTS.forEach((t) => window.removeEventListener(t, touch));
+            ACTIVITY_EVENTS.forEach((t) => window.removeEventListener(t, touch, { capture: true }));
             window.clearInterval(timer);
         };
     }, [kind, idleMinutes, setActive]);
@@ -60,19 +85,34 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
 
     // ---- dismissal ----------------------------------------------------------------------------
     useEffect(() => {
+        // Take focus back from an embedded document, so the waking key reaches us rather than
+        // editing a drawing in Paint underneath the saver.
+        if (focusIsEmbedded()) (document.activeElement as HTMLElement).blur();
+        canvasRef.current?.focus();
+
         const started = Date.now();
         let origin: { x: number; y: number } | null = null;
+        const swallow = (e: Event) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        /** Eat the remainder of a pointer gesture that woke the saver: its click, contextmenu, up. */
+        const swallowRestOfGesture = () => {
+            const rest = ['click', 'contextmenu', 'mouseup', 'pointerup', 'touchend', 'auxclick'];
+            rest.forEach((t) => window.addEventListener(t, swallow, { capture: true }));
+            window.setTimeout(() => rest.forEach((t) => window.removeEventListener(t, swallow, { capture: true })), SWALLOW_MS);
+        };
         const dismiss = (e: Event) => {
+            const isPress = e.type === 'keydown' || e.type === 'pointerdown' || e.type === 'touchstart';
+            // The key or click that wakes the screen must never act on the desktop underneath —
+            // including during the grace period, when it does not dismiss.
+            if (isPress) swallow(e);
             if (Date.now() - started < GRACE_MS) return;
             if (e instanceof PointerEvent && e.type === 'pointermove') {
                 if (!origin) { origin = { x: e.clientX, y: e.clientY }; return; }
                 if (Math.hypot(e.clientX - origin.x, e.clientY - origin.y) < MOVE_THRESHOLD) return;
             }
-            // The key or click that wakes the screen must not also act on the desktop underneath.
-            if (e.type === 'keydown' || e.type === 'pointerdown') {
-                e.preventDefault();
-                e.stopPropagation();
-            }
+            if (e.type === 'pointerdown' || e.type === 'touchstart') swallowRestOfGesture();
             onDismiss();
         };
         ACTIVITY_EVENTS.forEach((t) => window.addEventListener(t, dismiss, { capture: true }));
@@ -86,17 +126,21 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
         if (!canvas || !ctx) return;
 
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const draw = RENDERERS[kind](ctx);
+        /** With reduced motion: one representative frame, not a simulation run from its start. */
+        const still = () => STILLS[kind](ctx, window.innerWidth, window.innerHeight, draw);
         const resize = () => {
             canvas.width = Math.floor(window.innerWidth * dpr);
             canvas.height = Math.floor(window.innerHeight * dpr);
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            // Resizing clears the canvas; with no animation loop to repaint it, redraw the still.
+            if (reduceMotion) still();
         };
         resize();
         window.addEventListener('resize', resize);
 
-        const draw = RENDERERS[kind](ctx);
         let frame = 0;
         let prev = performance.now();
         const loop = (now: number) => {
@@ -105,12 +149,7 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
             draw(window.innerWidth, window.innerHeight, dt);
             if (!reduceMotion) frame = requestAnimationFrame(loop);
         };
-        if (reduceMotion) {
-            // One settled frame: run the simulation forward without painting every step.
-            for (let i = 0; i < 90; i++) draw(window.innerWidth, window.innerHeight, 16);
-        } else {
-            frame = requestAnimationFrame(loop);
-        }
+        if (!reduceMotion) frame = requestAnimationFrame(loop);
 
         return () => {
             cancelAnimationFrame(frame);
@@ -123,7 +162,8 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
             ref={canvasRef}
             role="img"
             aria-label="Screen saver. Move the mouse or press a key to return to the desktop."
-            className="fixed inset-0 z-[20000] h-full w-full cursor-none bg-black"
+            tabIndex={-1}
+            className="fixed inset-0 z-[20000] h-full w-full cursor-none bg-black outline-none"
         />
     );
 }
@@ -131,6 +171,25 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
 /* ================================================================================ renderers */
 
 type Draw = (w: number, h: number, dt: number) => void;
+
+/**
+ * Reduced-motion stills. Most savers settle into a fair picture after a short run; Marquee and the
+ * logo do not (the text starts off-screen, the logo starts invisible), so they draw a composed frame.
+ */
+const STILLS: Record<Exclude<ScreenSaverId, 'none'>, (ctx: CanvasRenderingContext2D, w: number, h: number, draw: Draw) => void> = {
+    starfield: (_ctx, w, h, draw) => { for (let i = 0; i < 90; i++) draw(w, h, 16); },
+    beziers: (_ctx, w, h, draw) => { for (let i = 0; i < 90; i++) draw(w, h, 16); },
+    marquee: (ctx, w, h) => {
+        const text = `${PROFILE.name}  —  ${PROFILE.title}`;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, h);
+        ctx.font = 'bold 40px Tahoma, Verdana, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(text, Math.max(8, (w - ctx.measureText(text).width) / 2), h / 2);
+    },
+    windowsxp: (_ctx, w, h, draw) => draw(w, h, 5_000 / 2),
+};
 
 const RENDERERS: Record<Exclude<ScreenSaverId, 'none'>, (ctx: CanvasRenderingContext2D) => Draw> = {
     starfield: starfield,
@@ -185,8 +244,10 @@ function beziers(ctx: CanvasRenderingContext2D): Draw {
         for (const p of pts) {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
-            if (p.x < 0 || p.x > w) p.vx *= -1;
-            if (p.y < 0 || p.y > h) p.vy *= -1;
+            // Clamp as well as bounce: after the screen shrinks a point can be far outside, and
+            // flipping the direction every frame would pin it there, jittering off-screen forever.
+            if (p.x < 0) { p.x = 0; p.vx = Math.abs(p.vx); } else if (p.x > w) { p.x = w; p.vx = -Math.abs(p.vx); }
+            if (p.y < 0) { p.y = 0; p.vy = Math.abs(p.vy); } else if (p.y > h) { p.y = h; p.vy = -Math.abs(p.vy); }
         }
         hue = (hue + dt * 0.02) % 360;
         ctx.strokeStyle = `hsl(${hue},90%,60%)`;

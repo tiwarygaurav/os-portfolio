@@ -20,7 +20,7 @@ test('minimising hides a window without destroying its app', async ({ page }) =>
     await calc.getByRole('button', { name: '8', exact: true }).click();
     await expect(calc.locator('div.font-mono').first()).toHaveText('78');
 
-    await calc.locator('button[title="Minimize"]').click();
+    await calc.locator('button[aria-label="Minimize"], button[title="Minimize"]').click();
     await expect(calc).toBeHidden();
     await expect(windows(page)).toHaveCount(1); // still mounted
 
@@ -38,12 +38,13 @@ test('the Start button closes its own menu', async ({ page }) => {
 });
 
 test('a context menu near the corner stays on screen', async ({ page }) => {
-    await page.mouse.click(1350, 260, { button: 'right' });
+    // The bottom-right corner, above the taskbar, so both axes have to flip.
+    await page.mouse.click(1350, 700, { button: 'right' });
     const menu = page.locator('div').filter({ has: page.getByText('Arrange Icons By', { exact: true }) }).last();
     const box = await menu.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeLessThanOrEqual(1366);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(768 - 36);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(768 - 30);
 });
 
 test('dropping an icon on the Recycle Bin deletes it, and the bin gives it back', async ({ page }) => {
@@ -70,7 +71,9 @@ test('z-order never climbs over the taskbar', async ({ page }) => {
     }
     await run(page, 'notepad');
     const z = await win(page, 'Untitled - Notepad').evaluate((el) => Number(getComputedStyle(el).zIndex));
-    expect(z).toBeLessThan(50);
+    // One window open: it must sit at the bottom of the band. The old free-running counter would
+    // have put it at 35 here, which "< 50" could not tell apart from correct.
+    expect(z).toBe(10);
 });
 
 test('the media player plays through a track boundary', async ({ page }) => {
