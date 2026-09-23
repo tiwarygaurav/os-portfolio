@@ -14,6 +14,7 @@ declare module 'lucide-react' {
     export const Cpu: Icon;
     export const ArrowUp: Icon;
     export const FolderClosed: Icon;
+    export const FolderPlus: Icon;
     export const Link2: Icon;
     export const AppWindow: Icon;
     export const FileText: Icon;

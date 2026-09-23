@@ -42,7 +42,10 @@ export type SystemEvent =
     | { type: 'shell:command'; input: string; ok: boolean }
     | { type: 'fs:read'; path: string }
     | { type: 'fs:write'; path: string; created: boolean; bytes: number }
-    | { type: 'fs:delete'; path: string }
+    /** `items` is set for a folder: how many files and folders went with it. */
+    | { type: 'fs:delete'; path: string; folder?: boolean; items?: number }
+    | { type: 'fs:mkdir'; path: string }
+    | { type: 'fs:move'; from: string; to: string }
     // Settings
     | { type: 'setting:changed'; key: string; value: string }
     // Recycle bin
@@ -139,8 +142,21 @@ export function describe(e: SystemEvent): Description {
                 code: e.created ? 3102 : 3103,
                 message: `${e.created ? 'Created' : 'Saved'} ${e.path} (${e.bytes} bytes).`,
             };
-        case 'fs:delete':
-            return { log: 'System', level: 'warning', source: 'Filesystem', category: 'Delete', code: 3104, message: `Deleted ${e.path}.` };
+        case 'fs:delete': {
+            const with_ = e.items ? ` and the ${e.items} item${e.items === 1 ? '' : 's'} in it` : '';
+            const message = e.folder ? `Deleted the folder ${e.path}${with_}.` : `Deleted ${e.path}.`;
+            return { log: 'System', level: 'warning', source: 'Filesystem', category: 'Delete', code: 3104, message };
+        }
+        case 'fs:mkdir':
+            return { log: 'System', level: 'information', source: 'Filesystem', category: 'Create', code: 3105, message: `Created the folder ${e.path}.` };
+        case 'fs:move': {
+            const cut = (p: string) => p.slice(0, p.lastIndexOf('/'));
+            // Same folder: a rename, and XP's words for it name only the new name.
+            const message = cut(e.from) === cut(e.to)
+                ? `Renamed ${e.from} to ${e.to.slice(e.to.lastIndexOf('/') + 1)}.`
+                : `Moved ${e.from} to ${e.to}.`;
+            return { log: 'System', level: 'information', source: 'Filesystem', category: 'Move', code: 3106, message };
+        }
 
         case 'setting:changed':
             return { log: 'System', level: 'information', source: 'Settings', category: 'Configuration', code: 4001, message: `${e.key} was set to "${e.value}".` };

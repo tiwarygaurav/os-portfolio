@@ -1,7 +1,8 @@
 /**
  * The visitor's writable folder (/home/guest), headless: validation, mounting, associations,
- * and the shell's file commands (redirection, touch, rm, df) against a stub that behaves like the
- * store — it validates through the same `validateUserPath` and mounts the result.
+ * and the shell's file commands (redirection, touch, rm, mkdir, mv, cp, df) against a stub that
+ * behaves like the store — it validates through the same `validateUserPath`, moves and deletes
+ * folders through the same `planMove` / `planRemoveFolder`, and mounts the result.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,8 +13,9 @@ const shell = require('../../.test-out/system/shell.js');
 const DOCS = vfs.DOCUMENTS_PATH;
 
 function session() {
-    let files = {};
-    vfs.mountUserFiles(files);
+    let tree = { files: {}, folders: [] };
+    const mount = () => vfs.mountUserFiles(tree.files, tree.folders);
+    mount();
     const state = { cwd: vfs.GUEST_PATH, history: [] };
     const ctx = {
         get cwd() { return state.cwd; },
@@ -26,15 +28,38 @@ function session() {
         writeFile: (p, content) => {
             const problem = vfs.validateUserPath(p) ?? vfs.validateUserContent(p, content);
             if (problem) return problem;
-            files = { ...files, [p]: { content, mime: vfs.mimeForName(p), modified: 1 } };
-            vfs.mountUserFiles(files);
+            tree = { ...tree, files: { ...tree.files, [p]: { content, mime: vfs.mimeForName(p), modified: 1 } } };
+            mount();
             return null;
         },
         deleteFile: (p) => {
-            if (!files[p]) return 'The file does not exist.';
-            files = { ...files };
+            if (!tree.files[p]) return 'The file does not exist.';
+            const files = { ...tree.files };
             delete files[p];
-            vfs.mountUserFiles(files);
+            tree = { ...tree, files };
+            mount();
+            return null;
+        },
+        makeDir: (p) => {
+            if (tree.files[p]) return 'A file with that name already exists.';
+            const problem = vfs.validateUserPath(p, tree.folders);
+            if (problem) return problem;
+            tree = { ...tree, folders: [...tree.folders, p].sort() };
+            mount();
+            return null;
+        },
+        move: (from, to) => {
+            const plan = vfs.planMove(tree, from, to);
+            if (typeof plan === 'string') return plan;
+            tree = plan;
+            mount();
+            return null;
+        },
+        removeDir: (p, recursive) => {
+            const plan = vfs.planRemoveFolder(tree, p, recursive);
+            if (typeof plan === 'string') return plan;
+            tree = plan.tree;
+            mount();
             return null;
         },
     };
@@ -44,7 +69,7 @@ function session() {
         return r;
     };
     const text = (r) => r.lines.map((l) => (l.kind === 'pair' ? `${l.key}  ${l.value}` : l.kind === 'blank' ? '' : l.text)).join('\n');
-    return { ctx, run, text, files: () => files };
+    return { ctx, run, text, files: () => tree.files, folders: () => tree.folders };
 }
 
 test.afterEach(() => vfs.mountUserFiles({}));
@@ -187,4 +212,135 @@ test('hints and completions quote paths the shell would otherwise split', () => 
     const c = shell.complete('cat it', s.ctx);
     assert.deepEqual(c, [`"it's.txt"`]);
     assert.match(s.text(s.run(`cat ${c[0]}`)), /^x/);
+});
+
+/* ------------------------------------------------------------------ folders */
+
+test('mkdir makes a folder that every surface sees, and files can be saved in it', () => {
+    const s = session();
+    s.run('cd "My Documents"');
+    assert.deepEqual(s.run('mkdir Letters').lines, []);
+    assert.deepEqual(s.folders(), [`${DOCS}/Letters`]);
+    const node = vfs.lookup(`${DOCS}/Letters`);
+    assert.equal(node.kind, 'dir');
+    assert.equal(node.writable, true);
+
+    s.run('echo Dear reader > Letters/draft.txt');
+    assert.equal(s.files()[`${DOCS}/Letters/draft.txt`].content, 'Dear reader\n');
+    assert.match(s.text(s.run('ls Letters')), /draft\.txt/);
+    // Folders list before files, as Explorer sorts them.
+    s.run('touch a.txt');
+    assert.deepEqual(vfs.listDir(DOCS).map((n) => n.name), ['Letters', 'a.txt']);
+});
+
+test('mkdir -p makes the whole chain; without it a missing parent is named', () => {
+    const s = session();
+    assert.match(s.text(s.run('mkdir a/b')), new RegExp(`The folder ${vfs.GUEST_PATH}/a does not exist`));
+    assert.deepEqual(s.run('mkdir -p a/b/c').lines, []);
+    assert.deepEqual(s.folders(), ['/home/guest/a', '/home/guest/a/b', '/home/guest/a/b/c']);
+    assert.deepEqual(s.run('mkdir -p a/b').lines, [], '-p is quiet about folders that exist');
+    assert.match(s.text(s.run('mkdir a')), /File exists/);
+});
+
+test('mkdir is refused in the portfolio, in Sample Pictures, and over a file', () => {
+    const s = session();
+    assert.match(s.text(s.run(`mkdir ${vfs.HOME_PATH}/new`)), /portfolio is read-only/);
+    assert.match(s.text(s.run(`mkdir "${vfs.SAMPLE_PICTURES_PATH}/Mine"`)), /Sample Pictures is read-only/);
+    s.run('touch notes');
+    assert.match(s.text(s.run('mkdir notes')), /File exists/);
+    assert.match(s.text(s.run('mkdir "bad:name"')), /cannot contain/);
+    assert.deepEqual(s.folders(), []);
+});
+
+test('mv renames a file, and the new name decides its type', () => {
+    const s = session();
+    s.run('echo # Title > notes.txt');
+    assert.deepEqual(s.run('mv notes.txt notes.md').lines, []);
+    assert.equal(s.files()['/home/guest/notes.txt'], undefined);
+    assert.equal(s.files()['/home/guest/notes.md'].mime, 'text/markdown');
+    assert.match(s.text(s.run('mv notes.md photo.png')), /Only pictures can be saved/);
+});
+
+test('mv moves a folder with everything in it, and never into itself', () => {
+    const s = session();
+    s.run('mkdir -p Work/2026');
+    s.run('echo plan > Work/2026/plan.txt');
+    s.run('echo top > Work/readme.txt');
+    assert.deepEqual(s.run('mv Work "My Documents"').lines, []);
+    assert.deepEqual(s.folders(), [`${DOCS}/Work`, `${DOCS}/Work/2026`]);
+    assert.deepEqual(Object.keys(s.files()).sort(), [`${DOCS}/Work/2026/plan.txt`, `${DOCS}/Work/readme.txt`]);
+    assert.match(s.text(s.run('cat "My Documents/Work/2026/plan.txt"')), /^plan/);
+
+    assert.match(s.text(s.run('mv "My Documents/Work" "My Documents/Work/2026"')), /inside the folder being moved/);
+    assert.match(s.text(s.run(`mv ${vfs.HOME_PATH}/about.md .`)), /read-only/);
+    assert.match(s.text(s.run('mv "My Documents" Docs')), /read-only/);
+    assert.match(s.text(s.run('mv missing.txt x.txt')), /No such file or directory/);
+});
+
+test('mv refuses to overwrite, and several sources need a folder', () => {
+    const s = session();
+    s.run('touch a.txt b.txt');
+    assert.match(s.text(s.run('mv a.txt b.txt')), /already exists/);
+    assert.match(s.text(s.run('mv a.txt b.txt c.txt')), /is not a directory/);
+    s.run('mkdir box');
+    assert.deepEqual(s.run('mv a.txt b.txt box').lines, []);
+    assert.deepEqual(Object.keys(s.files()).sort(), ['/home/guest/box/a.txt', '/home/guest/box/b.txt']);
+});
+
+test('rmdir takes only an empty folder; rm -r takes it all; built-in folders stay', () => {
+    const s = session();
+    s.run('mkdir -p Old/inner');
+    s.run('echo x > Old/inner/x.txt');
+    assert.match(s.text(s.run('rmdir Old')), /Directory not empty/);
+    assert.match(s.text(s.run('rm Old')), /Is a directory/);
+    assert.deepEqual(s.run('rm -r Old').lines, []);
+    assert.deepEqual(s.folders(), []);
+    assert.deepEqual(Object.keys(s.files()), []);
+
+    s.run('mkdir Empty');
+    assert.deepEqual(s.run('rmdir Empty').lines, []);
+    assert.match(s.text(s.run('rm -r "My Documents"')), /cannot be deleted/);
+    assert.match(s.text(s.run(`rm -r ${vfs.HOME_PATH}/projects`)), /cannot be deleted/);
+    assert.ok(vfs.lookup(vfs.DOCUMENTS_PATH));
+});
+
+test('cp copies a portfolio file into your folder, but not a built-in picture or a folder', () => {
+    const s = session();
+    assert.deepEqual(s.run(`cp ${vfs.HOME_PATH}/projects/os-portfolio/stack.txt "My Documents"`).lines, []);
+    assert.match(s.files()[`${DOCS}/stack.txt`].content, /^TypeScript/);
+    assert.match(s.text(s.run(`cp "${vfs.SAMPLE_PICTURES_PATH}/Bliss.jpg" "My Pictures"`)), /built-in pictures can be viewed, not copied/);
+    assert.match(s.text(s.run('cp "My Documents" copy')), /Is a directory/);
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    s.ctx.writeFile(`${vfs.PICTURES_PATH}/me.png`, png);
+    s.run('cp "My Pictures/me.png" "My Pictures/me2.png"');
+    assert.equal(s.files()[`${vfs.PICTURES_PATH}/me2.png`].content, png, 'a picture copies as the picture, not its description');
+});
+
+test('folders from storage are kept only when they could have been made', () => {
+    const kept = vfs.sanitizeFolders([
+        '/home/guest/a/b',        // parent listed later, still kept: parents are checked first
+        '/home/guest/a',
+        '/home/guest/orphan/x',   // no parent
+        `${vfs.HOME_PATH}/hack`,  // the portfolio
+        '/home/guest/bad:name',
+        '/home/guest/a',          // duplicate
+        42,
+    ]);
+    assert.deepEqual(kept, ['/home/guest/a', '/home/guest/a/b']);
+    assert.deepEqual(vfs.sanitizeFolders('nope'), []);
+});
+
+test('New Folder names count up the way XP did', () => {
+    const tree = { files: { '/home/guest/New Folder (3)': { content: '', mime: 'text/plain', modified: 1 } }, folders: ['/home/guest/New Folder'] };
+    assert.equal(vfs.nextFolderName('/home/guest', tree), 'New Folder (2)');
+    tree.folders = ['/home/guest/New Folder', '/home/guest/New Folder (2)'];
+    assert.equal(vfs.nextFolderName('/home/guest', tree), 'New Folder (4)');
+    assert.equal(vfs.nextFolderName(vfs.DOCUMENTS_PATH, tree), 'New Folder');
+});
+
+test('a folder counts toward the quota, and a file in a missing folder is refused', () => {
+    assert.equal(vfs.userFilesSize({}, ['/home/guest/abc']), '/home/guest/abc'.length);
+    assert.match(vfs.validateUserPath('/home/guest/nowhere/x.txt'), /The folder \/home\/guest\/nowhere does not exist/);
+    assert.match(vfs.validateUserPath('/home/guest/a/x.txt', []), /does not exist/);
+    assert.equal(vfs.validateUserPath('/home/guest/a/x.txt', ['/home/guest/a']), null);
 });

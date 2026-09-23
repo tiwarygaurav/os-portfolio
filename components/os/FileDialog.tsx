@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, FileText, FolderClosed, Image as ImageIcon } from 'lucide-react';
+import { ArrowUp, FileText, FolderClosed, FolderPlus, Image as ImageIcon } from 'lucide-react';
 import {
     DOCUMENTS_PATH,
     GUEST_PATH,
@@ -9,6 +9,7 @@ import {
     PICTURES_PATH,
     isDir,
     isFile,
+    isWritableDir,
     listDir,
     lookup,
     resolvePath,
@@ -17,7 +18,8 @@ import {
     type VNode,
 } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
-import { useFsRevision } from '@/utils/fs';
+import { makeNewFolder, renameUserPath, useFsRevision } from '@/utils/fs';
+import RenameField from '@/components/ui/RenameField';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 
 /**
@@ -77,6 +79,8 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
     const [name, setName] = useState(initialName);
     const [typeIndex, setTypeIndex] = useState(0);
     const [selected, setSelected] = useState<string | null>(null);
+    /** A folder just made with Create New Folder, being named in place. */
+    const [renaming, setRenaming] = useState<string | null>(null);
     const nameRef = useRef<HTMLInputElement>(null);
     const type = types[typeIndex] ?? types[0];
 
@@ -102,6 +106,21 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
     const go = (next: string) => {
         setDir(next);
         setSelected(null);
+        setRenaming(null);
+    };
+
+    const title = mode === 'open' ? 'Open' : 'Save As';
+    const canMakeFolder = isWritableDir(dir);
+    const newFolder = async () => {
+        const made = await makeNewFolder(dir, title);
+        if (!made) return;
+        setSelected(made);
+        setRenaming(made);
+    };
+    const commitRename = async (from: string, typed: string) => {
+        setRenaming(null);
+        setSelected(await renameUserPath(from, typed));
+        nameRef.current?.focus();
     };
 
     const confirm = async (override?: string) => {
@@ -193,6 +212,16 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
                     >
                         <ArrowUp size={14} />
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => void newFolder()}
+                        disabled={!canMakeFolder}
+                        title={canMakeFolder ? 'Create New Folder' : 'Folders can only be made in /home/guest'}
+                        aria-label="Create New Folder"
+                        className="rounded-[3px] border border-transparent p-0.5 hover:border-[#7a7a6d] disabled:text-gray-400"
+                    >
+                        <FolderPlus size={14} />
+                    </button>
                 </div>
 
                 <div className="flex min-h-0 flex-1 gap-2 p-2">
@@ -213,7 +242,17 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
                     {/* File list */}
                     <ul aria-label="Files" className="h-40 min-w-0 flex-1 overflow-auto border border-[#7f9db9] bg-white p-1 sm:h-44">
                         {entries.length === 0 && <li className="p-2 text-gray-500">This folder is empty.</li>}
-                        {entries.map((node) => (
+                        {entries.map((node) => renaming === node.name ? (
+                            <li key={node.name} className="flex items-center gap-2 bg-[#316ac5] px-1 py-0.5">
+                                <NodeIcon node={node} />
+                                <RenameField
+                                    name={node.name}
+                                    isFolder={isDir(node)}
+                                    onCommit={(typed) => void commitRename(resolvePath(dir, node.name), typed)}
+                                    onCancel={() => setRenaming(null)}
+                                />
+                            </li>
+                        ) : (
                             <li key={node.name}>
                                 <button
                                     type="button"

@@ -33,6 +33,7 @@ export default function TerminalApp() {
     const closeWindow = useSystemStore((s) => s.actions.closeWindow);
     const writeUserFile = useSystemStore((s) => s.actions.writeUserFile);
     const deleteUserFile = useSystemStore((s) => s.actions.deleteUserFile);
+    const actions = useSystemStore((s) => s.actions);
     const windows = useSystemStore((s) => s.windows);
     const procs = useProcesses();
 
@@ -77,8 +78,11 @@ export default function TerminalApp() {
             openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
             writeFile: (path, content) => writeUserFile(path, { content }),
             deleteFile: (path) => deleteUserFile(path),
+            makeDir: (path) => actions.createUserFolder(path),
+            move: (from, to) => actions.moveUserPath(from, to),
+            removeDir: (path, recursive) => actions.deleteUserFolder(path, recursive),
         }),
-        [cwd, processes, windows, openWindow, closeWindow, writeUserFile, deleteUserFile],
+        [cwd, processes, windows, openWindow, closeWindow, writeUserFile, deleteUserFile, actions],
     );
 
     useEffect(() => {

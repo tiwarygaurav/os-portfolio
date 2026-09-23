@@ -182,12 +182,16 @@ read-only; `/proc` is generated per call from live window state. Files can carry
 GUI in sync. A text file with no window of its own defaults to Notepad, as XP's associations did.
 
 **`/home/guest` is the visitor's, and writable.** My Documents, My Pictures (with a read-only
-Sample Pictures) and the guest root. Files live in the store's persisted `userFiles`, capped at
-2,000,000 characters, and the store mounts them into the VFS with `mountUserFiles` on every
-change — the VFS stays headless and never imports the store. `validateUserPath` is the one place
-that decides what can be written, so Notepad's Save As, the shell's `>` and `rm`, and the store all
-refuse the same paths with the same words. Notepad, the picture viewer, Explorer and the shell all
-read and write the same files; `components/os/FileDialog.tsx` is the shared XP Open / Save As dialog.
+Sample Pictures), the guest root, and any folders the visitor makes in them. Files live in the
+store's persisted `userFiles` and folders in `userFolders`, together capped at 2,000,000
+characters, and the store mounts both into the VFS with `mountUserFiles` on every change — the VFS
+stays headless and never imports the store. `validateUserPath` is the one place that decides what
+can be written, so Notepad's Save As, the shell's `>`, `mkdir` and `mv`, and the store all refuse
+the same paths with the same words. Rename, move and folder delete are pure functions over the tree
+(`planMove`, `planRemoveFolder`) that the store applies and the unit tests call directly. Notepad,
+the picture viewer, Explorer and the shell all read and write the same files;
+`components/os/FileDialog.tsx` is the shared XP Open / Save As dialog, and
+`components/ui/RenameField.tsx` the in-place rename box it shares with Explorer.
 
 ### Event bus (`system/bus.ts`)
 
@@ -347,7 +351,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rename, no mkdir. |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no drag-and-drop between folders, no copy of a folder, and deleted files do not go to the Recycle Bin. |
 
 ---
 
@@ -451,6 +455,25 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Folders: New Folder, Rename, and a shell that can move things
+
+**Why:** /home/guest had a fixed layout, so a visitor who saved three files had nowhere to put a
+fourth but beside them, and nothing could be renamed. Explorer's File and Folder Tasks — Make a new
+folder, Rename, Delete — and F2 are among the most-used things in XP.
+**Design:** folders are a list of paths in the store (`userFolders`), not a second shape inside
+`userFiles`, so every existing file reader was untouched. An empty folder still exists, as it must.
+`validateUserPath` learned that a folder the visitor made is writable, which is all Notepad and
+Paint needed to save into one. Rename, move and folder delete are pure (`planMove`,
+`planRemoveFolder`) so the store, the shell's stub in the unit tests and any future caller get the
+same answers; a move takes everything inside, refuses to overwrite, and cannot put a folder inside
+itself. XP's words throughout: "New Folder (2)", "If you change a file name extension, the file may
+become unusable", "Are you sure you want to remove the folder ... and all its contents?".
+**Consequences:** the shell gained `mkdir [-p]`, `rmdir`, `mv`, `cp` and `rm -r`; Save As and Open
+gained Create New Folder; a picture wallpaper follows its file when the file moves. `useFsRevision`
+now tracks folders as well as files. `cp` refuses a built-in picture rather than store a stub,
+since localStorage cannot hold a copy of a file on the site.
+**Not done:** drag-and-drop between folders; copying a folder; deleted files skip the Recycle Bin.
 
 ### 2026-09-24 - The XP fidelity pass: Luna drawn properly, high-res icons, XP's own behaviours
 

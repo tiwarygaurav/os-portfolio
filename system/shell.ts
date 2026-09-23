@@ -81,6 +81,12 @@ export interface ShellContext {
     writeFile: (path: string, content: string) => string | null;
     /** Delete a file under /home/guest. Returns why it failed, or null. */
     deleteFile: (path: string) => string | null;
+    /** Make a folder under /home/guest. Returns why it failed, or null. */
+    makeDir: (path: string) => string | null;
+    /** Rename or move a visitor's file or folder. Returns why it failed, or null. */
+    move: (from: string, to: string) => string | null;
+    /** Delete a visitor's folder; `recursive` takes its contents too. Returns why it failed, or null. */
+    removeDir: (path: string, recursive: boolean) => string | null;
 }
 
 interface Command {
@@ -113,6 +119,10 @@ const entryKind = (n: VNode): 'dir' | 'file' | 'link' | 'app' => {
     if (n.mime === 'application/x-app') return 'app';
     return 'file';
 };
+
+const parentPath = (p: string): string => p.slice(0, p.lastIndexOf('/')) || '/';
+const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
+const joinPath = (dir: string, name: string): string => `${dir === '/' ? '' : dir}/${name}`;
 
 /** `~/projects` reads better than `/home/gaurav/projects` in a prompt. */
 export const prettyPath = (p: string): string =>
@@ -260,22 +270,140 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
 
     rm: {
         name: 'rm',
-        summary: 'Delete a file you saved in /home/guest.',
-        usage: 'rm <file>...',
+        summary: 'Delete a file (or, with -r, a folder) you made in /home/guest.',
+        usage: 'rm [-r] <path>...',
         run: (args, ctx) => {
-            if (!args.length) return out(error('rm: missing operand'));
+            const recursive = args.some((a) => /^-[rR]+$/.test(a));
+            const paths = args.filter((a) => !/^-[rR]+$/.test(a));
+            if (!paths.length) return out(error('rm: missing operand'));
             const lines: ShellLine[] = [];
-            for (const arg of args) {
+            for (const arg of paths) {
                 const target = resolvePath(ctx.cwd, arg);
                 const node = lookup(target, ctx.processes());
                 const say = (why: string) => lines.push(error(`rm: cannot remove '${prettyPath(target)}': ${why}`));
                 if (!node) say('No such file or directory');
-                else if (isDir(node)) say('Is a directory');
+                else if (isDir(node) && !recursive) say('Is a directory. Use rm -r to remove a folder and everything in it.');
+                else if (isDir(node)) {
+                    const problem = ctx.removeDir(target, true);
+                    if (problem) say(problem);
+                }
                 else if (!node.writable) say('Read-only file system. Only files you saved under /home/guest can be removed.');
                 else {
                     const problem = ctx.deleteFile(target);
                     if (problem) say(problem);
                 }
+            }
+            return out(...lines);
+        },
+    },
+
+    mkdir: {
+        name: 'mkdir',
+        summary: 'Make a folder in /home/guest.',
+        usage: 'mkdir [-p] <folder>...',
+        run: (args, ctx) => {
+            const parents = args.includes('-p');
+            const names = args.filter((a) => a !== '-p');
+            if (!names.length) return out(error('mkdir: missing operand'));
+            const lines: ShellLine[] = [];
+            for (const arg of names) {
+                const target = resolvePath(ctx.cwd, arg);
+                const existing = lookup(target, ctx.processes());
+                if (existing) {
+                    if (!(parents && isDir(existing))) lines.push(error(`mkdir: cannot create directory '${prettyPath(target)}': File exists`));
+                    continue;
+                }
+                // -p makes every missing folder on the way, from the top down.
+                const chain: string[] = [target];
+                if (parents) {
+                    for (let up = parentPath(target); up !== '/' && !lookup(up, ctx.processes()); up = parentPath(up)) chain.unshift(up);
+                }
+                for (const folder of chain) {
+                    const problem = ctx.makeDir(folder);
+                    if (problem) {
+                        lines.push(error(`mkdir: cannot create directory '${prettyPath(folder)}': ${problem}`));
+                        break;
+                    }
+                }
+            }
+            return out(...lines);
+        },
+    },
+
+    rmdir: {
+        name: 'rmdir',
+        summary: 'Remove an empty folder you made in /home/guest.',
+        usage: 'rmdir <folder>...',
+        run: (args, ctx) => {
+            if (!args.length) return out(error('rmdir: missing operand'));
+            const lines: ShellLine[] = [];
+            for (const arg of args) {
+                const target = resolvePath(ctx.cwd, arg);
+                const node = lookup(target, ctx.processes());
+                const say = (why: string) => lines.push(error(`rmdir: failed to remove '${prettyPath(target)}': ${why}`));
+                if (!node) say('No such file or directory');
+                else if (!isDir(node)) say('Not a directory');
+                else {
+                    const problem = ctx.removeDir(target, false);
+                    if (problem) say(problem === 'The folder is not empty.' ? 'Directory not empty. rm -r removes it with everything inside.' : problem);
+                }
+            }
+            return out(...lines);
+        },
+    },
+
+    mv: {
+        name: 'mv',
+        summary: 'Rename or move a file or folder you made in /home/guest.',
+        usage: 'mv <source>... <destination>',
+        run: (args, ctx) => {
+            if (args.length < 2) return out(error(args.length ? `mv: missing destination file operand after '${args[0]}'` : 'mv: missing file operand'));
+            const dest = resolvePath(ctx.cwd, args[args.length - 1]);
+            const destNode = lookup(dest, ctx.processes());
+            const intoDir = !!destNode && isDir(destNode);
+            const sources = args.slice(0, -1);
+            if (sources.length > 1 && !intoDir) return out(error(`mv: target '${prettyPath(dest)}' is not a directory`));
+            const lines: ShellLine[] = [];
+            for (const arg of sources) {
+                const from = resolvePath(ctx.cwd, arg);
+                const to = intoDir ? joinPath(dest, baseName(from)) : dest;
+                if (!lookup(from, ctx.processes())) {
+                    lines.push(error(`mv: cannot stat '${prettyPath(from)}': No such file or directory`));
+                    continue;
+                }
+                if (to === from) continue;
+                const problem = ctx.move(from, to);
+                if (problem) lines.push(error(`mv: cannot move '${prettyPath(from)}' to '${prettyPath(to)}': ${problem}`));
+            }
+            return out(...lines);
+        },
+    },
+
+    cp: {
+        name: 'cp',
+        summary: 'Copy a file — yours or the portfolio\'s — into /home/guest.',
+        usage: 'cp <file>... <destination>',
+        run: (args, ctx) => {
+            if (args.length < 2) return out(error(args.length ? `cp: missing destination file operand after '${args[0]}'` : 'cp: missing file operand'));
+            const dest = resolvePath(ctx.cwd, args[args.length - 1]);
+            const destNode = lookup(dest, ctx.processes());
+            const intoDir = !!destNode && isDir(destNode);
+            const sources = args.slice(0, -1);
+            if (sources.length > 1 && !intoDir) return out(error(`cp: target '${prettyPath(dest)}' is not a directory`));
+            const lines: ShellLine[] = [];
+            for (const arg of sources) {
+                const from = resolvePath(ctx.cwd, arg);
+                const node = lookup(from, ctx.processes());
+                const say = (why: string) => lines.push(error(`cp: cannot copy '${prettyPath(from)}': ${why}`));
+                if (!node) { say('No such file or directory'); continue; }
+                if (isDir(node)) { say('Is a directory. Only files can be copied.'); continue; }
+                // A visitor's picture is its data URL. A built-in picture is a file on the site,
+                // which the browser's storage cannot hold a copy of — say so rather than save a stub.
+                if (node.src && !node.src.startsWith('data:')) { say('built-in pictures can be viewed, not copied.'); continue; }
+                const to = intoDir ? joinPath(dest, node.name) : dest;
+                if (to === from) { say('it is the same file'); continue; }
+                const problem = ctx.writeFile(to, node.src ?? node.content);
+                if (problem) say(problem);
             }
             return out(...lines);
         },

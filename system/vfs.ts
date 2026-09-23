@@ -74,6 +74,8 @@ export interface VDir {
      * every surface resolves a path the same way.
      */
     open?: { appId: string; payload?: Record<string, string> };
+    /** A folder the visitor made under /home/guest: it can be renamed, moved and deleted. */
+    writable?: boolean;
 }
 
 export type VNode = VFile | VDir;
@@ -354,18 +356,29 @@ const HOME = `/home/${PROFILE.handle}`;
 
 /**
  * The visitor's own folder. The shell prompt has always said `guest@portfolio`; this is guest's
- * home. Everything under `/home/${PROFILE.handle}` is the portfolio and read-only. Files saved here
- * live in the store (`userFiles`), persist in this browser only, and are mounted into the tree
- * with `mountUserFiles` so the shell, Explorer, Notepad and the picture viewer all see the same
- * files. The layout is XP's: My Documents, My Pictures, and Sample Pictures inside My Pictures.
+ * home. Everything under `/home/${PROFILE.handle}` is the portfolio and read-only. Files and folders
+ * made here live in the store (`userFiles`, `userFolders`), persist in this browser only, and are
+ * mounted into the tree with `mountUserFiles` so the shell, Explorer, Notepad and the picture viewer
+ * all see the same ones. The layout is XP's: My Documents, My Pictures, and Sample Pictures inside
+ * My Pictures — and, as in XP, the visitor can make more folders anywhere in it.
  */
 export const GUEST_PATH = '/home/guest';
 export const DOCUMENTS_PATH = `${GUEST_PATH}/My Documents`;
 export const PICTURES_PATH = `${GUEST_PATH}/My Pictures`;
 export const SAMPLE_PICTURES_PATH = `${PICTURES_PATH}/Sample Pictures`;
 
-/** The only folders a visitor can save into. There is no mkdir: the layout is fixed, like XP's. */
+/** The built-in folders a visitor can save into. Folders the visitor makes are writable too. */
 export const WRITABLE_DIRS = [GUEST_PATH, DOCUMENTS_PATH, PICTURES_PATH] as const;
+
+/** XP's own limit on a full path was 260 characters. */
+export const MAX_PATH = 240;
+
+/** The visitor's files and folders together: what a move or a delete works on. */
+export interface UserTree {
+    files: Record<string, UserFile>;
+    /** Absolute paths of the folders the visitor made. Every one's parent is writable. */
+    folders: readonly string[];
+}
 
 /** What the store keeps per visitor file. Images hold a PNG/JPEG data: URL as their content. */
 export interface UserFile {
@@ -393,26 +406,32 @@ export function mimeForName(name: string): UserFile['mime'] {
  * Why `absPath` cannot be written, or null if it can. Headless, so the shell, the store and the
  * Save As dialog all refuse the same paths with the same words.
  */
-export function validateUserPath(absPath: string): string | null {
+export function validateUserPath(absPath: string, folders: readonly string[] = userFolders): string | null {
     const cut = absPath.lastIndexOf('/');
     const parent = absPath.slice(0, cut) || '/';
     const name = absPath.slice(cut + 1);
-    if (!(WRITABLE_DIRS as readonly string[]).includes(parent)) {
-        if (parent === SAMPLE_PICTURES_PATH) return 'Sample Pictures is read-only.';
+    if (!isWritableDir(parent, folders)) {
+        if (parent === SAMPLE_PICTURES_PATH || parent.startsWith(SAMPLE_PICTURES_PATH + '/')) return 'Sample Pictures is read-only.';
         if (parent === HOME || parent.startsWith(HOME + '/')) {
             return 'The portfolio is read-only. Save to My Documents or My Pictures instead.';
         }
-        return `You can only save in ${WRITABLE_DIRS.map((d) => d.replace(GUEST_PATH, '/home/guest')).join(', ')}.`;
+        if (parent.startsWith(GUEST_PATH + '/')) return `The folder ${parent} does not exist.`;
+        return 'You can only save in /home/guest and the folders inside it.';
     }
     if (!name.trim()) return 'A file name cannot be empty.';
     if (name !== name.trim()) return 'A file name cannot start or end with a space.';
     if (name === '.' || name === '..') return 'That name is reserved.';
     if (name.length > 64) return 'A file name can be at most 64 characters.';
     if (INVALID_NAME.test(name)) return 'A file name cannot contain any of the following characters: \\ / : * ? " < > |';
+    if (absPath.length > MAX_PATH) return 'The path is too long. Use a shorter name, or a folder nearer the top.';
     const reserved = [DOCUMENTS_PATH, PICTURES_PATH, SAMPLE_PICTURES_PATH];
-    if (reserved.includes(absPath)) return 'A folder with that name already exists.';
+    if (reserved.includes(absPath) || folders.includes(absPath)) return 'A folder with that name already exists.';
     return null;
 }
+
+/** True for a folder a visitor may save into: a built-in writable one, or one they made. */
+export const isWritableDir = (path: string, folders: readonly string[] = userFolders): boolean =>
+    (WRITABLE_DIRS as readonly string[]).includes(path) || folders.includes(path);
 
 /**
  * Why `content` cannot be stored at `absPath`, or null. A .png or .jpg name promises a picture, so
@@ -431,16 +450,107 @@ export function validateUserContent(absPath: string, content: string): string | 
 export const isUserPath = (absPath: string): boolean => userFiles[absPath] !== undefined;
 
 let userFiles: Record<string, UserFile> = {};
+let userFolders: readonly string[] = [];
 let guestCache: VDir | null = null;
 
 /**
- * Mount the visitor's files. Called by the store whenever `userFiles` changes, and by tests.
- * The object is kept by reference — the store replaces it on every write, never mutates it.
+ * Mount the visitor's files and folders. Called by the store whenever either changes, and by
+ * tests. Both are kept by reference — the store replaces them on every write, never mutates them.
  */
-export function mountUserFiles(files: Record<string, UserFile>): void {
-    if (files === userFiles) return;
+export function mountUserFiles(files: Record<string, UserFile>, folders: readonly string[] = []): void {
+    if (files === userFiles && folders === userFolders) return;
     userFiles = files;
+    userFolders = folders;
     guestCache = null;
+}
+
+const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/')) || '/';
+/** `p` with its leading `from` replaced by `to`, if `p` is `from` or inside it. */
+const rebase = (p: string, from: string, to: string) =>
+    p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : p;
+const inside = (p: string, folder: string) => p.startsWith(folder + '/');
+
+/**
+ * The next free "New Folder" name in `parent`, as XP numbered them: New Folder, New Folder (2)...
+ */
+export function nextFolderName(parent: string, tree: UserTree, base = 'New Folder'): string {
+    const taken = (name: string) => {
+        const path = `${parent}/${name}`;
+        return tree.files[path] !== undefined || tree.folders.includes(path) || validateUserPath(path, tree.folders) !== null;
+    };
+    if (!taken(base)) return base;
+    for (let n = 2; ; n++) if (!taken(`${base} (${n})`)) return `${base} (${n})`;
+}
+
+/**
+ * Rename or move a visitor's file or folder, with everything inside it. Pure: returns the tree as it
+ * would be, or why it cannot be done — the store applies it, the tests check it.
+ */
+export function planMove(tree: UserTree, from: string, to: string): UserTree | string {
+    const isFolder = tree.folders.includes(from);
+    const file = tree.files[from];
+    if (!isFolder && !file) {
+        return lookup(from)
+            ? `${baseName(from)} is read-only. Only files and folders you made in /home/guest can be moved or renamed.`
+            : `Cannot find ${from}.`;
+    }
+    if (from === to) return tree;
+    if (isFolder && inside(to, from)) {
+        return `Cannot move ${baseName(from)}: the destination folder is inside the folder being moved.`;
+    }
+    if (tree.files[to] !== undefined) return 'A file with that name already exists.';
+    const invalid = validateUserPath(to, tree.folders);
+    if (invalid) return invalid;
+    if (file) {
+        const content = validateUserContent(to, file.content);
+        if (content) return content;
+    }
+    const files: Record<string, UserFile> = {};
+    for (const [p, f] of Object.entries(tree.files)) {
+        const q = rebase(p, from, to);
+        if (q.length > MAX_PATH) return 'The path would be too long. Use a shorter name, or a folder nearer the top.';
+        // A renamed file takes the type its new name implies, as XP's associations did.
+        files[q] = p === from ? { ...f, mime: mimeForName(q) } : f;
+    }
+    const folders = tree.folders.map((p) => rebase(p, from, to));
+    if (folders.some((p) => p.length > MAX_PATH)) return 'The path would be too long. Use a shorter name, or a folder nearer the top.';
+    return { files, folders: folders.sort() };
+}
+
+/**
+ * Delete a folder the visitor made. Without `recursive` only an empty one, as `rmdir` does; with
+ * it, everything inside too, as Explorer's delete does. Returns the tree as it would be and how many
+ * items went with the folder, or why it cannot be done.
+ */
+export function planRemoveFolder(tree: UserTree, path: string, recursive: boolean): { tree: UserTree; removed: number } | string {
+    if (!tree.folders.includes(path)) {
+        return lookup(path)
+            ? `${baseName(path)} cannot be deleted. Only folders you made in /home/guest can be.`
+            : `Cannot find ${path}.`;
+    }
+    const files = Object.keys(tree.files).filter((p) => inside(p, path));
+    const subfolders = tree.folders.filter((p) => inside(p, path));
+    const removed = files.length + subfolders.length;
+    if (removed && !recursive) return 'The folder is not empty.';
+    const nextFiles = { ...tree.files };
+    for (const p of files) delete nextFiles[p];
+    return {
+        tree: { files: nextFiles, folders: tree.folders.filter((p) => p !== path && !inside(p, path)) },
+        removed,
+    };
+}
+
+/**
+ * The folders from storage that are still valid, parents before children. A visitor can edit
+ * localStorage by hand, so every one is checked against the same rules a live mkdir obeys.
+ */
+export function sanitizeFolders(v: unknown): string[] {
+    if (!Array.isArray(v)) return [];
+    const accepted: string[] = [];
+    const candidates = v.filter((p): p is string => typeof p === 'string').sort((a, b) => a.length - b.length);
+    for (const p of candidates) if (!accepted.includes(p) && validateUserPath(p, accepted) === null) accepted.push(p);
+    return accepted.sort();
 }
 
 const fmtSize = (chars: number) =>
@@ -477,11 +587,17 @@ const SAMPLE_PICTURES: { name: string; src: string; mime: VFile['mime']; note: s
 
 function guestDir(): VDir {
     if (guestCache) return guestCache;
-    const inDir = (d: string) =>
-        Object.keys(userFiles)
-            .filter((p) => p.slice(0, p.lastIndexOf('/')) === d)
+    /** What the visitor put in `d`: their folders first, then their files, as Explorer sorts. */
+    const inDir = (d: string): VNode[] => [
+        ...userFolders
+            .filter((p) => parentOf(p) === d)
             .sort((a, b) => a.localeCompare(b))
-            .map((p) => userFileNode(p, userFiles[p]));
+            .map((p): VDir => ({ ...dir(baseName(p), inDir(p), 'A folder you made. Saved in this browser.'), writable: true })),
+        ...Object.keys(userFiles)
+            .filter((p) => parentOf(p) === d)
+            .sort((a, b) => a.localeCompare(b))
+            .map((p) => userFileNode(p, userFiles[p])),
+    ];
 
     const samples = dir(
         'Sample Pictures',
@@ -508,12 +624,13 @@ function guestDir(): VDir {
     return guestCache;
 }
 
-/** Characters the mounted visitor files take now; what `df` reports. */
-export const guestUsage = (): number => userFilesSize(userFiles);
+/** Characters the mounted visitor files and folders take now; what `df` reports. */
+export const guestUsage = (): number => userFilesSize(userFiles, userFolders);
 
-/** Total characters the visitor's files would take if `next` were saved. */
-export const userFilesSize = (files: Record<string, UserFile>): number =>
-    Object.entries(files).reduce((n, [k, f]) => n + k.length + f.content.length, 0);
+/** Total characters the visitor's files (and folders) would take if they were saved. */
+export const userFilesSize = (files: Record<string, UserFile>, folders: readonly string[] = []): number =>
+    Object.entries(files).reduce((n, [k, f]) => n + k.length + f.content.length, 0) +
+    folders.reduce((n, p) => n + p.length, 0);
 
 const buildRoot = (): VDir =>
     dir('/', [

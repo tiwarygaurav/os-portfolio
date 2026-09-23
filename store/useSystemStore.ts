@@ -10,10 +10,14 @@ import {
     lookup,
     mimeForName,
     mountUserFiles,
+    planMove,
+    planRemoveFolder,
+    sanitizeFolders,
     userFilesSize,
     validateUserContent,
     validateUserPath,
     type UserFile,
+    type UserTree,
 } from '@/system/vfs';
 import {
     DEFAULT_SCREEN_SAVER,
@@ -105,6 +109,8 @@ interface SystemState {
 
     /** Files the visitor saved under /home/guest, keyed by absolute path. Persisted. */
     userFiles: Record<string, UserFile>;
+    /** Folders the visitor made under /home/guest, as absolute paths, sorted. Persisted. */
+    userFolders: string[];
 
     /** Open XP message boxes, newest last. Never persisted. */
     dialogs: DialogRequest[];
@@ -171,6 +177,18 @@ interface SystemState {
         writeUserFile: (path: string, file: { content: string; mime?: UserFile['mime'] }) => string | null;
         /** Delete a visitor's file. Returns why it failed, or null. */
         deleteUserFile: (path: string) => string | null;
+        /** Make a folder under /home/guest. Returns why it failed, or null. */
+        createUserFolder: (path: string) => string | null;
+        /**
+         * Rename or move a visitor's file or folder, with everything inside it. Returns why it
+         * failed, or null. A picture wallpaper inside it follows it to the new path.
+         */
+        moveUserPath: (from: string, to: string) => string | null;
+        /**
+         * Delete a folder the visitor made. Without `recursive`, only an empty one (`rmdir`); with
+         * it, everything inside goes too (Explorer's Delete, `rm -r`). Returns why it failed, or null.
+         */
+        deleteUserFolder: (path: string, recursive: boolean) => string | null;
 
         /** Retitle a window, e.g. "notes.txt - Notepad". */
         setWindowTitle: (id: string, title: string) => void;
@@ -251,6 +269,20 @@ const safeLocalStorage: StateStorage = {
     },
 };
 
+type StoreSet = (partial: Partial<SystemState>) => void;
+
+/**
+ * Replace the visitor's files and folders together. The persist middleware writes synchronously
+ * inside `set`; if the browser refused, put the old tree back and say so, rather than show a
+ * change that would be gone on reload.
+ */
+function commitTree(set: StoreSet, next: UserTree, before: UserTree): string | null {
+    set({ userFiles: next.files, userFolders: [...next.folders] });
+    if (!persistFailed) return null;
+    set({ userFiles: before.files, userFolders: [...before.folders] });
+    return 'This browser refused to store the change, so it was not made. Site data may be blocked, or storage is full.';
+}
+
 /** A saved picture wallpaper, if it is still well-formed. Whether the file exists is checked at draw time. */
 function sanitizeWallpaperFile(v: unknown): WallpaperFile | null {
     if (!v || typeof v !== 'object') return null;
@@ -260,7 +292,7 @@ function sanitizeWallpaperFile(v: unknown): WallpaperFile | null {
 }
 
 /** Keep only well-formed visitor files from whatever localStorage handed back. */
-function sanitizeUserFiles(v: unknown): Record<string, UserFile> {
+function sanitizeUserFiles(v: unknown, folders: readonly string[]): Record<string, UserFile> {
     if (!v || typeof v !== 'object') return {};
     const out: Record<string, UserFile> = {};
     const mimes: UserFile['mime'][] = ['text/plain', 'text/markdown', 'image/png', 'image/jpeg'];
@@ -269,7 +301,7 @@ function sanitizeUserFiles(v: unknown): Record<string, UserFile> {
         const { content, mime, modified } = f as Partial<UserFile>;
         if (typeof content !== 'string' || !mimes.includes(mime as UserFile['mime'])) continue;
         // The same two rules a live write obeys: a visitor can edit localStorage by hand.
-        if (validateUserPath(path) || validateUserContent(path, content)) continue;
+        if (validateUserPath(path, folders) || validateUserContent(path, content)) continue;
         out[path] = { content, mime: mime as UserFile['mime'], modified: typeof modified === 'number' ? modified : 0 };
     }
     return out;
@@ -401,6 +433,7 @@ export const useSystemStore = create<SystemState>()(
             recycleBin: [],
             deletedAppIds: [],
             userFiles: {},
+            userFolders: [],
             dialogs: [],
 
             actions: {
@@ -768,7 +801,7 @@ export const useSystemStore = create<SystemState>()(
                     const current = get().userFiles;
                     const created = current[path] === undefined;
                     const next = { ...current, [path]: { content, mime: mime ?? mimeForName(path), modified: Date.now() } };
-                    if (userFilesSize(next) > USER_FILES_QUOTA) {
+                    if (userFilesSize(next, get().userFolders) > USER_FILES_QUOTA) {
                         return 'There is not enough space left in this browser to save that file. Delete something from /home/guest first.';
                     }
                     set({ userFiles: next });
@@ -795,6 +828,51 @@ export const useSystemStore = create<SystemState>()(
                     set(wasWallpaper ? { userFiles: next, wallpaperFile: null } : { userFiles: next });
                     publish({ type: 'fs:delete', path });
                     if (wasWallpaper) publish({ type: 'setting:changed', key: 'wallpaper', value: get().wallpaperId });
+                    return null;
+                },
+
+                createUserFolder: (path) => {
+                    const { userFiles: files, userFolders: folders } = get();
+                    if (files[path] !== undefined) return 'A file with that name already exists.';
+                    const invalid = validateUserPath(path, folders);
+                    if (invalid) return invalid;
+                    const next = [...folders, path].sort();
+                    if (userFilesSize(files, next) > USER_FILES_QUOTA) {
+                        return 'There is not enough space left in this browser. Delete something from /home/guest first.';
+                    }
+                    const refused = commitTree(set, { files, folders: next }, { files, folders });
+                    if (refused) return refused;
+                    publish({ type: 'fs:mkdir', path });
+                    return null;
+                },
+
+                moveUserPath: (from, to) => {
+                    const before: UserTree = { files: get().userFiles, folders: get().userFolders };
+                    const plan = planMove(before, from, to);
+                    if (typeof plan === 'string') return plan;
+                    if (plan === before) return null;
+                    const refused = commitTree(set, plan, before);
+                    if (refused) return refused;
+                    // The wallpaper names a file by path; if that file moved, follow it.
+                    const wallpaper = get().wallpaperFile;
+                    if (wallpaper && (wallpaper.path === from || wallpaper.path.startsWith(from + '/'))) {
+                        set({ wallpaperFile: { ...wallpaper, path: to + wallpaper.path.slice(from.length) } });
+                    }
+                    publish({ type: 'fs:move', from, to });
+                    return null;
+                },
+
+                deleteUserFolder: (path, recursive) => {
+                    const before: UserTree = { files: get().userFiles, folders: get().userFolders };
+                    const plan = planRemoveFolder(before, path, recursive);
+                    if (typeof plan === 'string') return plan;
+                    const refused = commitTree(set, plan.tree, before);
+                    if (refused) return refused;
+                    const wallpaper = get().wallpaperFile;
+                    const tookWallpaper = !!wallpaper && wallpaper.path.startsWith(path + '/');
+                    if (tookWallpaper) set({ wallpaperFile: null });
+                    publish({ type: 'fs:delete', path, folder: true, items: plan.removed });
+                    if (tookWallpaper) publish({ type: 'setting:changed', key: 'wallpaper', value: get().wallpaperId });
                     return null;
                 },
 
@@ -853,12 +931,15 @@ export const useSystemStore = create<SystemState>()(
             // saver at all. Validate what comes back instead of trusting it.
             merge: (persisted, current) => {
                 const saved = (persisted ?? {}) as Partial<SystemState>;
+                // Folders first: a file is only kept if the folder it is in survived too.
+                const folders = sanitizeFolders(saved.userFolders);
                 return {
                     ...current,
                     ...saved,
                     themeId: isThemeId(saved.themeId) ? saved.themeId : DEFAULT_THEME,
                     screenSaver: sanitizeScreenSaver(saved.screenSaver),
-                    userFiles: sanitizeUserFiles(saved.userFiles),
+                    userFiles: sanitizeUserFiles(saved.userFiles, folders),
+                    userFolders: folders,
                     wallpaperFile: sanitizeWallpaperFile(saved.wallpaperFile),
                 };
             },
@@ -871,9 +952,11 @@ export const useSystemStore = create<SystemState>()(
  * and must not import the store, so the store pushes to it: once now, and on every change —
  * including the rehydration from localStorage, which arrives as an ordinary state change.
  */
-mountUserFiles(useSystemStore.getState().userFiles);
+mountUserFiles(useSystemStore.getState().userFiles, useSystemStore.getState().userFolders);
 useSystemStore.subscribe((state, prev) => {
-    if (state.userFiles !== prev.userFiles) mountUserFiles(state.userFiles);
+    if (state.userFiles !== prev.userFiles || state.userFolders !== prev.userFolders) {
+        mountUserFiles(state.userFiles, state.userFolders);
+    }
 });
 
 /*

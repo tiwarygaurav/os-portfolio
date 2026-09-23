@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ArrowUp, FolderClosed, FileText, Link2, AppWindow, Image as ImageIcon } from 'lucide-react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { APPS } from '@/constants/apps';
-import { DOCUMENTS_PATH, GUEST_PATH, HOME_PATH, PICTURES_PATH, isDir, isFile, listDir, lookup, resolvePath, type VNode } from '@/system/vfs';
+import { DOCUMENTS_PATH, GUEST_PATH, HOME_PATH, PICTURES_PATH, isDir, isFile, isWritableDir, listDir, lookup, resolvePath, type VNode } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
 import { useProcesses } from '@/utils/processes';
 import { playSound } from '@/utils/sound';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
-import { useFsRevision } from '@/utils/fs';
+import { makeNewFolder, renameUserPath, useFsRevision } from '@/utils/fs';
+import RenameField from '@/components/ui/RenameField';
 
 /**
  * Windows Explorer, over the same virtual filesystem the Command Prompt walks.
@@ -60,7 +61,10 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
      */
     const [nav, setNav] = useState<{ list: string[]; cursor: number }>({ list: [start], cursor: 0 });
     const [selected, setSelected] = useState<string | null>(null);
+    /** The item whose name is being edited in place, if any. */
+    const [renaming, setRenaming] = useState<string | null>(null);
     const [address, setAddress] = useState(prettyPath(start));
+    const listRef = useRef<HTMLUListElement>(null);
 
     const path = nav.list[nav.cursor];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `revision` is the signal that /home/guest changed
@@ -71,6 +75,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const navigate = useCallback((next: string) => {
         setNav((n) => ({ list: [...n.list.slice(0, n.cursor + 1), next], cursor: n.cursor + 1 }));
         setSelected(null);
+        setRenaming(null);
         setAddress(prettyPath(next));
     }, []);
 
@@ -80,6 +85,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setNav({ ...nav, cursor: next });
         setAddress(prettyPath(nav.list[next]));
         setSelected(null);
+        setRenaming(null);
     };
 
     // A later `open` on this window carries a new path; follow it. Not on mount: the opening path
@@ -135,22 +141,62 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
      * the visitor's own files can go; anything else gets XP's refusal with the actual reason.
      */
     const deleteNode = async (target: VNode, targetPath: string) => {
-        if (!isFile(target) || !target.writable) {
+        if (!target.writable) {
             await xpAlert('Error Deleting File or Folder', [
-                `Cannot delete ${target.name}: ${isDir(target) ? 'folders cannot be deleted here.' : 'it is read-only.'}`,
-                'Only files you saved in /home/guest can be deleted.',
+                `Cannot delete ${target.name}: ${isDir(target) ? 'it is a system folder.' : 'it is read-only.'}`,
+                'Only files and folders you made in /home/guest can be deleted.',
             ], 'error');
             return;
         }
-        const ok = await xpConfirm('Confirm File Delete', `Are you sure you want to delete '${target.name}'?`, {
-            confirmLabel: 'Yes',
-            cancelLabel: 'No',
-            icon: 'warning',
-        });
+        const folder = isDir(target);
+        const ok = await xpConfirm(
+            folder ? 'Confirm Folder Delete' : 'Confirm File Delete',
+            folder
+                ? `Are you sure you want to remove the folder '${target.name}' and all its contents?`
+                : `Are you sure you want to delete '${target.name}'?`,
+            { confirmLabel: 'Yes', cancelLabel: 'No', icon: 'warning' },
+        );
         if (!ok) return;
-        const problem = actions.deleteUserFile(targetPath);
+        const problem = folder ? actions.deleteUserFolder(targetPath, true) : actions.deleteUserFile(targetPath);
         if (problem) void xpAlert('Windows Explorer', [problem], 'error');
         else setSelected(null);
+    };
+
+    /** Put keyboard focus back on an item after the rename box it was replaced by goes away. */
+    const focusItem = (name: string) =>
+        requestAnimationFrame(() =>
+            Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-name]') ?? [])
+                .find((b) => b.dataset.name === name)
+                ?.focus(),
+        );
+
+    /** F2, or "Rename this file": only the visitor's own items; anything else says why not. */
+    const startRename = (target: VNode) => {
+        if (!target.writable) {
+            void xpAlert('Error Renaming File or Folder', [
+                `Cannot rename ${target.name}: ${isDir(target) ? 'it is a system folder.' : 'it is read-only.'}`,
+                'Only files and folders you made in /home/guest can be renamed.',
+            ], 'error');
+            return;
+        }
+        setSelected(target.name);
+        setRenaming(target.name);
+    };
+
+    const commitRename = async (targetPath: string, typed: string) => {
+        setRenaming(null);
+        const name = await renameUserPath(targetPath, typed);
+        setSelected(name);
+        focusItem(name);
+    };
+
+    const canWriteHere = isWritableDir(path);
+    const newFolder = async () => {
+        const name = await makeNewFolder(path);
+        if (!name) return;
+        // XP made it and went straight into naming it.
+        setSelected(name);
+        setRenaming(name);
     };
     const deleteSelected = () => {
         if (selectedNode && selectedPath) void deleteNode(selectedNode, selectedPath);
@@ -233,9 +279,15 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                         )}
                     </Panel>
 
-                    {selectedNode && isFile(selectedNode) && selectedNode.writable && (
-                        <Panel title="File Tasks">
-                            <PlaceLink label="Delete this file" onClick={deleteSelected} />
+                    {(canWriteHere || selectedNode?.writable) && (
+                        <Panel title="File and Folder Tasks">
+                            {canWriteHere && <PlaceLink label="Make a new folder" onClick={() => void newFolder()} />}
+                            {selectedNode?.writable && (
+                                <>
+                                    <PlaceLink label={`Rename this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={() => startRename(selectedNode)} />
+                                    <PlaceLink label={`Delete this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={deleteSelected} />
+                                </>
+                            )}
                         </Panel>
                     )}
 
@@ -262,27 +314,46 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                 {/* File list */}
                 <div className="order-1 flex-1 bg-white p-2 md:order-none md:overflow-y-auto">
                     {children.length === 0 ? (
-                        <p className="p-4 text-xs text-gray-500">This folder is empty.</p>
+                        <p className="p-4 text-xs text-gray-500">
+                            {node ? 'This folder is empty.' : 'This folder no longer exists. It was moved or deleted.'}
+                        </p>
                     ) : (
-                        <ul className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
+                        <ul ref={listRef} className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
                             {children.map((child) => {
                                 const childPath = `${path === '/' ? '' : path}/${child.name}`;
                                 const isSelected = selected === child.name;
+                                if (renaming === child.name) {
+                                    return (
+                                        <li key={child.name}>
+                                            <div className="flex w-full items-center gap-2 rounded bg-[#316ac5] px-2 py-1 text-xs">
+                                                <NodeIcon node={child} size={18} />
+                                                <RenameField
+                                                    name={child.name}
+                                                    isFolder={isDir(child)}
+                                                    onCommit={(typed) => void commitRename(childPath, typed)}
+                                                    onCancel={() => { setRenaming(null); focusItem(child.name); }}
+                                                />
+                                            </div>
+                                        </li>
+                                    );
+                                }
                                 return (
                                     <li key={child.name}>
                                         <button
+                                            data-name={child.name}
                                             onClick={() => setSelected(child.name)}
                                             onDoubleClick={() => activate(child, childPath)}
                                             onFocus={() => setSelected(child.name)}
                                             onKeyDown={(e) => {
                                                 // Keys pressed on a file belong to Explorer. They used to reach the
                                                 // desktop underneath and act on whatever desktop icon was selected.
-                                                if (e.key === 'Enter' || e.key === 'Delete') {
+                                                if (e.key === 'Enter' || e.key === 'Delete' || e.key === 'F2') {
                                                     e.preventDefault();
                                                     e.stopPropagation();
                                                 }
                                                 if (e.key === 'Enter') activate(child, childPath);
                                                 if (e.key === 'Delete') void deleteNode(child, childPath);
+                                                if (e.key === 'F2') startRename(child);
                                             }}
                                             className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
                                                 isSelected ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'

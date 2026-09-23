@@ -57,11 +57,15 @@ promise you are making to a visitor's browser for the next year.
 
 ## Visitor files
 
-`userFiles: Record<path, { content, mime, modified }>` is persisted and sanitised on hydration
-(anything failing `validateUserPath` or with the wrong shape is dropped). `writeUserFile` and
-`deleteUserFile` return the refusal reason or null, enforce `USER_FILES_QUOTA`, and publish
-`fs:write` / `fs:delete`. After every change the store calls `mountUserFiles` so the headless VFS sees
-the same files. Storage itself goes through `safeLocalStorage`, which cannot throw: a full or
+`userFiles: Record<path, { content, mime, modified }>` and `userFolders: string[]` are persisted and
+sanitised on hydration — folders first, parents before children, then files against the folders that
+survived (anything failing `validateUserPath` or with the wrong shape is dropped). `writeUserFile`,
+`deleteUserFile`, `createUserFolder`, `moveUserPath` and `deleteUserFolder` return the refusal reason
+or null, enforce `USER_FILES_QUOTA` (folder paths count toward it), roll back if the browser refused
+to store the change, and publish `fs:write` / `fs:delete` / `fs:mkdir` / `fs:move`. A move or delete
+is computed by the VFS's pure `planMove` / `planRemoveFolder`; the store only applies it, and moves a
+picture wallpaper along with its file. After every change the store calls `mountUserFiles` so the
+headless VFS sees the same files and folders. Storage itself goes through `safeLocalStorage`, which cannot throw: a full or
 blocked localStorage is reported as an Event Viewer error instead of breaking the action.
 
 `registerCloseGuard(id, guard)` lets an app answer "may I close?" asynchronously (Notepad asks about
