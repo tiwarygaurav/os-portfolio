@@ -446,7 +446,14 @@ export const useSystemStore = create<SystemState>()(
                 },
                 cancelShutdown: () => set({ isShuttingDown: false }),
 
-                setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), isMuted: v === 0 }),
+                setVolume: (v) => {
+                    const wasMuted = get().isMuted;
+                    set({ volume: Math.max(0, Math.min(1, v)), isMuted: v === 0 });
+                    // Dragging to 0 mutes and dragging up unmutes, as the tray slider did in XP. The log
+                    // must say so, or its last mute entry contradicts what the visitor hears.
+                    const isMuted = get().isMuted;
+                    if (isMuted !== wasMuted) publish({ type: 'setting:changed', key: 'mute', value: isMuted ? 'on' : 'off' });
+                },
                 toggleMute: () => {
                     set(state => ({ isMuted: !state.isMuted }));
                     publish({ type: 'setting:changed', key: 'mute', value: get().isMuted ? 'on' : 'off' });

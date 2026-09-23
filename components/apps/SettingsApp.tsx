@@ -103,6 +103,7 @@ export default function SettingsApp() {
     const [browsing, setBrowsing] = useState(false);
     const screenSaver = useSystemStore((s) => s.screenSaver);
     const deletedCount = useSystemStore((s) => s.deletedAppIds.length);
+    const movedCount = useSystemStore((s) => Object.keys(s.desktopIcons).length);
     const actions = useSystemStore((s) => s.actions);
     const [tab, setTab] = useState<Tab>('Desktop');
 
@@ -229,7 +230,13 @@ export default function SettingsApp() {
                         <fieldset className="space-y-2 border border-gray-500 p-2">
                             <legend className="px-1 font-normal">Desktop icons:</legend>
                             <div className="flex flex-wrap gap-2">
-                                <XPButton onClick={() => actions.resetDesktopIcons()}>Reset Icon Positions</XPButton>
+                                <XPButton
+                                    onClick={() => actions.resetDesktopIcons()}
+                                    disabled={movedCount === 0}
+                                    title={movedCount === 0 ? 'Every icon is already in its default place' : undefined}
+                                >
+                                    Reset Icon Positions
+                                </XPButton>
                                 {/*
                                   * Deleted icons persist, so a visitor could lose the Projects icon for
                                   * good without ever thinking to open the Recycle Bin. This puts them all back.

@@ -27,6 +27,26 @@ test('taskbar buttons keep their floor width and the row scrolls instead of coll
     expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 });
 
+test('a tap that wakes the screen saver does not also press what is underneath', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'desk.cpl');
+    const settings = win(page, 'Display Properties');
+    await settings.getByRole('tab', { name: 'Screen Saver' }).tap();
+    await settings.getByLabel('Screen saver', { exact: true }).selectOption('marquee');
+    await settings.getByRole('button', { name: 'Preview' }).tap();
+    const canvas = page.locator('canvas[aria-label^="Screen saver"]');
+    await expect(canvas).toHaveCount(1);
+    await page.waitForTimeout(700);
+
+    // Tap exactly where the Start button is. A tap's click arrives after its touchend, and used to
+    // land on the Start button once the saver had gone.
+    const box = await page.getByText('start', { exact: true }).first().boundingBox();
+    await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await expect(canvas).toHaveCount(0);
+    await page.waitForTimeout(600);
+    await expect(page.getByText('All Programs')).toBeHidden();
+});
+
 test('the shell root uses the dynamic viewport height, not 100vh', async ({ page }) => {
     await bootAndLogin(page);
     // Headless Chromium has no collapsing toolbar, so 100vh and 100dvh coincide here and a size

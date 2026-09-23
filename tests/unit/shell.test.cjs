@@ -136,15 +136,19 @@ test('Tab completion is relative to the working directory', () => {
 });
 
 test('cat publishes a filesystem read on the bus, and events prints the log', () => {
-    bus.clearLog();
     const s = session();
+    // Published and then cleared: the log forgets it, the session total must not.
+    s.run('cat ~/about.md');
+    bus.clearLog();
     s.run('cat ~/about.md');
     const log = bus.getLog();
     assert.equal(log.at(-1).event.type, 'fs:read');
     assert.equal(log.at(-1).event.path, '~/about.md');
 
     const out = s.text(s.run('events 5'));
-    assert.match(out, /1 of 1 event in the log \(\d+ published this session\)/);
+    // Exact: the header used to print the log's length as the session total, and \d+ matched that too.
+    assert.match(out, new RegExp(`1 of 1 event in the log \\(${bus.publishedCount()} published this session\\)`));
+    assert.ok(bus.publishedCount() > 1);
     assert.match(out, /Filesystem: Read ~\/about\.md\./);
     assert.match(s.text(s.run('events zero')), /not a positive count/);
 });

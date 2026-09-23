@@ -106,23 +106,86 @@ test('the screen saver previews, runs on idle, and any input dismisses it', asyn
     await expect(canvas).toHaveCount(0);
 });
 
-test('the click that wakes the screen saver does not also act on what is underneath', async ({ page }) => {
-    await run(page, 'desk.cpl');
+/** Display Properties > Screen Saver > Preview, past the grace period. Returns the saver's canvas. */
+async function previewSaver(page: Page) {
     const settings = win(page, 'Display Properties');
+    if (!(await settings.isVisible())) await run(page, 'desk.cpl');
     await settings.getByRole('tab', { name: 'Screen Saver' }).click();
     await settings.getByLabel('Screen saver', { exact: true }).selectOption('marquee');
     await settings.getByRole('button', { name: 'Preview' }).click();
     const canvas = page.locator('canvas[aria-label^="Screen saver"]');
     await expect(canvas).toHaveCount(1);
     await page.waitForTimeout(700);
+    return canvas;
+}
 
-    // Click exactly where the Start button is: the saver closes, and the Start menu must not open.
-    const start = page.getByText('start', { exact: true }).first();
-    const box = await start.boundingBox();
-    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+test('the press that wakes the screen saver ends with it, however long it is held', async ({ page }) => {
+    const canvas = await previewSaver(page);
+    // A right-press on empty desktop, held past the old 450 ms window. Windows opens the context
+    // menu on release, which used to land on the desktop underneath.
+    await page.mouse.move(1300, 300);
+    await page.mouse.down({ button: 'right' });
     await expect(canvas).toHaveCount(0);
+    await page.waitForTimeout(700);
+    await page.mouse.up({ button: 'right' });
     await page.waitForTimeout(300);
-    await expect(page.getByText('All Programs')).toBeHidden();
+    await expect(page.getByText('Arrange Icons By')).toBeHidden();
+
+    // The next gesture is the visitor's own, and works at once. Its release used to be swallowed.
+    await previewSaver(page);
+    await page.mouse.click(1300, 300);
+    await expect(canvas).toHaveCount(0);
+    await page.getByText('start', { exact: true }).first().click();
+    await expect(page.getByText('All Programs')).toBeVisible();
+});
+
+test('with reduced motion, the Windows XP saver draws a still that survives a resize', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await run(page, 'desk.cpl');
+    const settings = win(page, 'Display Properties');
+    await settings.getByRole('tab', { name: 'Screen Saver' }).click();
+    await settings.getByLabel('Screen saver', { exact: true }).selectOption('windowsxp');
+    await settings.getByRole('button', { name: 'Preview' }).click();
+    const canvas = page.locator('canvas[aria-label^="Screen saver"]');
+    await expect(canvas).toHaveCount(1);
+    /** Pixels that are not black: the logo is there. */
+    const lit = () =>
+        canvas.evaluate((c: HTMLCanvasElement) => {
+            const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 16) if (d[i] + d[i + 1] + d[i + 2] > 90) n++;
+            return n;
+        });
+    await expect.poll(lit).toBeGreaterThan(50);
+    // Each resize redrew the still from a logo whose clock kept running, so it came out faded to black.
+    for (const size of [{ width: 1200, height: 700 }, { width: 1100, height: 650 }]) {
+        await page.setViewportSize(size);
+        await expect.poll(lit).toBeGreaterThan(50);
+    }
+});
+
+test('waking the screen saver gives the keyboard back to the window that had it', async ({ page }) => {
+    await run(page, 'desk.cpl');
+    const settings = win(page, 'Display Properties');
+    await settings.getByRole('tab', { name: 'Screen Saver' }).click();
+    await settings.getByLabel('Screen saver', { exact: true }).selectOption('starfield');
+    await settings.getByLabel('Minutes before the screen saver starts').selectOption('1');
+
+    await run(page, 'notepad');
+    const text = win(page, 'Untitled - Notepad').locator('textarea');
+    await text.fill('a');
+    await page.evaluate(() => {
+        const real = Date.now;
+        Date.now = () => real() + 61_000;
+    });
+    const canvas = page.locator('canvas[aria-label^="Screen saver"]');
+    await expect(canvas).toHaveCount(1, { timeout: 8_000 });
+    await page.waitForTimeout(700);
+    await page.keyboard.press('Shift');
+    await expect(canvas).toHaveCount(0);
+    // The saver used to keep focus, so these went nowhere.
+    await page.keyboard.type('bc');
+    await expect(text).toHaveValue('abc');
 });
 
 test('Restore Deleted Icons brings back what the Recycle Bin holds', async ({ page }) => {

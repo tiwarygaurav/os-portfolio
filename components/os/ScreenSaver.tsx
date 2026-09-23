@@ -24,9 +24,13 @@ const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touc
 /** Input this soon after starting does not dismiss it (it is still swallowed), so the release of the
  *  Preview click, or a key already on its way, cannot close the saver the instant it opens. */
 const GRACE_MS = 500;
-/** After a pointer wake, keep swallowing the rest of that gesture — the tap's click, the
- *  right-click's context menu — for this long, so it cannot land on whatever is underneath. */
-const SWALLOW_MS = 450;
+/** After a touch wake is released, the tap's click arrives as a separate event; wait this long for it. */
+const TAP_CLICK_MS = 450;
+/**
+ * Focus inside an embedded document counts as activity for at most this long. Input in there is
+ * invisible to this page, so without a limit a tab left on the résumé PDF never started the saver.
+ */
+const EMBED_CREDIT_MS = 30 * 60_000;
 
 /** Focus inside an embedded document (Paint's iframe, the resume's PDF) hides input from us. */
 const focusIsEmbedded = () => {
@@ -46,6 +50,8 @@ export default function ScreenSaver() {
     useEffect(() => {
         if (kind === 'none') return;
         let last = Date.now();
+        /** When focus went into an embedded document, or null while it is on this page. */
+        let embeddedSince: number | null = null;
         const touch = () => { last = Date.now(); };
         /*
          * Capture phase, registered before the saver's own listener: the key or click that wakes
@@ -60,13 +66,20 @@ export default function ScreenSaver() {
                 last = Date.now();
                 return;
             }
-            // Drawing in Paint or scrolling the resume PDF happens inside an embedded document
-            // whose events never reach this window. While one has focus, count it as activity.
+            // Scrolling the résumé PDF (or anything else in an embedded document) raises no event in
+            // this window. While one has focus, count it as activity — for a while. Counting it for
+            // ever meant a tab left on the PDF never started the saver at all.
+            const now = Date.now();
             if (focusIsEmbedded()) {
-                last = Date.now();
-                return;
+                embeddedSince ??= now;
+                if (now - embeddedSince < EMBED_CREDIT_MS) {
+                    last = now;
+                    return;
+                }
+            } else {
+                embeddedSince = null;
             }
-            if (Date.now() - last >= idleMinutes * 60_000) setActive(true);
+            if (now - last >= idleMinutes * 60_000) setActive(true);
         }, 5_000);
         return () => {
             ACTIVITY_EVENTS.forEach((t) => window.removeEventListener(t, touch, { capture: true }));
@@ -85,38 +98,88 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
 
     // ---- dismissal ----------------------------------------------------------------------------
     useEffect(() => {
-        // Take focus back from an embedded document, so the waking key reaches us rather than
-        // editing a drawing in Paint underneath the saver.
-        if (focusIsEmbedded()) (document.activeElement as HTMLElement).blur();
-        canvasRef.current?.focus();
+        /*
+         * The saver takes focus so a key wakes it rather than typing into the window underneath, and
+         * gives it back on the way out. It used to keep it: the Notepad text, the prompt or the Run
+         * box the visitor was in had lost focus, and the first words typed after waking went nowhere.
+         * Focus in an embedded document is dropped (so the waking key reaches this page) and not
+         * handed back — a click on the document takes it again.
+         */
+        const embedded = focusIsEmbedded();
+        const before = embedded ? null : (document.activeElement as HTMLElement | null);
+        if (embedded) (document.activeElement as HTMLElement).blur();
+        const canvas = canvasRef.current;
+        canvas?.focus();
 
         const started = Date.now();
         let origin: { x: number; y: number } | null = null;
+        let woken = false;
         const swallow = (e: Event) => {
             e.preventDefault();
             e.stopPropagation();
         };
-        /** Eat the remainder of a pointer gesture that woke the saver: its click, contextmenu, up. */
-        const swallowRestOfGesture = () => {
-            const rest = ['click', 'contextmenu', 'mouseup', 'pointerup', 'touchend', 'auxclick'];
-            rest.forEach((t) => window.addEventListener(t, swallow, { capture: true }));
-            window.setTimeout(() => rest.forEach((t) => window.removeEventListener(t, swallow, { capture: true })), SWALLOW_MS);
+        /**
+         * Eat the rest of the gesture that woke the saver — its release, and the click, context menu
+         * or auxclick that release produces — so none of it lands on whatever is underneath.
+         *
+         * Tied to the gesture, not a clock. A fixed 450 ms window let a press held longer through
+         * (Windows opens the context menu on release), and swallowed the release of the *next*
+         * gesture, so a drag or resize begun straight after waking never ended.
+         */
+        const swallowRestOfGesture = (pointerId: number | null, isMouse: boolean) => {
+            const rest = ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'click', 'contextmenu', 'auxclick'];
+            let backstop = 0;
+            const stop = () => {
+                rest.forEach((t) => window.removeEventListener(t, eat, { capture: true }));
+                window.clearTimeout(backstop);
+            };
+            const eat = (e: Event) => {
+                // Another pointer's release is another gesture. (Click and contextmenu are pointer
+                // events too, but their pointerId is not reliable, so only the raw ones are compared.)
+                const raw = e.type === 'pointerup' || e.type === 'pointercancel';
+                if (raw && pointerId !== null && (e as PointerEvent).pointerId !== pointerId) return;
+                swallow(e);
+                if (raw || e.type === 'touchend') {
+                    // A mouse's click and context menu follow its release in the same task; a tap's
+                    // click comes a moment later. Either way, nothing after that is this gesture.
+                    window.clearTimeout(backstop);
+                    backstop = window.setTimeout(stop, isMouse ? 0 : TAP_CLICK_MS);
+                } else if (e.type === 'click' && !isMouse) {
+                    stop();
+                }
+            };
+            rest.forEach((t) => window.addEventListener(t, eat, { capture: true }));
+            // In case the release never comes (the pointer left the window while held).
+            backstop = window.setTimeout(stop, 10_000);
         };
         const dismiss = (e: Event) => {
             const isPress = e.type === 'keydown' || e.type === 'pointerdown' || e.type === 'touchstart';
             // The key or click that wakes the screen must never act on the desktop underneath —
             // including during the grace period, when it does not dismiss.
             if (isPress) swallow(e);
-            if (Date.now() - started < GRACE_MS) return;
+            if (woken || Date.now() - started < GRACE_MS) return;
             if (e instanceof PointerEvent && e.type === 'pointermove') {
                 if (!origin) { origin = { x: e.clientX, y: e.clientY }; return; }
                 if (Math.hypot(e.clientX - origin.x, e.clientY - origin.y) < MOVE_THRESHOLD) return;
             }
-            if (e.type === 'pointerdown' || e.type === 'touchstart') swallowRestOfGesture();
+            woken = true;
+            if (e.type === 'pointerdown') {
+                const pe = e as PointerEvent;
+                swallowRestOfGesture(pe.pointerId, pe.pointerType === 'mouse');
+            } else if (e.type === 'touchstart') {
+                swallowRestOfGesture(null, false);
+            }
             onDismiss();
         };
         ACTIVITY_EVENTS.forEach((t) => window.addEventListener(t, dismiss, { capture: true }));
-        return () => ACTIVITY_EVENTS.forEach((t) => window.removeEventListener(t, dismiss, { capture: true }));
+        return () => {
+            ACTIVITY_EVENTS.forEach((t) => window.removeEventListener(t, dismiss, { capture: true }));
+            // Only if nothing else has taken focus meanwhile: the canvas is gone, so it is on <body>.
+            const now = document.activeElement;
+            if (before?.isConnected && before !== document.body && (!now || now === document.body || now === canvas)) {
+                before.focus({ preventScroll: true });
+            }
+        };
     }, [onDismiss]);
 
     // ---- drawing ------------------------------------------------------------------------------
@@ -183,12 +246,18 @@ const STILLS: Record<Exclude<ScreenSaverId, 'none'>, (ctx: CanvasRenderingContex
         const text = `${PROFILE.name}  —  ${PROFILE.title}`;
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, w, h);
-        ctx.font = 'bold 40px Tahoma, Verdana, sans-serif';
+        // The whole line must fit: at 40px it ran off a phone's screen, and a still cannot scroll.
+        let size = 40;
+        do {
+            ctx.font = `bold ${size}px Tahoma, Verdana, sans-serif`;
+        } while (ctx.measureText(text).width > w - 16 && --size > 10);
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#fff';
         ctx.fillText(text, Math.max(8, (w - ctx.measureText(text).width) / 2), h / 2);
     },
-    windowsxp: (_ctx, w, h, draw) => draw(w, h, 5_000 / 2),
+    // A fresh logo for each still, at the middle of its cycle. Reusing the running one advanced its
+    // clock on every resize, so every second and third still was drawn fully faded out.
+    windowsxp: (ctx, w, h) => windowsLogo(ctx)(w, h, 5_000 / 2),
 };
 
 const RENDERERS: Record<Exclude<ScreenSaverId, 'none'>, (ctx: CanvasRenderingContext2D) => Draw> = {
