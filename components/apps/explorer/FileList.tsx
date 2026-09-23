@@ -2,6 +2,7 @@
 
 import type { RefObject } from 'react';
 import { APPS } from '@/constants/apps';
+import { prettyPath } from '@/system/shell';
 import { fileIconFor, fileTypeName } from '@/constants/fileIcons';
 import { isDir, isFile, type VNode } from '@/system/vfs';
 import RenameField from '@/components/ui/RenameField';
@@ -10,7 +11,8 @@ import XpIcon from '@/components/ui/XpIcon';
 /**
  * The right-hand pane of Explorer, in XP's views: Tiles (XP's default for a folder), Icons, List
  * and Details. Every view is the same list of buttons — `ul li button[data-name]` — so selection,
- * keys and renaming behave identically whichever is showing; only the drawing differs.
+ * keys and renaming behave identically whichever is showing; only the drawing differs. Items are
+ * keyed by path, not name: search results list files from many folders, and two can share a name.
  */
 
 export type ViewMode = 'tiles' | 'icons' | 'list' | 'details';
@@ -50,12 +52,15 @@ interface FileListProps {
     view: ViewMode;
     sortBy: SortKey;
     onSort: (by: SortKey) => void;
+    /** Paths. */
     selected: string | null;
     renaming: string | null;
+    /** Search results: add XP's "In Folder" column to Details. */
+    showFolder?: boolean;
     /** The path on the clipboard from a Cut: drawn faded, as XP did, until it is pasted. */
     cutPath: string | null;
     listRef: RefObject<HTMLUListElement>;
-    onSelect: (name: string) => void;
+    onSelect: (path: string) => void;
     onActivate: (entry: Entry) => void;
     onItemKey: (e: React.KeyboardEvent, entry: Entry) => void;
     onItemMenu: (e: React.MouseEvent, entry: Entry) => void;
@@ -71,9 +76,13 @@ const LAYOUT: Record<ViewMode, string> = {
 };
 
 const DETAIL_COLUMNS = 'grid grid-cols-[minmax(0,1fr)_64px] sm:grid-cols-[minmax(0,1fr)_64px_120px] md:grid-cols-[minmax(0,1fr)_64px_120px_140px]';
+/** With XP's "In Folder", for search results. */
+const FOUND_COLUMNS = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px] md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px_120px_140px]';
 
 export default function FileList(props: FileListProps) {
-    const { entries, view, sortBy, onSort, selected, renaming, cutPath, listRef } = props;
+    const { entries, view, sortBy, onSort, selected, renaming, cutPath, listRef, showFolder = false } = props;
+    const columns = showFolder ? FOUND_COLUMNS : DETAIL_COLUMNS;
+    const folderOf = (path: string) => prettyPath(path.slice(0, path.lastIndexOf('/')) || '/');
     const iconSize = view === 'tiles' ? 48 : view === 'icons' ? 32 : 16;
 
     const title = (node: VNode) =>
@@ -93,8 +102,9 @@ export default function FileList(props: FileListProps) {
                         <XpIcon src={fileIconFor(node, entry.path)} size={16} className="shrink-0" />
                         <span className="truncate">{node.name}</span>
                     </span>
-                    <span className={`text-right ${muted}`}>{sizeColumn(node)}</span>
-                    <span className={`hidden truncate sm:block ${muted}`}>{fileTypeName(node)}</span>
+                    {showFolder && <span className={`truncate ${muted}`}>{folderOf(entry.path)}</span>}
+                    <span className={`text-right ${showFolder ? 'hidden sm:block' : ''} ${muted}`}>{sizeColumn(node)}</span>
+                    <span className={`hidden truncate ${showFolder ? 'md:block' : 'sm:block'} ${muted}`}>{fileTypeName(node)}</span>
                     <span className={`hidden truncate md:block ${muted}`}>
                         {isFile(node) && node.modified ? new Date(node.modified).toLocaleString() : ''}
                     </span>
@@ -128,7 +138,7 @@ export default function FileList(props: FileListProps) {
                 : view === 'icons'
                     ? 'flex flex-col items-center gap-1 p-1.5 text-center'
                     : view === 'details'
-                        ? `${DETAIL_COLUMNS} items-center gap-2 px-1.5 py-0.5`
+                        ? `${columns} items-center gap-2 px-1.5 py-0.5`
                         : 'flex items-center gap-1.5 px-1.5 py-0.5';
         return `${shape} w-full rounded-sm text-left text-[11px] outline-none focus-visible:outline-dotted focus-visible:outline-1 ${
             isSelected ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'
@@ -151,21 +161,22 @@ export default function FileList(props: FileListProps) {
     return (
         <>
             {view === 'details' && (
-                <div className={`${DETAIL_COLUMNS} sticky top-0 z-[1] border-b border-[#d6d2c2] bg-[#ece9d8] text-[11px]`}>
+                <div className={`${columns} sticky top-0 z-[1] border-b border-[#d6d2c2] bg-[#ece9d8] text-[11px]`}>
                     {header('name', 'Name')}
-                    {header('size', 'Size', 'text-right')}
-                    {header('type', 'Type', 'hidden sm:block')}
+                    {showFolder && <span className="border-r border-[#d6d2c2] px-1.5 py-0.5">In Folder</span>}
+                    {header('size', 'Size', showFolder ? 'hidden text-right sm:block' : 'text-right')}
+                    {header('type', 'Type', showFolder ? 'hidden md:block' : 'hidden sm:block')}
                     {header('modified', 'Date Modified', 'hidden md:block')}
                 </div>
             )}
             <ul ref={listRef} className={LAYOUT[view]}>
                 {entries.map((entry) => {
                     const { node } = entry;
-                    const isSelected = selected === node.name;
+                    const isSelected = selected === entry.path;
                     const faded = cutPath === entry.path ? 'opacity-50' : '';
-                    if (renaming === node.name) {
+                    if (renaming === entry.path) {
                         return (
-                            <li key={node.name}>
+                            <li key={entry.path}>
                                 <div className={`${itemClass(true)} ${faded}`}>
                                     <XpIcon src={fileIconFor(node, entry.path)} size={view === 'details' ? 16 : iconSize} className="shrink-0" />
                                     <RenameField
@@ -179,12 +190,13 @@ export default function FileList(props: FileListProps) {
                         );
                     }
                     return (
-                        <li key={node.name} className={faded}>
+                        <li key={entry.path} className={faded}>
                             <button
                                 type="button"
                                 data-name={node.name}
-                                onClick={() => props.onSelect(node.name)}
-                                onFocus={() => props.onSelect(node.name)}
+                                data-path={entry.path}
+                                onClick={() => props.onSelect(entry.path)}
+                                onFocus={() => props.onSelect(entry.path)}
                                 onDoubleClick={() => props.onActivate(entry)}
                                 onKeyDown={(e) => props.onItemKey(e, entry)}
                                 onContextMenu={(e) => props.onItemMenu(e, entry)}

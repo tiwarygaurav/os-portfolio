@@ -181,3 +181,38 @@ test('Explorer: Cut is refused for the portfolio, and a cut file moves on Paste'
     const files = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles));
     expect(files).toEqual(['/home/guest/My Pictures/move-me.txt']);
 });
+
+test('the Search Companion finds portfolio files by a word in them, and by name with wildcards', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const form = w.locator('form');
+    await w.getByRole('button', { name: 'Search', exact: true }).first().click();
+    await expect(w.getByText('Search Companion')).toBeVisible();
+
+    // A word in the file: the portfolio's own text is searchable.
+    await w.getByLabel('A word or phrase in the file:').fill('typescript');
+    await form.getByRole('button', { name: 'Search' }).click();
+    await expect(w).toContainText(/Search is complete\. There are \d+ results to display\./);
+    await expect(w.getByText('In Folder', { exact: true })).toBeVisible();
+    const stack = w.locator('button[data-path$="/projects/os-portfolio/stack.txt"]');
+    await expect(stack).toContainText('~/projects/os-portfolio');
+    await stack.dblclick();
+    await expect(win(page, 'stack.txt - Notepad')).toBeVisible();
+
+    // By name, with XP's wildcards.
+    await w.locator('.xp-titlebar-text').click();
+    await w.getByLabel('A word or phrase in the file:').fill('');
+    await w.getByLabel('All or part of the file name:').fill('README*');
+    await form.getByRole('button', { name: 'Search' }).click();
+    const found = w.locator('button[data-path]');
+    await expect(found.first()).toBeVisible();
+    const names = await found.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.name));
+    expect(names.length).toBeGreaterThan(1);
+    expect(names.every((n) => n!.startsWith('README'))).toBe(true);
+
+    // Back closes the Search Companion and shows the folder again.
+    await form.getByRole('button', { name: 'Back' }).click();
+    await expect(w.getByText('Search Companion')).toHaveCount(0);
+    await expect(w.locator('button[data-name="about.md"]')).toBeVisible();
+});

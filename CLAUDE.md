@@ -456,6 +456,19 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-09-24 - Explorer's Search Companion
+
+**Why:** the fastest way for anyone — a recruiter looking for "Python", an engineer for a file —
+to find something in the portfolio is to search it, and XP's Explorer had a Search button for
+exactly that. The shell's `grep` could, but a visitor who never opens the Command Prompt could not.
+**What:** the toolbar's Search opens XP's Search Companion in place of the task pane: part of the
+name (with XP's `*` and `?`), a word or phrase in the file, and Look in. It runs the pure
+`findFiles` over the real tree, so it finds the portfolio by what its files say and the visitor's
+own files by theirs, capped at 200 with a note when there were more. Results show in Details with
+XP's In Folder column, and open, rename, copy and delete like any other item — which is why
+Explorer's selection is now keyed by path, not name: two results can share a name. Opening a
+folder, Back or Forward closes the search, as they did in XP. No dog.
+
 ### 2026-09-24 - Explorer's right-click menus, Cut / Copy / Paste, views and Properties
 
 **Why:** Explorer could browse, rename and delete, but a visitor who right-clicked got nothing, there

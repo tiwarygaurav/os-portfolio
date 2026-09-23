@@ -11,6 +11,7 @@ import {
     PICTURES_PATH,
     isDir,
     isFile,
+    findFiles,
     isWritableDir,
     listDir,
     lookup,
@@ -28,6 +29,7 @@ import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
 import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
 import PropertiesDialog from '@/components/os/PropertiesDialog';
 import FileList, { sizeColumn, sortEntries, type Entry, type SortKey, type ViewMode } from '@/components/apps/explorer/FileList';
+import SearchPane, { type SearchState } from '@/components/apps/explorer/SearchPane';
 import { FILE_ICONS, fileTypeName } from '@/constants/fileIcons';
 
 /**
@@ -55,6 +57,7 @@ interface ExplorerAppProps {
 }
 
 const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
+const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/')) || '/';
 
 const VIEWS: { id: ViewMode; label: string }[] = [
     { id: 'tiles', label: 'Tiles' },
@@ -84,9 +87,12 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
      * address bar named another.
      */
     const [nav, setNav] = useState<{ list: string[]; cursor: number }>({ list: [start], cursor: 0 });
+    /** The selected item's path. Paths, not names: search results come from many folders. */
     const [selected, setSelected] = useState<string | null>(null);
-    /** The item whose name is being edited in place, if any. */
+    /** The path of the item whose name is being edited in place, if any. */
     const [renaming, setRenaming] = useState<string | null>(null);
+    /** XP's Search Companion: open while set, with what it found once a search has run. */
+    const [search, setSearch] = useState<(SearchState & { results: Entry[] | null }) | null>(null);
     const [address, setAddress] = useState(prettyPath(start));
     const listRef = useRef<HTMLUListElement>(null);
     /** XP opened a folder in Tiles; the View menu and the Views button change it. */
@@ -112,6 +118,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setNav((n) => ({ list: [...n.list.slice(0, n.cursor + 1), next], cursor: n.cursor + 1 }));
         setSelected(null);
         setRenaming(null);
+        setSearch(null);
         setAddress(prettyPath(next));
     }, []);
 
@@ -122,6 +129,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setAddress(prettyPath(nav.list[next]));
         setSelected(null);
         setRenaming(null);
+        setSearch(null);
     };
 
     // A later `open` on this window carries a new path; follow it. Not on mount: the opening path
@@ -169,8 +177,21 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         navigate(target);
     };
 
-    const selectedNode = selected ? children.find((c) => c.name === selected) : undefined;
-    const selectedPath = selectedNode ? `${path === '/' ? '' : path}/${selectedNode.name}` : null;
+    /** What the list shows: the folder, or — once Search has run — what it found. */
+    const results = search?.results ?? null;
+    const shown: Entry[] = results ?? entries;
+    const selectedEntry = selected ? shown.find((e) => e.path === selected) : undefined;
+    const selectedNode = selectedEntry?.node;
+    const selectedPath = selectedEntry?.path ?? null;
+
+    const runSearch = () => {
+        if (!search) return;
+        const { hits, more } = findFiles({ name: search.name, text: search.text, under: search.under }, procs);
+        setSearch({ ...search, results: hits.map((h) => ({ node: h.node, path: h.path })), found: hits.length, more });
+        setSelected(null);
+        // XP showed what it found in Details, with the folder each was in.
+        setView('details');
+    };
 
     /**
      * Delete `target` — the item the key was pressed on, or the one the task pane refers to — to
@@ -210,15 +231,15 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     };
 
     /** Put keyboard focus back on an item after the rename box it was replaced by goes away. */
-    const focusItem = (name: string) =>
+    const focusItem = (itemPath: string) =>
         requestAnimationFrame(() =>
-            Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-name]') ?? [])
-                .find((b) => b.dataset.name === name)
+            Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-path]') ?? [])
+                .find((b) => b.dataset.path === itemPath)
                 ?.focus(),
         );
 
     /** F2, or "Rename this file": only the visitor's own items; anything else says why not. */
-    const startRename = (target: VNode) => {
+    const startRename = ({ node: target, path: targetPath }: Entry) => {
         if (!target.writable) {
             void xpAlert('Error Renaming File or Folder', [
                 `Cannot rename ${target.name}: ${isDir(target) ? 'it is a system folder.' : 'it is read-only.'}`,
@@ -226,24 +247,29 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             ], 'error');
             return;
         }
-        setSelected(target.name);
-        setRenaming(target.name);
+        setSelected(targetPath);
+        setRenaming(targetPath);
     };
 
     const commitRename = async (targetPath: string, typed: string) => {
         setRenaming(null);
-        const name = await renameUserPath(targetPath, typed);
-        setSelected(name);
-        focusItem(name);
+        const renamed = join(parentOf(targetPath), await renameUserPath(targetPath, typed));
+        if (search?.results) {
+            // A renamed search result keeps its place in the results, under its new name.
+            setSearch({ ...search, results: search.results.map((e) => (e.path === targetPath ? { node: lookup(renamed) ?? e.node, path: renamed } : e)) });
+        }
+        setSelected(renamed);
+        focusItem(renamed);
     };
 
-    const canWriteHere = isWritableDir(path);
+    /** Search results are not a folder: nothing can be made or pasted into them. */
+    const canWriteHere = !results && isWritableDir(path);
     const newFolder = async () => {
         const name = await makeNewFolder(path);
         if (!name) return;
         // XP made it and went straight into naming it.
-        setSelected(name);
-        setRenaming(name);
+        setSelected(join(path, name));
+        setRenaming(join(path, name));
     };
     const deleteSelected = () => {
         if (selectedNode && selectedPath) void deleteNode(selectedNode, selectedPath);
@@ -271,8 +297,8 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         }
         const name = await pasteInto(path);
         if (name) {
-            setSelected(name);
-            focusItem(name);
+            setSelected(join(path, name));
+            focusItem(join(path, name));
         }
     };
     /** New > Text Document: XP made "New Text Document.txt" and went straight into naming it. */
@@ -284,8 +310,8 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             void xpAlert('Windows Explorer', ['Unable to create the file.', problem], 'error');
             return;
         }
-        setSelected(name);
-        setRenaming(name);
+        setSelected(join(path, name));
+        setRenaming(join(path, name));
     };
 
     /* ---------------------------------------------------------------- menus and keys */
@@ -301,7 +327,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             { label: 'Copy', accel: 'Ctrl+C', action: () => copy(entry) },
             { divider: true },
             { label: 'Delete', accel: 'Del', disabled: !own, action: () => void deleteNode(entry.node, entry.path) },
-            { label: 'Rename', accel: 'F2', disabled: !own, action: () => startRename(entry.node) },
+            { label: 'Rename', accel: 'F2', disabled: !own, action: () => startRename(entry) },
             { divider: true },
             { label: 'Properties', accel: 'Alt+Enter', action: () => setProperties(entry.path) },
         ];
@@ -339,7 +365,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         if (e.key === 'Enter' && e.altKey) setProperties(entry.path);
         else if (e.key === 'Enter') activate(entry.node, entry.path);
         else if (e.key === 'Delete') void deleteNode(entry.node, entry.path, e.shiftKey);
-        else if (e.key === 'F2') startRename(entry.node);
+        else if (e.key === 'F2') startRename(entry);
         else if (e.key === 'Backspace') { if (parent) navigate(parent); }
         else if (key === 'x') void cut(entry);
         else if (key === 'c') copy(entry);
@@ -360,6 +386,13 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                     <ArrowUp size={16} />
                 </ToolButton>
                 <div className="mx-1 h-5 w-px bg-[#d8d2bd]" />
+                <ToolButton
+                    label="Search"
+                    pressed={search !== null}
+                    onClick={() => setSearch(search ? null : { name: '', text: '', under: path, found: null, more: false, results: null })}
+                >
+                    <span className="px-1 text-[11px]">Search</span>
+                </ToolButton>
                 <ToolButton
                     label="Views"
                     onClick={(e) => {
@@ -397,14 +430,27 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             </div>
 
             <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-                {/* Task pane, in XP's order: tasks, places, details. */}
+                {/* Task pane, in XP's order: tasks, places, details — or the Search Companion. */}
+                {search ? (
+                    <SearchPane
+                        className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto"
+                        state={search}
+                        current={path}
+                        onChange={(patch) => setSearch({ ...search, ...patch })}
+                        onSearch={runSearch}
+                        onClose={() => {
+                            setSearch(null);
+                            setSelected(null);
+                        }}
+                    />
+                ) : (
                 <TaskPane className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
                     {(canWriteHere || selectedNode?.writable) && (
                         <TaskSection title="File and Folder Tasks" special>
                             {canWriteHere && <TaskLink label="Make a new folder" onClick={() => void newFolder()} />}
                             {selectedNode?.writable && (
                                 <>
-                                    <TaskLink label={`Rename this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={() => startRename(selectedNode)} />
+                                    <TaskLink label={`Rename this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={() => selectedEntry && startRename(selectedEntry)} />
                                     <TaskLink label={`Delete this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={deleteSelected} />
                                 </>
                             )}
@@ -428,7 +474,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                 <TaskText strong>{selectedNode.name}</TaskText>
                                 <TaskText>
                                     {fileTypeName(selectedNode)}
-                                    {isDir(selectedNode) && ` — ${(listDir(join(path, selectedNode.name), procs) ?? []).length} items`}
+                                    {isDir(selectedNode) && selectedPath && ` — ${(listDir(selectedPath, procs) ?? []).length} items`}
                                 </TaskText>
                                 {isFile(selectedNode) && selectedNode.modified !== undefined && (
                                     <TaskText>Date Modified: {new Date(selectedNode.modified).toLocaleString()}</TaskText>
@@ -457,6 +503,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                         </TaskText>
                     </TaskSection>
                 </TaskPane>
+                )}
 
                 {/* File list. The empty part of it has its own menu (View, Paste, New...), as in XP. */}
                 <div
@@ -484,13 +531,18 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                         }
                     }}
                 >
-                    {children.length === 0 ? (
+                    {shown.length === 0 ? (
                         <p className="p-4 text-xs text-gray-500">
-                            {node ? 'This folder is empty.' : 'This folder no longer exists. It was moved or deleted.'}
+                            {results
+                                ? 'Search is complete. There are no results to display.'
+                                : node
+                                    ? 'This folder is empty.'
+                                    : 'This folder no longer exists. It was moved or deleted.'}
                         </p>
                     ) : (
                         <FileList
-                            entries={entries}
+                            entries={shown}
+                            showFolder={results !== null}
                             view={view}
                             sortBy={sortBy}
                             onSort={setSortBy}
@@ -504,13 +556,13 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                             onItemMenu={(e, entry) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                setSelected(entry.node.name);
+                                setSelected(entry.path);
                                 setMenu({ x: e.clientX, y: e.clientY, items: itemMenu(entry) });
                             }}
                             onRenameCommit={(entry, typed) => void commitRename(entry.path, typed)}
                             onRenameCancel={(entry) => {
                                 setRenaming(null);
-                                focusItem(entry.node.name);
+                                focusItem(entry.path);
                             }}
                         />
                     )}
@@ -521,7 +573,9 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                 <span>
                     {selectedNode
                         ? `1 object selected${sizeColumn(selectedNode) ? ` — ${sizeColumn(selectedNode)}` : ''}`
-                        : `${children.length} object${children.length === 1 ? '' : 's'}`}
+                        : results
+                            ? `${results.length} object${results.length === 1 ? '' : 's'} found`
+                            : `${children.length} object${children.length === 1 ? '' : 's'}`}
                 </span>
                 <span className="truncate font-mono">{prettyPath(path)}</span>
             </div>
@@ -537,11 +591,14 @@ function ToolButton({
     onClick,
     disabled,
     label,
+    pressed,
 }: {
     children: React.ReactNode;
     onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
     disabled?: boolean;
     label: string;
+    /** A toggle, like XP's Search button while the Search Companion is open. */
+    pressed?: boolean;
 }) {
     return (
         <button
@@ -550,7 +607,10 @@ function ToolButton({
             disabled={disabled}
             title={label}
             aria-label={label}
-            className="flex h-6 items-center justify-center rounded-[3px] border border-transparent px-1 hover:border-[#7a7a6d] hover:bg-[#f2f1ea] active:translate-y-px disabled:text-gray-400 disabled:hover:border-transparent disabled:hover:bg-transparent"
+            aria-pressed={pressed}
+            className={`flex h-6 items-center justify-center rounded-[3px] border px-1 hover:border-[#7a7a6d] hover:bg-[#f2f1ea] active:translate-y-px disabled:text-gray-400 disabled:hover:border-transparent disabled:hover:bg-transparent ${
+                pressed ? 'border-[#7a7a6d] bg-[#e3e1d6]' : 'border-transparent'
+            }`}
         >
             {children}
         </button>

@@ -440,3 +440,30 @@ test('a copy refuses what storage cannot hold, the portfolio\'s folders, and ove
     assert.match(vfs.planCopy(tree, '/home/guest/a.txt', '/home/guest/A'), /already exists/);
     assert.match(vfs.planCopy(tree, '/home/guest/a.txt', `${vfs.HOME_PATH}/a.txt`), /portfolio is read-only/);
 });
+
+/* ------------------------------------------------------------------ search */
+
+test('Search finds by part of the name, by XP wildcards, and by a phrase in the file', () => {
+    const byName = vfs.findFiles({ name: 'stack', under: vfs.HOME_PATH }).hits.map((h) => h.path);
+    assert.ok(byName.includes(`${vfs.HOME_PATH}/projects/os-portfolio/stack.txt`));
+    assert.ok(byName.every((p) => p.split('/').pop().includes('stack')));
+
+    const wild = vfs.findFiles({ name: '*.md', under: `${vfs.HOME_PATH}/experience` }).hits;
+    assert.ok(wild.length > 0);
+    assert.ok(wild.every((h) => h.path.endsWith('.md')));
+    assert.equal(vfs.findFiles({ name: 'rea?me.md', under: vfs.HOME_PATH }).hits.length > 0, true);
+
+    const phrase = vfs.findFiles({ text: 'typescript', under: vfs.HOME_PATH }).hits;
+    assert.ok(phrase.length > 0);
+    assert.ok(phrase.every((h) => h.node.kind === 'file' && /typescript/i.test(h.line)));
+});
+
+test('Search looks only where it is told, finds the visitor\'s files, and caps what it returns', () => {
+    vfs.mountUserFiles({ [`${DOCS}/Plan.txt`]: { content: 'ship the portfolio', mime: 'text/plain', modified: 1 } }, []);
+    assert.deepEqual(vfs.findFiles({ text: 'ship the', under: vfs.GUEST_PATH }).hits.map((h) => h.path), [`${DOCS}/Plan.txt`]);
+    assert.deepEqual(vfs.findFiles({ text: 'ship the', under: vfs.HOME_PATH }).hits, []);
+    const capped = vfs.findFiles({ under: '/' }, [], 5);
+    assert.equal(capped.hits.length, 5);
+    assert.equal(capped.more, true);
+    assert.deepEqual(vfs.findFiles({ name: 'x', under: '/nowhere' }).hits, []);
+});

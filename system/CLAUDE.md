@@ -33,7 +33,9 @@ caller supplies, because live windows are not static and the VFS must not import
 ```
 
 Key exports: `resolvePath` (handles `~`, `.`, `..`), `lookup`, `listDir`, `renderTree`,
-`searchFiles`, `allPaths`.
+`searchFiles` (the shell's `grep`: every matching line), `findFiles` (Explorer's Search Companion:
+matching files and folders under a folder, by name with XP's `*` / `?`, by a phrase, or both;
+capped, and says when it was), `allPaths`.
 
 **A file may carry `open: { appId, payload }`.** That is the hinge between shell and GUI: it lets
 `open ~/projects/os-portfolio` and double-clicking an icon resolve to the same action. Set it whenever

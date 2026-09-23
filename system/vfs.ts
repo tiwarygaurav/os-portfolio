@@ -980,6 +980,63 @@ export function searchFiles(
     return hits;
 }
 
+/** What XP's Search Companion asked for. Any criterion left empty matches everything. */
+export interface FindQuery {
+    /** "All or part of the file name". `*` and `?` work as in XP; without them, any part matches. */
+    name?: string;
+    /** "A word or phrase in the file". Files only; case does not matter. */
+    text?: string;
+    /** "Look in": the folder to search, with everything under it. */
+    under: string;
+}
+
+export interface FindHit {
+    path: string;
+    node: VNode;
+    /** For a text search, the first line that matched. */
+    line?: string;
+}
+
+/** A name pattern as XP read it: `*.txt`, `re?ume*`, or plain text matching any part of the name. */
+function nameMatcher(pattern: string): (name: string) => boolean {
+    const p = pattern.trim().toLowerCase();
+    if (!p) return () => true;
+    if (!/[*?]/.test(p)) return (name) => name.toLowerCase().includes(p);
+    const re = new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+    return (name) => re.test(name.toLowerCase());
+}
+
+/**
+ * XP's "Search for files or folders": everything under `query.under` whose name matches and, if a
+ * phrase is given, whose text contains it. Folders match by name only. At most `limit` hits, in
+ * tree order; the caller says when there were more.
+ */
+export function findFiles(query: FindQuery, procs: ProcEntry[] = [], limit = 200): { hits: FindHit[]; more: boolean } {
+    const start = lookup(query.under, procs);
+    const matchesName = nameMatcher(query.name ?? '');
+    const phrase = (query.text ?? '').trim().toLowerCase();
+    const hits: FindHit[] = [];
+    let more = false;
+    const walk = (node: VNode, path: string) => {
+        if (more) return;
+        if (path !== query.under && matchesName(node.name)) {
+            if (!phrase) hits.push({ path, node });
+            else if (isFile(node)) {
+                const line = node.content.split('\n').find((l) => l.toLowerCase().includes(phrase));
+                if (line !== undefined) hits.push({ path, node, line: line.trim() });
+            }
+            if (hits.length > limit) {
+                hits.pop();
+                more = true;
+                return;
+            }
+        }
+        if (isDir(node)) node.children.forEach((c) => walk(c, `${path === '/' ? '' : path}/${c.name}`));
+    };
+    if (start) walk(start, query.under);
+    return { hits, more };
+}
+
 /** Every file path in the tree — used for tab completion and search. */
 export function allPaths(procs: ProcEntry[] = []): string[] {
     const paths: string[] = [];
