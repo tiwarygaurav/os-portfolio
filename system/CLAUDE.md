@@ -94,6 +94,15 @@ Document (2).txt" and "Copy of x" names.
 `ShellContext` gained `writeFile` / `deleteFile` / `makeDir` / `move` / `removeDir` / `copy`, and
 `closeProcess(pid, 'kill' | 'exit')` so an ordinary `exit` is not logged as a forced end.
 
+### `source.ts` and `architecture.generated.ts`
+
+`architecture.generated.ts` is this build's module graph, written by `scripts/gen-architecture.mjs`
+before dev, build and the unit tests, and gitignored — never edit or commit it. `source.ts` imports
+it and calls `mountSource`, which puts it at `/usr/src` (one file per module, plus a README with the
+dependency-rule check). Importing `source.ts` is what mounts it; only lazily loaded windows (the
+Command Prompt, Explorer, System Information) do, so the graph is not in the first page load. The VFS
+declares the shape (`SourceMap`) itself and never imports the generated file.
+
 ### `bus.ts`
 
 The event bus: a closed `SystemEvent` union, an exhaustive `describe()` that turns each into an

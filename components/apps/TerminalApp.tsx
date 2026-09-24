@@ -16,6 +16,8 @@ import {
 import { HOME_PATH, type ProcEntry } from '@/system/vfs';
 import { publish } from '@/system/bus';
 import { useProcesses } from '@/utils/processes';
+// Mounts this build's module graph at /usr/src (loaded with this window, not with the page).
+import '@/system/source';
 
 /**
  * Terminal — a *renderer* for `system/shell`.

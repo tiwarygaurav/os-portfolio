@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type RefObject } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { APPS } from '@/constants/apps';
 import { prettyPath } from '@/system/shell';
 import { fileIconFor, fileTypeName } from '@/constants/fileIcons';
@@ -23,15 +23,43 @@ export interface Entry {
     path: string;
 }
 
-/** The drag payload an Explorer item carries: its path. Anything else dropped here is ignored. */
+/** The drag payload an Explorer drag carries: a JSON list of paths. Anything else dropped is ignored. */
 export const DRAG_TYPE = 'application/x-xp-path';
 
-/** What XP's Size column showed: nothing for a folder, whole kilobytes (at least 1) for a file. */
+/** The paths a drop carried, or [] if it was not an Explorer drag. */
+export function droppedPaths(data: DataTransfer): string[] {
+    try {
+        const parsed: unknown = JSON.parse(data.getData(DRAG_TYPE) || '[]');
+        return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+        return [];
+    }
+}
+
+/** How a click was made, which is what decides what it selects. */
+export interface PickMods {
+    /** Ctrl (or Cmd): add or remove this one. */
+    toggle?: boolean;
+    /** Shift: everything from the last plain click to this one. */
+    range?: boolean;
+}
+
+const encoder = new TextEncoder();
+
+/**
+ * What XP's Size column showed: nothing for a folder, whole kilobytes rounded up for a file — and
+ * 0 KB for an empty one, which this used to call 1 KB. Text is counted in UTF-8 bytes.
+ */
 export function sizeColumn(node: VNode): string {
-    if (isDir(node)) return '';
-    if (node.src && !node.src.startsWith('data:')) return '';
-    const chars = node.src ? Math.floor((node.src.length - node.src.indexOf(',') - 1) * 0.75) : node.content.length;
-    return `${Math.max(1, Math.ceil(chars / 1024)).toLocaleString()} KB`;
+    const bytes = fileBytes(node);
+    return bytes === null ? '' : `${Math.ceil(bytes / 1024).toLocaleString()} KB`;
+}
+
+/** A file's size in bytes, or null for a folder or a built-in picture the page never downloaded. */
+export function fileBytes(node: VNode): number | null {
+    if (isDir(node)) return null;
+    if (node.src && !node.src.startsWith('data:')) return null;
+    return node.src ? Math.floor((node.src.length - node.src.indexOf(',') - 1) * 0.75) : encoder.encode(node.content).length;
 }
 
 const sizeValue = (node: VNode) => (isDir(node) ? -1 : node.src ? node.src.length : node.content.length);
@@ -55,22 +83,22 @@ interface FileListProps {
     view: ViewMode;
     sortBy: SortKey;
     onSort: (by: SortKey) => void;
-    /** Paths. */
-    selected: string | null;
+    /** The selected paths; the last one clicked is the one a rename or a key acts on. */
+    selection: string[];
     renaming: string | null;
     /** Search results: add XP's "In Folder" column to Details. */
     showFolder?: boolean;
-    /** The path on the clipboard from a Cut: drawn faded, as XP did, until it is pasted. */
-    cutPath: string | null;
+    /** The paths on the clipboard from a Cut: drawn faded, as XP did, until they are pasted. */
+    cutPaths: string[];
     listRef: RefObject<HTMLUListElement>;
-    onSelect: (path: string) => void;
+    onPick: (path: string, mods: PickMods) => void;
     onActivate: (entry: Entry) => void;
     onItemKey: (e: React.KeyboardEvent, entry: Entry) => void;
     onItemMenu: (e: React.MouseEvent, entry: Entry) => void;
     onRenameCommit: (entry: Entry, typed: string) => void;
     onRenameCancel: (entry: Entry) => void;
     /** Something was dragged onto a folder. `copy` when Ctrl was held, as XP read it. */
-    onDropOn: (target: Entry, from: string, copy: boolean) => void;
+    onDropOn: (target: Entry, from: string[], copy: boolean) => void;
 }
 
 const LAYOUT: Record<ViewMode, string> = {
@@ -85,7 +113,14 @@ const DETAIL_COLUMNS = 'grid grid-cols-[minmax(0,1fr)_64px] sm:grid-cols-[minmax
 const FOUND_COLUMNS = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px] md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px_120px_140px]';
 
 export default function FileList(props: FileListProps) {
-    const { entries, view, sortBy, onSort, selected, renaming, cutPath, listRef, showFolder = false } = props;
+    const { entries, view, sortBy, onSort, selection, renaming, cutPaths, listRef, showFolder = false } = props;
+    const picked = new Set(selection);
+    /*
+     * A press focuses the button before its click. Focus from a press must not select on its own:
+     * it would reset a Ctrl+click's selection to one item just before the click toggled it. Focus
+     * from the keyboard (Tab) does select, so the keys act on what is shown as selected.
+     */
+    const pressing = useRef(false);
     const columns = showFolder ? FOUND_COLUMNS : DETAIL_COLUMNS;
     const folderOf = (path: string) => prettyPath(path.slice(0, path.lastIndexOf('/')) || '/');
     const iconSize = view === 'tiles' ? 48 : view === 'icons' ? 32 : 16;
@@ -179,8 +214,8 @@ export default function FileList(props: FileListProps) {
             <ul ref={listRef} className={LAYOUT[view]}>
                 {entries.map((entry) => {
                     const { node } = entry;
-                    const isSelected = selected === entry.path;
-                    const faded = cutPath === entry.path ? 'opacity-50' : '';
+                    const isSelected = picked.has(entry.path);
+                    const faded = cutPaths.includes(entry.path) ? 'opacity-50' : '';
                     if (renaming === entry.path) {
                         return (
                             <li key={entry.path}>
@@ -202,16 +237,27 @@ export default function FileList(props: FileListProps) {
                                 type="button"
                                 data-name={node.name}
                                 data-path={entry.path}
-                                onClick={() => props.onSelect(entry.path)}
-                                onFocus={() => props.onSelect(entry.path)}
+                                onPointerDown={() => {
+                                    pressing.current = true;
+                                }}
+                                onClick={(e) => {
+                                    pressing.current = false;
+                                    props.onPick(entry.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
+                                }}
+                                onFocus={() => {
+                                    if (!pressing.current && !picked.has(entry.path)) props.onPick(entry.path, {});
+                                }}
                                 onDoubleClick={() => props.onActivate(entry)}
                                 onKeyDown={(e) => props.onItemKey(e, entry)}
                                 onContextMenu={(e) => props.onItemMenu(e, entry)}
                                 draggable
                                 onDragStart={(e) => {
-                                    e.dataTransfer.setData(DRAG_TYPE, entry.path);
-                                    // Dropped into a text box elsewhere, it is the path, as a real one gives.
-                                    e.dataTransfer.setData('text/plain', entry.path);
+                                    pressing.current = false;
+                                    // Dragging a selected item drags the whole selection, as in XP.
+                                    const paths = isSelected ? selection : [entry.path];
+                                    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(paths));
+                                    // Dropped into a text box elsewhere, it is the paths, as real files give.
+                                    e.dataTransfer.setData('text/plain', paths.join('\n'));
                                     e.dataTransfer.effectAllowed = 'copyMove';
                                 }}
                                 onDragOver={(e) => {
@@ -224,8 +270,8 @@ export default function FileList(props: FileListProps) {
                                 onDragLeave={() => setDropTarget((t) => (t === entry.path ? null : t))}
                                 onDrop={(e) => {
                                     setDropTarget(null);
-                                    const from = e.dataTransfer.getData(DRAG_TYPE);
-                                    if (!isDir(node) || !from) return;
+                                    const from = droppedPaths(e.dataTransfer);
+                                    if (!isDir(node) || from.length === 0) return;
                                     e.preventDefault();
                                     props.onDropOn(entry, from, e.ctrlKey);
                                 }}

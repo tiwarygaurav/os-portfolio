@@ -150,7 +150,7 @@ not in a footnote.
 
 ---
 
-## 7. Architecture viewer
+## 7. Architecture viewer  ✅ DONE (as XP's System Information, msinfo32, and /usr/src)
 
 **Requirement.** A rendered graph of this application's own module structure —
 `content/ -> system/ -> store/ -> components/os -> components/apps` — where clicking a node shows

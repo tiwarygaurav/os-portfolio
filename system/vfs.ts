@@ -418,14 +418,24 @@ export function validateUserPath(absPath: string, folders: readonly string[] = u
         if (parent.startsWith(GUEST_PATH + '/')) return `The folder ${parent} does not exist.`;
         return 'You can only save in /home/guest and the folders inside it.';
     }
+    const badName = validateName(name);
+    if (badName) return badName;
+    if (absPath.length > MAX_PATH) return 'The path is too long. Use a shorter name, or a folder nearer the top.';
+    const reserved = [DOCUMENTS_PATH, PICTURES_PATH, SAMPLE_PICTURES_PATH];
+    if (reserved.includes(absPath) || folders.includes(absPath)) return 'A folder with that name already exists.';
+    return null;
+}
+
+/**
+ * Why `name` cannot be a file or folder name, or null. XP's rules. A rename types a name, and a
+ * "/" in it used to be read as a path, silently moving the item into another folder.
+ */
+export function validateName(name: string): string | null {
     if (!name.trim()) return 'A file name cannot be empty.';
     if (name !== name.trim()) return 'A file name cannot start or end with a space.';
     if (name === '.' || name === '..') return 'That name is reserved.';
     if (name.length > 64) return 'A file name can be at most 64 characters.';
     if (INVALID_NAME.test(name)) return 'A file name cannot contain any of the following characters: \\ / : * ? " < > |';
-    if (absPath.length > MAX_PATH) return 'The path is too long. Use a shorter name, or a folder nearer the top.';
-    const reserved = [DOCUMENTS_PATH, PICTURES_PATH, SAMPLE_PICTURES_PATH];
-    if (reserved.includes(absPath) || folders.includes(absPath)) return 'A folder with that name already exists.';
     return null;
 }
 
@@ -487,12 +497,16 @@ export function nextFolderName(parent: string, tree: UserTree, base = 'New Folde
  * goes before the extension: New Text Document.txt, New Text Document (2).txt.
  */
 export function nextFreeName(parent: string, tree: UserTree, base: string, ext = ''): string {
+    // Taken means something is there — not "the name would be refused". Treating a refusal (a path
+    // too long for a deep folder) as taken made every numbered name taken too, and the loop never
+    // ended: New Folder froze the tab. Whoever creates the item reports the refusal itself.
     const taken = (name: string) => {
-        const path = `${parent}/${name}`;
-        return tree.files[path] !== undefined || tree.folders.includes(path) || validateUserPath(path, tree.folders) !== null;
+        const path = `${parent === '/' ? '' : parent}/${name}`;
+        return tree.files[path] !== undefined || tree.folders.includes(path) || lookup(path) !== null;
     };
     if (!taken(base + ext)) return base + ext;
-    for (let n = 2; ; n++) if (!taken(`${base} (${n})${ext}`)) return `${base} (${n})${ext}`;
+    for (let n = 2; n < 10_000; n++) if (!taken(`${base} (${n})${ext}`)) return `${base} (${n})${ext}`;
+    return base + ext;
 }
 
 /**
@@ -516,6 +530,9 @@ export function copyName(parent: string, name: string, tree: UserTree): string {
  * are refused with the reason rather than half-copied.
  */
 export function planCopy(tree: UserTree, from: string, to: string): UserTree | string {
+    if (from === '/proc' || from.startsWith('/proc/')) {
+        return 'It describes a running window and exists only while that window does. To keep what it says, use cat on it with > into a file.';
+    }
     const node = lookup(from);
     if (!node) return `Cannot find ${from}.`;
     if (tree.files[to] !== undefined || tree.folders.includes(to) || lookup(to)) return 'A file or folder with that name already exists.';
@@ -527,7 +544,7 @@ export function planCopy(tree: UserTree, from: string, to: string): UserTree | s
             const what = from === GUEST_PATH || from.startsWith(GUEST_PATH + '/') ? 'a system folder' : 'part of the portfolio';
             return `${node.name} is ${what}. Its files can be copied one at a time; the folder cannot.`;
         }
-        if (inside(to, from)) return `Cannot copy ${node.name}: the destination folder is inside the folder being copied.`;
+        if (inside(to, from)) return 'The destination folder is inside the folder being copied.';
         const files = { ...tree.files };
         for (const [p, f] of Object.entries(tree.files)) if (inside(p, from)) files[rebase(p, from, to)] = f;
         const added = tree.folders.filter((p) => p === from || inside(p, from)).map((p) => rebase(p, from, to));
@@ -545,7 +562,8 @@ export function planCopy(tree: UserTree, from: string, to: string): UserTree | s
     const content = own ? own.content : (node.src ?? node.content);
     const problem = validateUserContent(to, content);
     if (problem) return problem;
-    return { files: { ...tree.files, [to]: { content, mime: own?.mime ?? mimeForName(to), modified: own?.modified ?? Date.now() } }, folders: tree.folders };
+    // The copy's name decides its type, as a rename's does.
+    return { files: { ...tree.files, [to]: { content, mime: mimeForName(to), modified: own?.modified ?? Date.now() } }, folders: tree.folders };
 }
 
 /**
@@ -562,7 +580,7 @@ export function planMove(tree: UserTree, from: string, to: string): UserTree | s
     }
     if (from === to) return tree;
     if (isFolder && inside(to, from)) {
-        return `Cannot move ${baseName(from)}: the destination folder is inside the folder being moved.`;
+        return 'The destination folder is inside the folder being moved.';
     }
     if (tree.files[to] !== undefined) return 'A file with that name already exists.';
     const invalid = validateUserPath(to, tree.folders);
@@ -648,8 +666,10 @@ export function planRecycle(tree: UserTree, path: string): { tree: UserTree; tak
 
 /**
  * Put a Recycle Bin entry back where it was. Folders on the way that have gone since are made
- * again, as XP did. Anything now standing at one of its paths stops it — nothing is overwritten —
- * and the reason names what is in the way.
+ * again, and a folder of the same name already there is merged into, as XP did. A file now
+ * standing at one of its paths stops it — nothing is overwritten — and the reason names what is
+ * in the way. Its files are held to the same rules as a live save, since the entry came from
+ * storage a visitor can edit.
  */
 export function planRestore(tree: UserTree, taken: RecycledTree): UserTree | string {
     const name = baseName(taken.path);
@@ -661,16 +681,22 @@ export function planRestore(tree: UserTree, taken: RecycledTree): UserTree | str
     for (let up = parentOf(taken.path); up.startsWith(GUEST_PATH + '/') && !isWritableDir(up, folders); up = parentOf(up)) {
         missing.unshift(up);
     }
+    // An entry only ever holds its own item: anything outside it was added by hand, not by the bin.
+    const own = (p: string) => p === taken.path || inside(p, taken.path);
+    if (![...taken.folders, ...Object.keys(taken.files)].every(own)) return `Cannot restore ${name}: the entry is damaged.`;
     for (const p of [...missing, ...[...taken.folders].sort((a, b) => a.length - b.length)]) {
-        if (tree.files[p] !== undefined || folders.includes(p)) return inTheWay(p);
+        if (tree.files[p] !== undefined) return inTheWay(p);
+        // A folder of that name already there is merged into, as XP did — it used to refuse, so
+        // restoring a file from a deleted folder before the folder itself stranded the rest.
+        if (folders.includes(p)) continue;
         const invalid = validateUserPath(p, folders);
         if (invalid) return `Cannot restore ${name}: ${invalid}`;
         folders.push(p);
     }
     const files = { ...tree.files };
     for (const [p, f] of Object.entries(taken.files)) {
-        if (files[p] !== undefined) return inTheWay(p);
-        const invalid = validateUserPath(p, folders);
+        if (files[p] !== undefined || folders.includes(p)) return inTheWay(p);
+        const invalid = validateUserPath(p, folders) ?? validateUserContent(p, f.content);
         if (invalid) return `Cannot restore ${name}: ${invalid}`;
         files[p] = f;
     }
@@ -858,13 +884,133 @@ associate(ROOT, '/');
  * and `renderTree` forgot `/proc` altogether, so `ls /` listed the process table while `tree /`
  * — the command whose entire job is showing the filesystem at a glance — did not.
  */
-const rootFor = (procs: ProcEntry[]): VDir =>
-    dir('', [
+const rootFor = (procs: ProcEntry[]): VDir => {
+    const usr = sourceDir();
+    return dir('', [
         ...ROOT.children.map((c) =>
             c.name === 'home' && isDir(c) ? dir('home', [...c.children, guestDir()], c.description) : c,
         ),
+        ...(usr ? [usr] : []),
         procDir(procs),
     ]);
+};
+
+/* ------------------------------------------------------------ /usr/src */
+
+/**
+ * This application's own module graph, as `scripts/gen-architecture.mjs` measured it from the source
+ * at build time. The shape is declared here, not imported, so the VFS does not depend on a generated
+ * file: whoever needs `/usr/src` loads the data and mounts it (`system/source.ts`), which keeps the
+ * graph out of the first page load.
+ */
+export interface SourceModule {
+    path: string;
+    layer: string;
+    lines: number;
+    summary: string | null;
+    imports: { to: string; typeOnly: boolean; lazy: boolean }[];
+    packages: string[];
+}
+
+export interface SourceMap {
+    commit: string | null;
+    modules: SourceModule[];
+    violations: { from: string; to: string; rule: string }[];
+}
+
+export const SOURCE_PATH = '/usr/src';
+
+let sourceMap: SourceMap | null = null;
+let sourceCache: VDir | null = null;
+
+/** Mount the module graph at /usr/src. Idempotent. */
+export function mountSource(map: SourceMap): void {
+    if (map === sourceMap) return;
+    sourceMap = map;
+    sourceCache = null;
+}
+
+/** Who imports each module, the other half of the graph. */
+export function importersOf(map: SourceMap): Map<string, SourceModule[]> {
+    const by = new Map<string, SourceModule[]>();
+    for (const m of map.modules) for (const i of m.imports) by.set(i.to, [...(by.get(i.to) ?? []), m]);
+    return by;
+}
+
+function renderModule(m: SourceModule, importers: SourceModule[]): string {
+    const how = (i: { typeOnly: boolean; lazy: boolean }) =>
+        i.typeOnly ? '  (types only)' : i.lazy ? '  (loaded when first needed)' : '';
+    return [
+        heading(m.path),
+        '',
+        `Layer     : ${m.layer}`,
+        `Lines     : ${m.lines.toLocaleString()}`,
+        '',
+        m.summary ?? '(This module has no doc comment of its own.)',
+        '',
+        `Imports (${m.imports.length})`,
+        ...(m.imports.length ? m.imports.map((i) => `  ${i.to}${how(i)}`) : ['  nothing in this repository']),
+        ...(m.packages.length ? ['', `Packages  : ${m.packages.join(', ')}`] : []),
+        '',
+        `Imported by (${importers.length})`,
+        ...(importers.length
+            ? importers.map((f) => `  ${f.path}${how(f.imports.find((i) => i.to === m.path)!)}`)
+            : ['  nothing — an entry point, or loaded by Next.js itself']),
+    ].join('\n');
+}
+
+function renderSourceReadme(map: SourceMap): string {
+    const layers = new Map<string, number>();
+    for (const m of map.modules) layers.set(m.layer, (layers.get(m.layer) ?? 0) + 1);
+    return [
+        heading('/usr/src'),
+        '',
+        'This is not the source itself. Each file here describes one module of this desktop, and was',
+        'generated from the source when this build was made (scripts/gen-architecture.mjs): its layer,',
+        'its line count, the first paragraph of its own doc comment, what it imports and what imports it.',
+        '',
+        `Build     : ${map.commit ?? 'commit not recorded'}`,
+        `Modules   : ${map.modules.length}`,
+        ...Array.from(layers.entries()).sort().map(([layer, n]) => `  ${layer.padEnd(16)} ${n}`),
+        '',
+        'The dependency rule (CLAUDE.md): content/ and system/ never import components/, app/, the',
+        'store or React.',
+        map.violations.length
+            ? `Broken ${map.violations.length} time(s):\n${map.violations.map((v) => `  ${v.from} -> ${v.to}  (${v.rule})`).join('\n')}`
+            : 'Checked against every import in this build: it holds.',
+        '',
+        'System Information (Start > Run > msinfo32) draws the same graph.',
+    ].join('\n');
+}
+
+function sourceDir(): VDir | null {
+    if (!sourceMap) return null;
+    if (sourceCache) return sourceCache;
+    const map = sourceMap;
+    const importers = importersOf(map);
+    const root = dir('src', [], 'This desktop\'s own modules, measured from its source at build time');
+    for (const m of map.modules) {
+        const parts = m.path.split('/');
+        let at = root;
+        for (const part of parts.slice(0, -1)) {
+            let next = at.children.find((c): c is VDir => isDir(c) && c.name === part);
+            if (!next) {
+                next = dir(part, []);
+                at.children.push(next);
+            }
+            at = next;
+        }
+        at.children.push(
+            file(parts[parts.length - 1], renderModule(m, importers.get(m.path) ?? []), 'text/plain', {
+                appId: 'sysinfo',
+                payload: { module: m.path },
+            }),
+        );
+    }
+    root.children.unshift(file('README', renderSourceReadme(map), 'text/plain', { appId: 'notepad', payload: { path: `${SOURCE_PATH}/README` } }));
+    sourceCache = dir('usr', [root], 'Programs and their sources');
+    return sourceCache;
+}
 
 /* ------------------------------------------------------------- /proc (live) */
 

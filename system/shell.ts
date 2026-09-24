@@ -274,10 +274,13 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
     rm: {
         name: 'rm',
         summary: 'Delete a file (or, with -r, a folder) you made in /home/guest.',
-        usage: 'rm [-r] <path>...',
+        usage: 'rm [-rf] <path>...',
         run: (args, ctx) => {
-            const recursive = args.some((a) => /^-[rR]+$/.test(a));
-            const paths = args.filter((a) => !/^-[rR]+$/.test(a));
+            // Flags combine as in any shell: -r, -R, -f, -rf, -fr. -f is accepted: there is never a
+            // prompt to force past, and a missing file is still reported rather than hidden.
+            const isFlag = (a: string) => /^-[rRf]+$/.test(a);
+            const recursive = args.some((a) => isFlag(a) && /[rR]/.test(a));
+            const paths = args.filter((a) => !isFlag(a));
             if (!paths.length) return out(error('rm: missing operand'));
             const lines: ShellLine[] = [];
             for (const arg of paths) {
@@ -320,6 +323,12 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 const chain: string[] = [target];
                 if (parents) {
                     for (let up = parentPath(target); up !== '/' && !lookup(up, ctx.processes()); up = parentPath(up)) chain.unshift(up);
+                }
+                // Something on the way that is a file, not a folder: say so, rather than "does not exist".
+                const onTheWay = lookup(parentPath(chain[0]), ctx.processes());
+                if (onTheWay && !isDir(onTheWay)) {
+                    lines.push(error(`mkdir: cannot create directory '${prettyPath(target)}': Not a directory`));
+                    continue;
                 }
                 for (const folder of chain) {
                     const problem = ctx.makeDir(folder);
@@ -426,7 +435,7 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 text('content/       (built into the page, read-only)       /home/' + HOME_PATH.split('/').pop()),
                 blank(),
                 ...(recycledUsage() > 0
-                    ? [muted(`${Math.round(recycledUsage() / 1024)}K of that is in the Recycle Bin. Empty it to free the space.`)]
+                    ? [muted(`${recycledUsage() < 1024 ? `${recycledUsage()} bytes` : `${Math.round(recycledUsage() / 1024)}K`} of that is in the Recycle Bin. Empty it to free the space.`)]
                     : []),
                 muted('Files you save in /home/guest live in this browser only. Nobody else can see them.'),
             );

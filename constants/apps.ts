@@ -18,6 +18,7 @@ import {
     Image as ImageIcon,
     Monitor,
     ScrollText,
+    Info,
 } from 'lucide-react';
 import type { WindowPayload } from '@/store/useSystemStore';
 
@@ -316,6 +317,21 @@ export const APPS: Record<string, AppConfig> = {
         surfaces: ['start', 'run'],
         aliases: ['eventvwr.msc', 'events', 'eventlog'],
         load: () => import('@/components/apps/EventViewerApp'),
+    },
+    sysinfo: {
+        id: 'sysinfo',
+        title: 'System Information',
+        icon: Info,
+        // XP kept it under Accessories > System Tools; Run knew it as msinfo32 (and winmsd).
+        iconAsset: '/icons/xp/system-information.svg',
+        width: 780,
+        height: 520,
+        canMaximize: true,
+        canResize: true,
+        category: 'system',
+        surfaces: ['start', 'run'],
+        aliases: ['msinfo32', 'msinfo32.exe', 'winmsd'],
+        load: () => import('@/components/apps/SystemInfoApp'),
     },
 };
 

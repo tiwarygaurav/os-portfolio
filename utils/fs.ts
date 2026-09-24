@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { useSystemStore } from '@/store/useSystemStore';
-import { copyName, nextFolderName } from '@/system/vfs';
+import { copyName, nextFolderName, validateName } from '@/system/vfs';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 
 /**
@@ -43,6 +43,12 @@ export async function renameUserPath(from: string, typed: string): Promise<strin
     const oldName = baseName(from);
     const name = typed.trim();
     if (!name || name === oldName) return oldName;
+    // A name, not a path: "Sub/notes.txt" used to move the file into Sub instead of being refused.
+    const badName = validateName(name);
+    if (badName) {
+        await xpAlert('Error Renaming File or Folder', [badName], 'error');
+        return oldName;
+    }
     const isFolder = useSystemStore.getState().userFolders.includes(from);
     if (!isFolder && extOf(name) !== extOf(oldName)) {
         const ok = await xpConfirm(
@@ -61,8 +67,8 @@ export async function renameUserPath(from: string, typed: string): Promise<strin
 
 /* ------------------------------------------------------------------ clipboard */
 
-/** Explorer's Cut / Copy: one path, and whether Paste moves it (Cut) or copies it. */
-export type FileClip = { path: string; cut: boolean } | null;
+/** Explorer's Cut / Copy: the selected paths, and whether Paste moves them (Cut) or copies them. */
+export type FileClip = { paths: string[]; cut: boolean } | null;
 
 let clip: FileClip = null;
 const clipListeners = new Set<() => void>();
@@ -85,30 +91,44 @@ const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/')) || '/';
 const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
 
 /**
- * Paste the clipboard into `dest`, as Explorer did: a Cut moves (and empties the clipboard), a Copy
- * copies — as "Copy of ..." if the name is taken there. Resolves with the pasted item's name, or
- * null having said why in XP's error box.
+ * Move or copy `paths` into `dest`, one at a time, as Explorer's Paste and a drop did. Moving an
+ * item into the folder it is already in does nothing; a copy whose name is taken there becomes
+ * "Copy of ...". Stops at the first refusal and says why in XP's error box. Resolves with where the
+ * items are now.
  */
-export async function pasteInto(dest: string): Promise<string | null> {
-    const c = clip;
-    if (!c) return null;
-    const { userFiles, userFolders, actions } = useSystemStore.getState();
-    const name = baseName(c.path);
-    if (c.cut) {
-        if (parentOf(c.path) === dest) return name;
-        const problem = actions.moveUserPath(c.path, join(dest, name));
-        if (problem) {
-            await xpAlert('Error Moving File or Folder', [`Cannot move ${name}: ${problem}`], 'error');
-            return null;
+export async function transferInto(dest: string, paths: string[], mode: 'move' | 'copy'): Promise<string[]> {
+    const done: string[] = [];
+    for (const from of paths) {
+        // Read fresh for each item: the one before it has just changed the tree.
+        const { userFiles, userFolders, actions } = useSystemStore.getState();
+        const name = baseName(from);
+        if (mode === 'move' && parentOf(from) === dest) {
+            done.push(from);
+            continue;
         }
-        setFileClipboard(null);
-        return name;
+        const to = join(dest, mode === 'move' ? name : copyName(dest, name, { files: userFiles, folders: userFolders }));
+        const problem = mode === 'move' ? actions.moveUserPath(from, to) : actions.copyUserPath(from, to);
+        if (problem) {
+            await xpAlert(
+                mode === 'move' ? 'Error Moving File or Folder' : 'Error Copying File or Folder',
+                [`Cannot ${mode} ${name}: ${problem}`],
+                'error',
+            );
+            break;
+        }
+        done.push(to);
     }
-    const target = copyName(dest, name, { files: userFiles, folders: userFolders });
-    const problem = actions.copyUserPath(c.path, join(dest, target));
-    if (problem) {
-        await xpAlert('Error Copying File or Folder', [`Cannot copy ${name}: ${problem}`], 'error');
-        return null;
-    }
-    return target;
+    return done;
+}
+
+/**
+ * Paste the clipboard into `dest`: a Cut moves (and is used up once everything on it has moved), a
+ * Copy copies. Resolves with where the pasted items are now.
+ */
+export async function pasteInto(dest: string): Promise<string[]> {
+    const c = clip;
+    if (!c) return [];
+    const done = await transferInto(dest, c.paths, c.cut ? 'move' : 'copy');
+    if (c.cut && done.length === c.paths.length) setFileClipboard(null);
+    return done;
 }

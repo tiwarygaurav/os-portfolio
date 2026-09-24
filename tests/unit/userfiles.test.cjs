@@ -467,3 +467,76 @@ test('Search looks only where it is told, finds the visitor\'s files, and caps w
     assert.equal(capped.more, true);
     assert.deepEqual(vfs.findFiles({ name: 'x', under: '/nowhere' }).hits, []);
 });
+
+/* ------------------------------------------------------------------ review fixes */
+
+test('New Folder in a folder too deep for the name ends, instead of looping for ever', () => {
+    const deep = ['/home/guest', '0'.repeat(55), '1'.repeat(55), '2'.repeat(55), '3'.repeat(55)];
+    const folders = deep.slice(1).map((_, i) => deep.slice(0, i + 2).join('/'));
+    const tree = { files: {}, folders };
+    const where = folders[folders.length - 1];
+    assert.ok(where.length > 229);
+    // It used to spin: every numbered name was "too long", so every one counted as taken.
+    assert.equal(vfs.nextFolderName(where, tree), 'New Folder');
+    assert.equal(vfs.nextFreeName(where, tree, 'New Text Document', '.txt'), 'New Text Document.txt');
+    // And the create itself reports the real reason.
+    assert.match(vfs.validateUserPath(`${where}/New Folder`, folders), /path is too long/);
+});
+
+test('restoring a file from a deleted folder first no longer strands the folder\'s other files', () => {
+    const start = { files: { '/home/guest/A/x.txt': note('x'), '/home/guest/A/y.txt': note('y') }, folders: ['/home/guest/A'] };
+    const y = vfs.planRecycle(start, '/home/guest/A/y.txt');
+    const a = vfs.planRecycle(y.tree, '/home/guest/A');
+    // Restore y first: it remakes A...
+    const afterY = vfs.planRestore(a.tree, y.taken);
+    assert.deepEqual(afterY.folders, ['/home/guest/A']);
+    // ...and A's own entry merges into it, as XP did, rather than being refused.
+    const afterA = vfs.planRestore(afterY, a.taken);
+    assert.deepEqual(Object.keys(afterA.files).sort(), ['/home/guest/A/x.txt', '/home/guest/A/y.txt']);
+    assert.deepEqual(afterA.folders, ['/home/guest/A']);
+    // A file where the folder was still stops it.
+    assert.match(vfs.planRestore({ files: { '/home/guest/A': note('f') }, folders: [] }, a.taken), /named A in \/home\/guest/);
+});
+
+test('a hand-edited bin entry is held to the rules of a live save', () => {
+    const empty = { files: {}, folders: [] };
+    const textAsPicture = { path: '/home/guest/x.png', files: { '/home/guest/x.png': { content: 'hello', mime: 'image/png', modified: 1 } }, folders: [] };
+    assert.match(vfs.planRestore(empty, textAsPicture), /Only pictures can be saved/);
+    const smuggled = { path: '/home/guest/a.txt', files: { '/home/guest/a.txt': note('a'), '/home/guest/b.txt': note('b') }, folders: [] };
+    assert.match(vfs.planRestore(empty, smuggled), /damaged/);
+});
+
+test('a name is a name: "/" and the other characters XP refused are refused', () => {
+    assert.equal(vfs.validateName('notes.txt'), null);
+    assert.match(vfs.validateName('Sub/notes.txt'), /cannot contain/);
+    assert.match(vfs.validateName('a:b'), /cannot contain/);
+    assert.match(vfs.validateName(' x'), /start or end with a space/);
+    assert.match(vfs.validateName('..'), /reserved/);
+});
+
+test('cp: the copy\'s name decides its type; nothing under /proc is copied as if it were a file', () => {
+    const s = session();
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    s.ctx.writeFile(`${vfs.PICTURES_PATH}/me.png`, png);
+    s.run('cp "My Pictures/me.png" "My Pictures/me.txt"');
+    assert.equal(s.files()[`${vfs.PICTURES_PATH}/me.txt`].mime, 'text/plain');
+    s.ctx.processes = () => [{ pid: 'w1', appId: 'notepad', title: 'Untitled - Notepad', state: 'running', zIndex: 10 }];
+    assert.match(s.text(s.run('cp /proc/w1/status x.txt')), /running window/);
+});
+
+test('rm takes -rf and -f; mkdir -p over a file says "Not a directory"', () => {
+    const s = session();
+    s.run('mkdir -p Old/inner');
+    assert.deepEqual(s.run('rm -rf Old').lines, []);
+    assert.deepEqual(s.folders(), []);
+    assert.match(s.text(s.run('rm -f missing.txt')), /No such file or directory/);
+    assert.doesNotMatch(s.text(s.run('rm -f missing.txt')), /'-f'/);
+    s.run('touch a');
+    assert.match(s.text(s.run('mkdir -p a/b')), /Not a directory/);
+});
+
+test('df counts a small Recycle Bin in bytes, not as 0K', () => {
+    const s = session();
+    vfs.mountUserFiles(s.files(), s.folders(), 300);
+    assert.match(s.text(s.run('df')), /300 bytes of that is in the Recycle Bin/);
+});

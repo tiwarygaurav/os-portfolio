@@ -315,7 +315,8 @@ function commitTree(set: StoreSet, next: UserTree, before: UserTree): string | n
 
 /**
  * Recycle Bin entries from storage that are still well-formed. A file entry is only checked for
- * shape here; putting it back re-validates every path, as a live restore does.
+ * shape here; putting it back (`planRestore`) checks every path and every file's content against the
+ * rules a live save obeys, and refuses an entry holding anything outside its own item.
  */
 function sanitizeRecycleBin(v: unknown): RecycledItem[] {
     if (!Array.isArray(v)) return [];
@@ -949,6 +950,12 @@ export const useSystemStore = create<SystemState>()(
                     const plan = planMove(before, from, to);
                     if (typeof plan === 'string') return plan;
                     if (plan === before) return null;
+                    // Paths count toward the quota too: moving a full folder to a longer name grows it.
+                    const binSize = recycledSize(recycledTrees(get().recycleBin));
+                    const grows = userFilesSize(plan.files, plan.folders) > userFilesSize(before.files, before.folders);
+                    if (grows && userFilesSize(plan.files, plan.folders) + binSize > USER_FILES_QUOTA) {
+                        return 'There is not enough space left in this browser for the longer names. Delete something from /home/guest first.';
+                    }
                     const refused = commitTree(set, plan, before);
                     if (refused) return refused;
                     // The wallpaper names a file by path; if that file moved, follow it.

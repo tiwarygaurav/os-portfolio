@@ -105,7 +105,7 @@ export default function MyComputerApp() {
                 <TaskPane className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
                     {/* Links that fired `alert('Not implemented')` were removed, not relabelled. */}
                     <TaskSection title="System Tasks" special>
-                        <TaskLink label="View system information" onClick={() => open('settings')} />
+                        <TaskLink label="View system information" onClick={() => open('sysinfo')} />
                         <TaskLink label="Change a setting" onClick={() => open('settings')} />
                         <TaskLink label="Browse the filesystem" onClick={() => open('explorer')} />
                         <TaskLink label="Open a command prompt" onClick={() => open('terminal')} />

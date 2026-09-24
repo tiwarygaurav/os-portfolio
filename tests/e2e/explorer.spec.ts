@@ -136,6 +136,9 @@ test('Explorer right-click: Copy and Paste (then "Copy of"), New > Text Document
     await page.mouse.click(area!.x + area!.width - 12, area!.y + area!.height - 12, { button: 'right' });
     await menuItem('New').click();
     await menuItem('Text Document').click();
+    // The menu fades out for 0.1 s; a key typed before it is gone can be caught by it (a ContextMenu
+    // issue, reported to its owner). This test is about naming the file, so wait for the menu first.
+    await expect(page.getByRole('menu')).toHaveCount(0);
     await expect(w.getByLabel('New name for New Text Document.txt')).toBeFocused();
     await page.keyboard.type('todo');
     await page.keyboard.press('Enter');
@@ -239,4 +242,104 @@ test('dragging a file onto a folder moves it, and Ctrl+drag copies it', async ({
         '/home/guest/My Documents/Box/b.txt',
         '/home/guest/My Documents/b.txt',
     ]);
+});
+
+test('the Folders pane shows the tree, opens a folder, follows navigation, and gives way to Search', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    await shell(page, 'mkdir "/home/guest/My Documents/Tree Test"');
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const addr = w.locator('#explorer-address');
+    await w.getByRole('button', { name: 'Folders', exact: true }).click();
+    const tree = w.getByRole('tree', { name: 'Folders' });
+    await expect(tree.locator('button[data-tree-path="/"]')).toContainText('Local Disk (C:)');
+
+    // A click in the tree opens that folder.
+    await tree.locator('button[data-tree-path="/etc"]').click();
+    await expect(addr).toHaveValue('/etc');
+
+    // Navigating anywhere else opens the tree down to it, the folder made in the shell included.
+    await addr.fill('/home/guest/My Documents/Tree Test');
+    await addr.press('Enter');
+    const made = tree.locator('li[role="treeitem"][aria-selected="true"] > div button[data-tree-path="/home/guest/My Documents/Tree Test"]');
+    await expect(made).toBeVisible();
+
+    // Search and Folders take turns, as in XP.
+    await w.getByRole('button', { name: 'Search', exact: true }).first().click();
+    await expect(tree).toHaveCount(0);
+    await expect(w.getByText('Search Companion')).toBeVisible();
+});
+
+test('a deleted search result drops out, and My Documents is not called read-only', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    await shell(page, 'echo remember the milk > "/home/guest/My Documents/notes.txt"');
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    await w.getByRole('button', { name: 'Search', exact: true }).first().click();
+    await w.getByLabel('A word or phrase in the file:').fill('remember the milk');
+    await w.getByLabel('Look in:').selectOption({ label: 'Your folder (/home/guest)' });
+    await w.locator('form').getByRole('button', { name: 'Search' }).click();
+
+    // Results used to be a frozen snapshot: a deleted file stayed listed, and every action on it failed.
+    const hit = w.locator('button[data-path="/home/guest/My Documents/notes.txt"]');
+    await hit.click();
+    await page.keyboard.press('Delete');
+    await page.getByRole('dialog', { name: 'Confirm File Delete' }).getByRole('button', { name: 'Yes' }).click();
+    await expect(hit).toHaveCount(0);
+
+    // My Documents is the visitor's to save into: its Properties said "Read-only" and "Part of the portfolio".
+    await w.locator('form').getByRole('button', { name: 'Back' }).click();
+    await w.locator('#explorer-address').fill('/home/guest');
+    await w.locator('#explorer-address').press('Enter');
+    await w.locator('button[data-name="My Documents"]').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^Properties/ }).click();
+    const props = page.getByRole('dialog', { name: 'My Documents Properties' });
+    await expect(props.getByRole('checkbox')).not.toBeChecked();
+    await expect(props).toContainText('One of your system folders');
+    await expect(props).not.toContainText('Part of the portfolio');
+});
+
+test('multiple selection: Shift takes a range, Ctrl toggles, and Properties, Delete and drag act on all of it', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    for (const n of ['a', 'b', 'c', 'd']) await shell(page, `echo ${n} > "/home/guest/My Documents/${n}.txt"`);
+    await shell(page, 'mkdir "/home/guest/My Documents/Box"');
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+
+    await item('a.txt').click();
+    await item('c.txt').click({ modifiers: ['Shift'] });
+    await expect(w).toContainText('3 objects selected');
+    await item('a.txt').click({ modifiers: ['Control'] });
+    await expect(w).toContainText('2 objects selected');
+
+    // Properties sums the selection, as XP did.
+    await item('b.txt').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^Properties/ }).click();
+    const props = page.getByRole('dialog', { name: 'b.txt, ... Properties' });
+    await expect(props).toContainText('2 Files');
+    await expect(props).toContainText('All of type Text Document');
+    await props.getByRole('button', { name: 'OK' }).click();
+
+    // Delete takes the whole selection, in XP's words for several.
+    await item('b.txt').focus();
+    await page.keyboard.press('Delete');
+    const confirm = page.getByRole('dialog', { name: 'Confirm Multiple File Delete' });
+    await expect(confirm).toContainText('send these 2 items to the Recycle Bin');
+    await confirm.getByRole('button', { name: 'Yes' }).click();
+    await expect(item('b.txt')).toHaveCount(0);
+    await expect(item('c.txt')).toHaveCount(0);
+
+    // Ctrl+A, then dragging one selected item carries all of them (the folder itself stays put).
+    await item('a.txt').click();
+    await page.keyboard.press('Control+A');
+    await expect(w).toContainText('3 objects selected');
+    await item('d.txt').dragTo(item('Box'));
+    await expect.poll(() =>
+        page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles).sort()),
+    ).toEqual(['/home/guest/My Documents/Box/a.txt', '/home/guest/My Documents/Box/d.txt']);
 });

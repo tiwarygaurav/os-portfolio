@@ -11,7 +11,6 @@ import {
     PICTURES_PATH,
     isDir,
     isFile,
-    copyName,
     findFiles,
     isWritableDir,
     listDir,
@@ -22,15 +21,18 @@ import {
 } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
 import { useProcesses } from '@/utils/processes';
+// Mounts this build's module graph at /usr/src (loaded with this window, not with the page).
+import '@/system/source';
 import { playSound } from '@/utils/sound';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
-import { makeNewFolder, pasteInto, renameUserPath, setFileClipboard, useFileClipboard, useFsRevision } from '@/utils/fs';
+import { makeNewFolder, pasteInto, renameUserPath, setFileClipboard, transferInto, useFileClipboard, useFsRevision } from '@/utils/fs';
 import XpIcon from '@/components/ui/XpIcon';
 import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
 import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
 import PropertiesDialog from '@/components/os/PropertiesDialog';
-import FileList, { sizeColumn, sortEntries, type Entry, type SortKey, type ViewMode } from '@/components/apps/explorer/FileList';
+import FileList, { fileBytes, sizeColumn, sortEntries, type Entry, type PickMods, type SortKey, type ViewMode } from '@/components/apps/explorer/FileList';
 import SearchPane, { type SearchState } from '@/components/apps/explorer/SearchPane';
+import FolderTree from '@/components/apps/explorer/FolderTree';
 import { FILE_ICONS, fileTypeName } from '@/constants/fileIcons';
 
 /**
@@ -88,12 +90,20 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
      * address bar named another.
      */
     const [nav, setNav] = useState<{ list: string[]; cursor: number }>({ list: [start], cursor: 0 });
-    /** The selected item's path. Paths, not names: search results come from many folders. */
-    const [selected, setSelected] = useState<string | null>(null);
+    /**
+     * The selection: every selected path, the one last clicked (which a rename or Open acts on), and
+     * where a Shift+click range starts. Paths, not names: search results come from many folders.
+     */
+    const [sel, setSel] = useState<{ all: string[]; primary: string | null; anchor: string | null }>({ all: [], primary: null, anchor: null });
+    const selected = sel.primary;
+    /** Select exactly one item, or nothing, as a plain click does. */
+    const setSelected = useCallback((p: string | null) => setSel({ all: p ? [p] : [], primary: p, anchor: p }), []);
     /** The path of the item whose name is being edited in place, if any. */
     const [renaming, setRenaming] = useState<string | null>(null);
     /** XP's Search Companion: open while set, with what it found once a search has run. */
-    const [search, setSearch] = useState<(SearchState & { results: Entry[] | null }) | null>(null);
+    const [search, setSearch] = useState<(SearchState & { results: string[] | null }) | null>(null);
+    /** XP's Folders button: the folder tree in place of the task pane. Search and Folders take turns. */
+    const [showFolders, setShowFolders] = useState(false);
     const [address, setAddress] = useState(prettyPath(start));
     const listRef = useRef<HTMLUListElement>(null);
     /** XP opened a folder in Tiles; the View menu and the Views button change it. */
@@ -101,8 +111,8 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const [sortBy, setSortBy] = useState<SortKey>('name');
     /** An open right-click menu: over an item, or (item null) over the empty part of the folder. */
     const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
-    /** The path whose Properties box is showing. */
-    const [properties, setProperties] = useState<string | null>(null);
+    /** The paths whose Properties box is showing. */
+    const [properties, setProperties] = useState<string[] | null>(null);
     const clipboard = useFileClipboard();
 
     const path = nav.list[nav.cursor];
@@ -121,7 +131,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setRenaming(null);
         setSearch(null);
         setAddress(prettyPath(next));
-    }, []);
+    }, [setSelected]);
 
     const step = (by: -1 | 1) => {
         const next = nav.cursor + by;
@@ -179,16 +189,56 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     };
 
     /** What the list shows: the folder, or — once Search has run — what it found. */
-    const results = search?.results ?? null;
+    /*
+     * What Search found, re-read on every change: a result deleted or moved since drops out rather
+     * than lingering as a row whose every action said "Cannot find". The hits are kept as paths.
+     */
+    const results = useMemo(
+        () =>
+            search?.results
+                ? search.results
+                    .map((p) => ({ path: p, node: lookup(p, procs) }))
+                    .filter((e): e is Entry => e.node !== null)
+                : null,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `revision` is the signal that files changed
+        [search, procs, revision],
+    );
     const shown: Entry[] = results ?? entries;
+    // Only what is still there: a selected item deleted or moved elsewhere drops out.
+    const selectedEntries = shown.filter((e) => sel.all.includes(e.path));
     const selectedEntry = selected ? shown.find((e) => e.path === selected) : undefined;
-    const selectedNode = selectedEntry?.node;
-    const selectedPath = selectedEntry?.path ?? null;
+    const selectedNode = selectedEntries.length > 1 ? undefined : selectedEntry?.node;
+    const selectedPath = selectedEntries.length > 1 ? null : selectedEntry?.path ?? null;
+
+    /** A click, with XP's modifiers: Ctrl adds or removes one, Shift takes the range from the last plain click. */
+    const pick = (p: string, mods: PickMods) => {
+        if (mods.range && sel.anchor) {
+            const order = shown.map((e) => e.path);
+            const a = order.indexOf(sel.anchor);
+            const b = order.indexOf(p);
+            if (a >= 0 && b >= 0) {
+                const range = order.slice(Math.min(a, b), Math.max(a, b) + 1);
+                setSel({ all: mods.toggle ? Array.from(new Set([...sel.all, ...range])) : range, primary: p, anchor: sel.anchor });
+                return;
+            }
+        }
+        if (mods.toggle) {
+            const had = sel.all.includes(p);
+            const all = had ? sel.all.filter((x) => x !== p) : [...sel.all, p];
+            setSel({ all, primary: had ? all[all.length - 1] ?? null : p, anchor: p });
+            return;
+        }
+        setSelected(p);
+    };
+    const selectAll = () => setSel({ all: shown.map((e) => e.path), primary: shown[0]?.path ?? null, anchor: shown[0]?.path ?? null });
+    /** What an action on `entry` applies to: the whole selection when it is part of one, as in XP. */
+    const targetsFor = (entry: Entry): Entry[] =>
+        sel.all.includes(entry.path) && selectedEntries.length > 1 ? selectedEntries : [entry];
 
     const runSearch = () => {
         if (!search) return;
         const { hits, more } = findFiles({ name: search.name, text: search.text, under: search.under }, procs);
-        setSearch({ ...search, results: hits.map((h) => ({ node: h.node, path: h.path })), found: hits.length, more });
+        setSearch({ ...search, results: hits.map((h) => h.path), found: hits.length, more });
         setSelected(null);
         // XP showed what it found in Details, with the folder each was in.
         setView('details');
@@ -231,6 +281,45 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         else setSelected(null);
     };
 
+    /** Delete several at once, to the Recycle Bin or (Shift) for good, with XP's "these N items". */
+    const deleteEntries = async (targets: Entry[], permanently = false) => {
+        if (targets.length === 1) {
+            await deleteNode(targets[0].node, targets[0].path, permanently);
+            return;
+        }
+        const locked = targets.find((t) => !t.node.writable);
+        if (locked) {
+            await xpAlert('Error Deleting File or Folder', [
+                `Cannot delete ${locked.node.name}: ${isDir(locked.node) ? 'it is a system folder.' : 'it is read-only.'}`,
+                'Only files and folders you made in /home/guest can be deleted. Nothing was deleted.',
+            ], 'error');
+            return;
+        }
+        const ok = await xpConfirm(
+            'Confirm Multiple File Delete',
+            permanently
+                ? `Are you sure you want to delete these ${targets.length} items?`
+                : `Are you sure you want to send these ${targets.length} items to the Recycle Bin?`,
+            { confirmLabel: 'Yes', cancelLabel: 'No', icon: 'warning' },
+        );
+        if (!ok) return;
+        for (const t of targets) {
+            // A folder earlier in the selection may already have taken this one with it.
+            if (!lookup(t.path, procs)) continue;
+            const problem = !permanently
+                ? actions.recycleUserPath(t.path)
+                : isDir(t.node)
+                    ? actions.deleteUserFolder(t.path, true)
+                    : actions.deleteUserFile(t.path);
+            if (problem) {
+                await xpAlert('Windows Explorer', [problem], 'error');
+                break;
+            }
+        }
+        playSound('recycle');
+        setSelected(null);
+    };
+
     /** Put keyboard focus back on an item after the rename box it was replaced by goes away. */
     const focusItem = (itemPath: string) =>
         requestAnimationFrame(() =>
@@ -256,8 +345,11 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setRenaming(null);
         const renamed = join(parentOf(targetPath), await renameUserPath(targetPath, typed));
         if (search?.results) {
-            // A renamed search result keeps its place in the results, under its new name.
-            setSearch({ ...search, results: search.results.map((e) => (e.path === targetPath ? { node: lookup(renamed) ?? e.node, path: renamed } : e)) });
+            // A renamed result keeps its place under its new name — and a renamed folder takes the
+            // results found inside it along, instead of leaving them on paths that are gone.
+            const moved = (r: string) =>
+                r === targetPath ? renamed : r.startsWith(targetPath + '/') ? renamed + r.slice(targetPath.length) : r;
+            setSearch({ ...search, results: search.results.map(moved) });
         }
         setSelected(renamed);
         focusItem(renamed);
@@ -273,33 +365,39 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setRenaming(join(path, name));
     };
     const deleteSelected = () => {
-        if (selectedNode && selectedPath) void deleteNode(selectedNode, selectedPath);
+        if (selectedEntries.length) void deleteEntries(selectedEntries);
     };
 
     /* -------------------------------------------------------- Cut, Copy, Paste, New */
 
     /** Only the visitor's own things can be moved; anything can be copied, and Paste says if not. */
-    const cut = async (entry: Entry) => {
-        if (!entry.node.writable) {
+    const cut = async (targets: Entry[]) => {
+        const locked = targets.find((t) => !t.node.writable);
+        if (locked) {
             await xpAlert('Error Moving File or Folder', [
-                `Cannot move ${entry.node.name}: ${isDir(entry.node) ? 'it is a system folder.' : 'it is read-only.'}`,
+                `Cannot move ${locked.node.name}: ${isDir(locked.node) ? 'it is a system folder.' : 'it is read-only.'}`,
                 'Only files and folders you made in /home/guest can be moved. Copy makes a copy you can change.',
             ], 'error');
             return;
         }
-        setFileClipboard({ path: entry.path, cut: true });
+        setFileClipboard({ paths: targets.map((t) => t.path), cut: true });
     };
-    const copy = (entry: Entry) => setFileClipboard({ path: entry.path, cut: false });
+    const copy = (targets: Entry[]) => setFileClipboard({ paths: targets.map((t) => t.path), cut: false });
     const paste = async () => {
         if (!clipboard) return;
         if (!canWriteHere) {
-            await xpAlert('Windows Explorer', ['Nothing can be pasted here: this is part of the portfolio.', 'Paste into My Documents, My Pictures or a folder you made.'], 'error');
+            await xpAlert('Windows Explorer', [
+                results ? 'Search results are not a folder, so nothing can be pasted into them.' : 'Nothing can be pasted here: this is part of the portfolio.',
+                'Paste into My Documents, My Pictures or a folder you made.',
+            ], 'error');
             return;
         }
-        const name = await pasteInto(path);
-        if (name) {
-            setSelected(join(path, name));
-            focusItem(join(path, name));
+        // What was pasted is what is selected afterwards, as in XP.
+        const done = (await pasteInto(path)).filter((p) => parentOf(p) === path);
+        if (done.length) {
+            const last = done[done.length - 1];
+            setSel({ all: done, primary: last, anchor: last });
+            focusItem(last);
         }
     };
     /** New > Text Document: XP made "New Text Document.txt" and went straight into naming it. */
@@ -320,25 +418,21 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
      * it), and one of the portfolio's is copied, as dragging from a CD was. A folder of the portfolio
      * cannot take anything, and says so.
      */
-    const dropOn = async (target: Entry, from: string, forceCopy: boolean) => {
-        const name = from.slice(from.lastIndexOf('/') + 1);
-        if (from === target.path || (!forceCopy && parentOf(from) === target.path)) return;
+    const dropOn = async (target: Entry, from: string[], forceCopy: boolean) => {
+        const items = from.filter((p) => p !== target.path && (forceCopy || parentOf(p) !== target.path));
+        if (!items.length) return;
         if (!isWritableDir(target.path)) {
+            const what = items.length === 1 ? items[0].slice(items[0].lastIndexOf('/') + 1) : `these ${items.length} items`;
             await xpAlert('Windows Explorer', [
-                `Cannot put ${name} in ${target.node.name}: it is part of the portfolio.`,
-                'Drop it on My Documents, My Pictures or a folder you made.',
+                `Cannot put ${what} in ${target.node.name}: it is part of the portfolio.`,
+                'Drop on My Documents, My Pictures or a folder you made.',
             ], 'error');
             return;
         }
-        if (lookup(from)?.writable && !forceCopy) {
-            const problem = actions.moveUserPath(from, join(target.path, name));
-            if (problem) await xpAlert('Error Moving File or Folder', [`Cannot move ${name}: ${problem}`], 'error');
-            return;
+        for (const item of items) {
+            const mode = lookup(item, procs)?.writable && !forceCopy ? 'move' : 'copy';
+            if ((await transferInto(target.path, [item], mode)).length === 0) break;
         }
-        const { userFiles, userFolders } = useSystemStore.getState();
-        const as = copyName(target.path, name, { files: userFiles, folders: userFolders });
-        const problem = actions.copyUserPath(from, join(target.path, as));
-        if (problem) await xpAlert('Error Copying File or Folder', [`Cannot copy ${name}: ${problem}`], 'error');
     };
 
     /* ---------------------------------------------------------------- menus and keys */
@@ -346,17 +440,18 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     const viewItems = (): MenuItem[] => VIEWS.map((v) => ({ label: v.label, checked: view === v.id, action: () => setView(v.id) }));
 
     const itemMenu = (entry: Entry): MenuItem[] => {
-        const own = !!entry.node.writable;
+        const targets = targetsFor(entry);
+        const own = targets.every((t) => t.node.writable);
         return [
             { label: 'Open', bold: true, action: () => activate(entry.node, entry.path) },
             { divider: true },
-            { label: 'Cut', accel: 'Ctrl+X', disabled: !own, action: () => void cut(entry) },
-            { label: 'Copy', accel: 'Ctrl+C', action: () => copy(entry) },
+            { label: 'Cut', accel: 'Ctrl+X', disabled: !own, action: () => void cut(targets) },
+            { label: 'Copy', accel: 'Ctrl+C', action: () => copy(targets) },
             { divider: true },
-            { label: 'Delete', accel: 'Del', disabled: !own, action: () => void deleteNode(entry.node, entry.path) },
-            { label: 'Rename', accel: 'F2', disabled: !own, action: () => startRename(entry) },
+            { label: 'Delete', accel: 'Del', disabled: !own, action: () => void deleteEntries(targets) },
+            { label: 'Rename', accel: 'F2', disabled: !entry.node.writable, action: () => startRename(entry) },
             { divider: true },
-            { label: 'Properties', accel: 'Alt+Enter', action: () => setProperties(entry.path) },
+            { label: 'Properties', accel: 'Alt+Enter', action: () => setProperties(targets.map((t) => t.path)) },
         ];
     };
 
@@ -377,7 +472,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             }
             : { label: 'New', disabled: true },
         { divider: true },
-        { label: 'Properties', action: () => setProperties(path) },
+        { label: 'Properties', action: () => setProperties([path]) },
     ];
 
     /** Keys on an item belong to Explorer; they used to reach the desktop and act on its icons. */
@@ -385,17 +480,19 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         const ctrl = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
         const handled =
-            ['Enter', 'Delete', 'F2', 'Backspace'].includes(e.key) || (ctrl && ['x', 'c', 'v'].includes(key));
+            ['Enter', 'Delete', 'F2', 'Backspace'].includes(e.key) || (ctrl && ['x', 'c', 'v', 'a'].includes(key));
         if (!handled) return;
         e.preventDefault();
         e.stopPropagation();
-        if (e.key === 'Enter' && e.altKey) setProperties(entry.path);
+        const targets = targetsFor(entry);
+        if (e.key === 'Enter' && e.altKey) setProperties(targets.map((t) => t.path));
         else if (e.key === 'Enter') activate(entry.node, entry.path);
-        else if (e.key === 'Delete') void deleteNode(entry.node, entry.path, e.shiftKey);
+        else if (e.key === 'Delete') void deleteEntries(targets, e.shiftKey);
         else if (e.key === 'F2') startRename(entry);
         else if (e.key === 'Backspace') { if (parent) navigate(parent); }
-        else if (key === 'x') void cut(entry);
-        else if (key === 'c') copy(entry);
+        else if (key === 'a') selectAll();
+        else if (key === 'x') void cut(targets);
+        else if (key === 'c') copy(targets);
         else void paste();
     };
 
@@ -416,9 +513,22 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                 <ToolButton
                     label="Search"
                     pressed={search !== null}
-                    onClick={() => setSearch(search ? null : { name: '', text: '', under: path, found: null, more: false, results: null })}
+                    onClick={() => {
+                        setShowFolders(false);
+                        setSearch(search ? null : { name: '', text: '', under: path, found: null, more: false, results: null });
+                    }}
                 >
                     <span className="px-1 text-[11px]">Search</span>
+                </ToolButton>
+                <ToolButton
+                    label="Folders"
+                    pressed={showFolders}
+                    onClick={() => {
+                        setSearch(null);
+                        setShowFolders(!showFolders);
+                    }}
+                >
+                    <span className="px-1 text-[11px]">Folders</span>
                 </ToolButton>
                 <ToolButton
                     label="Views"
@@ -470,11 +580,26 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                             setSelected(null);
                         }}
                     />
+                ) : showFolders ? (
+                    <FolderTree
+                        className="order-2 max-h-64 shrink-0 border-r border-[#aca899] md:order-none md:max-h-none md:w-[200px]"
+                        current={path}
+                        procs={procs}
+                        revision={revision}
+                        onOpen={navigate}
+                        onDropOn={(target, from, copy) => {
+                            const targetNode = lookup(target, procs);
+                            if (targetNode) void dropOn({ node: targetNode, path: target }, from, copy);
+                        }}
+                    />
                 ) : (
                 <TaskPane className="order-2 shrink-0 md:order-none md:w-[200px] md:overflow-y-auto">
-                    {(canWriteHere || selectedNode?.writable) && (
+                    {(canWriteHere || selectedNode?.writable || (selectedEntries.length > 1 && selectedEntries.every((e) => e.node.writable))) && (
                         <TaskSection title="File and Folder Tasks" special>
                             {canWriteHere && <TaskLink label="Make a new folder" onClick={() => void newFolder()} />}
+                            {selectedEntries.length > 1 && selectedEntries.every((e) => e.node.writable) && (
+                                <TaskLink label="Delete the selected items" onClick={deleteSelected} />
+                            )}
                             {selectedNode?.writable && (
                                 <>
                                     <TaskLink label={`Rename this ${isDir(selectedNode) ? 'folder' : 'file'}`} onClick={() => selectedEntry && startRename(selectedEntry)} />
@@ -496,7 +621,17 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                     </TaskSection>
 
                     <TaskSection title="Details">
-                        {selectedNode ? (
+                        {selectedEntries.length > 1 ? (
+                            <>
+                                <TaskText strong>{selectedEntries.length} items selected.</TaskText>
+                                {selectedEntries.some((e) => fileBytes(e.node) !== null) && (
+                                    <TaskText>
+                                        Total File Size: {(selectedEntries.reduce((n, e) => n + (fileBytes(e.node) ?? 0), 0) / 1024).toFixed(1)} KB
+                                        {selectedEntries.some((e) => isDir(e.node)) && ' (files only; Properties counts folders too)'}
+                                    </TaskText>
+                                )}
+                            </>
+                        ) : selectedNode ? (
                             <>
                                 <TaskText strong>{selectedNode.name}</TaskText>
                                 <TaskText>
@@ -507,7 +642,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                     <TaskText>Date Modified: {new Date(selectedNode.modified).toLocaleString()}</TaskText>
                                 )}
                                 {sizeColumn(selectedNode) && <TaskText>Size: {sizeColumn(selectedNode)}</TaskText>}
-                                {!selectedNode.writable && <TaskText>Read-only</TaskText>}
+                                {!selectedNode.writable && !(selectedPath && isWritableDir(selectedPath)) && <TaskText>Read-only</TaskText>}
                                 {isDir(selectedNode) && selectedNode.description && <TaskText>{selectedNode.description}</TaskText>}
                             </>
                         ) : (
@@ -547,7 +682,11 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                     onKeyDown={(e) => {
                         // Keys on the empty part of the folder: Paste, and Backspace for Up, as in XP.
                         const ctrl = e.ctrlKey || e.metaKey;
-                        if (ctrl && e.key.toLowerCase() === 'v') {
+                        if (ctrl && e.key.toLowerCase() === 'a') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            selectAll();
+                        } else if (ctrl && e.key.toLowerCase() === 'v') {
                             e.preventDefault();
                             e.stopPropagation();
                             void paste();
@@ -573,17 +712,18 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                             view={view}
                             sortBy={sortBy}
                             onSort={setSortBy}
-                            selected={selected}
+                            selection={sel.all}
                             renaming={renaming}
-                            cutPath={clipboard?.cut ? clipboard.path : null}
+                            cutPaths={clipboard?.cut ? clipboard.paths : []}
                             listRef={listRef}
-                            onSelect={setSelected}
+                            onPick={pick}
                             onActivate={(entry) => activate(entry.node, entry.path)}
                             onItemKey={onItemKey}
                             onItemMenu={(e, entry) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                setSelected(entry.path);
+                                // Right-clicking inside the selection keeps it; outside, it selects just that one.
+                                if (!sel.all.includes(entry.path)) setSelected(entry.path);
                                 setMenu({ x: e.clientX, y: e.clientY, items: itemMenu(entry) });
                             }}
                             onRenameCommit={(entry, typed) => void commitRename(entry.path, typed)}
@@ -599,7 +739,9 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
 
             <div className="flex shrink-0 justify-between gap-2 border-t border-[#aca899] bg-[#ece9d8] px-2 py-0.5 text-[10px] text-gray-700">
                 <span>
-                    {selectedNode
+                    {selectedEntries.length > 1
+                        ? `${selectedEntries.length} objects selected`
+                        : selectedNode
                         ? `1 object selected${sizeColumn(selectedNode) ? ` — ${sizeColumn(selectedNode)}` : ''}`
                         : results
                             ? `${results.length} object${results.length === 1 ? '' : 's'} found`
@@ -609,7 +751,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
             </div>
 
             <ContextMenu x={menu?.x ?? 0} y={menu?.y ?? 0} isOpen={menu !== null} onClose={() => setMenu(null)} items={menu?.items ?? []} />
-            {properties && <PropertiesDialog path={properties} onClose={() => setProperties(null)} />}
+            {properties && <PropertiesDialog paths={properties} procs={procs} onClose={() => setProperties(null)} />}
         </div>
     );
 }

@@ -98,6 +98,8 @@ components/
 constants/    apps.ts — the app registry (id, title, icon, default size, capabilities)
 content/      Typed source of truth for all portfolio facts. No JSX, no styling.
 system/       Headless runtime: virtual filesystem, shell, event bus. No React.
+              architecture.generated.ts is built from the source (gitignored).
+scripts/      gen-architecture.mjs: the module graph, run before dev / build / tests
 store/        Zustand store + window manager
 utils/        cn, sound, dialog (XP message boxes), processes (window -> ProcEntry)
 tests/        unit/ (node:test over the headless layers) + e2e/ (Playwright over the real UI)
@@ -115,7 +117,9 @@ content/  ---->  system/  ---->  components/  ---->  app/
 store/ is a leaf that components/ and system/ may both touch.
 ```
 
-`content/` and `system/` must never import from `components/`, `app/`, or `react`.
+`content/` and `system/` must never import from `components/`, `app/`, or `react`. Of `store/`,
+`system/` reads only `store/persistence.ts` (pure data, no imports) — the store itself pushes into the
+VFS instead. `tests/unit/architecture.test.cjs` checks all of this against every import in the tree.
 
 ---
 
@@ -352,7 +356,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no multiple selection, no Explorer folder tree, no dragging between windows or onto the desktop (within Explorer, dragging onto a folder works). |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
 ---
 
@@ -456,6 +460,69 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Several at once: multiple selection in Explorer
+
+XP's selection rules: a click selects one, Ctrl+click adds or removes one, Shift+click takes the range
+from the last plain click, Ctrl+A takes everything. An action on an item that is part of the selection
+applies to all of it — Delete ("Confirm Multiple File Delete", "these 3 items"), Cut, Copy, drag, and
+Properties, which sums them ("2 Files", "All of type Text Document", "All in My Documents", one size)
+— while Rename and Open act on the item itself. Right-clicking inside the selection keeps it. The
+clipboard and a drag carry a list of paths, and Paste and a drop go through one `transferInto` in
+`utils/fs.ts`, which stops at the first refusal and says why. A press no longer selects on focus, so
+Ctrl+click is not undone by the focus that comes before it; keyboard focus (Tab) still selects.
+
+### 2026-09-24 - Fixes from the review of 05d1226..0eae3c1
+
+Thirteen findings. The serious one: New Folder and New Text Document in a folder deeper than ~220
+characters froze the tab — `nextFreeName` counted "path too long" as "name taken", so every
+numbered name was taken and the loop never ended. A name is now taken only when something is
+there, the loop is bounded, and the create reports the real reason. Also: search results were a
+frozen snapshot (a deleted result stayed listed and every action on it failed) — they are kept as
+paths and re-read on every change; restoring a file from a deleted folder before the folder
+itself stranded the folder's other files, because restore refused an existing folder — it now
+merges into it, as XP did, and still refuses a file in the way; a "/" typed into a rename moved the
+item into another folder — names go through `validateName`; My Documents' Properties said
+"Read-only, part of the portfolio"; a folder's size counted unknown pictures as zero; sizes counted
+UTF-16 characters, not bytes, and an empty file said 1 KB; moves skipped the storage quota; a
+hand-edited bin entry could restore text as a "picture" or smuggle in extra files; `cp` kept the
+source's type while `mv` took the new name's; `rm -rf` read `-rf` as a file name; `mkdir -p` over a
+file said "does not exist"; Properties and `cp` on `/proc` did nothing or said "Cannot find". One
+finding — Delete and Enter leaking from a window to a selected desktop icon when that window was
+already active — is in Desktop.tsx and went to the chrome session.
+
+### 2026-09-24 - Explorer's Folders pane
+
+XP's Folders button swapped the task pane for the folder tree; here it does the same. The tree shows
+folders only, with XP's [+] / [-] boxes, opens down to wherever Explorer is (the address bar, Back,
+a double-click, a search result) with that folder selected, re-lists when the visitor makes or
+renames one, and takes drops like a folder in the file list. Search and Folders take turns, as they
+did in XP. The root is "Local Disk (C:)", which is what My Computer already calls `/`.
+
+### 2026-09-24 - The architecture viewer is XP's System Information (msinfo32)
+
+**Why:** ROADMAP §7 asked for a rendered graph of this application's own modules, generated from
+the repository so it cannot rot — the piece that lets an engineer see how the desktop is built
+without cloning it. XP already had the window for "what is loaded on this machine": System
+Information, with Software Environment > Loaded Modules. Inventing an "Architecture" program would
+have broken the identity rule.
+**Design:** `scripts/gen-architecture.mjs` (Node's fs and regular expressions, no dependency) reads
+every module under app/, components/, constants/, content/, store/, system/ and utils/: its layer,
+lines, imports (type-only and lazy ones marked), npm packages, and the first paragraph of its own doc
+comment. It checks CLAUDE.md's dependency rule against every import. It runs on `postinstall`,
+`predev`, `prebuild` and `pretest:unit`, and its output (`system/architecture.generated.ts`) is
+gitignored — generated, never committed, so it describes exactly the code being built. The VFS
+declares the shape and exposes `mountSource`; `system/source.ts` loads the data and mounts it at
+`/usr/src`, and only the lazily loaded Command Prompt, Explorer and System Information import it, so
+the graph (~6 KB gzipped) stays out of the first page load. `/usr/src/<path>` is one file per
+module (what it imports and what imports it); double-clicking one opens System Information on it.
+**The window:** System Summary and Components show only what the browser reports (screen, pointer,
+processors, heap, storage), and say "Not reported by this browser" otherwise; Running Tasks is the
+process table; Loaded Modules is the graph with linked imports and importers; Packages lists npm
+packages by use; Dependency Rule shows the check. msinfo32's Find bar narrows any list. My
+Computer's "View system information" opens it — it used to open Display Properties.
+**Enforced, not just shown:** `tests/unit/architecture.test.cjs` fails if content/ or system/ ever
+imports components/, app/, the store or React.
 
 ### 2026-09-24 - Five apps rebuilt as their XP originals: Paint, Solitaire, Minesweeper, Calculator, Media Player
 

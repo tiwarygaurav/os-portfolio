@@ -25,6 +25,9 @@ build/
 # typescript incremental build info
 *.tsbuildinfo
 
+# generated from the source by scripts/gen-architecture.mjs
+system/architecture.generated.ts
+
 # tests
 .test-out/
 test-results/
