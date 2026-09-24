@@ -3,8 +3,9 @@
 import { useEffect, useRef } from 'react';
 import { APPS } from '@/constants/apps';
 import { fileIconFor, fileTypeName } from '@/constants/fileIcons';
-import { GUEST_PATH, HOME_PATH, isDir, isWritableDir, lookup, type ProcEntry, type VNode } from '@/system/vfs';
+import { GUEST_PATH, HOME_PATH, SAMPLE_PICTURES_PATH, isDir, isWritableDir, lookup, type ProcEntry, type VNode } from '@/system/vfs';
 import { prettyPath } from '@/system/shell';
+import { fileBytes } from '@/utils/fs';
 import XpIcon from '@/components/ui/XpIcon';
 
 /**
@@ -24,8 +25,6 @@ interface PropertiesDialogProps {
     onClose: () => void;
 }
 
-const encoder = new TextEncoder();
-
 /**
  * Bytes an item holds — a picture's decoded data, a text file's UTF-8 — and how many files in it
  * could not be measured (a built-in picture is a file on the site the page never downloaded). A
@@ -41,12 +40,8 @@ function bytesOf(node: VNode): { bytes: number; unknown: number } {
             { bytes: 0, unknown: 0 },
         );
     }
-    if (node.src) {
-        if (!node.src.startsWith('data:')) return { bytes: 0, unknown: 1 };
-        const b64 = node.src.slice(node.src.indexOf(',') + 1);
-        return { bytes: Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0), unknown: 0 };
-    }
-    return { bytes: encoder.encode(node.content).length, unknown: 0 };
+    const bytes = fileBytes(node);
+    return bytes === null ? { bytes: 0, unknown: 1 } : { bytes, unknown: 0 };
 }
 
 function counts(node: VNode): { files: number; folders: number } {
@@ -80,17 +75,29 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 function sizeLine({ bytes, unknown }: { bytes: number; unknown: number }, several: boolean): string {
     if (unknown === 0) return sizeText(bytes);
     if (!several) return 'Not known — a file on the site, which this page has not downloaded';
-    return `At least ${sizeText(bytes)} — ${plural(unknown, 'built-in picture')} not counted (files on the site this page has not downloaded)`;
+    const why = `${plural(unknown, 'built-in picture')}, files on the site this page has not downloaded`;
+    // Nothing measured at all is not "at least 0 bytes".
+    if (bytes === 0) return `Not known — ${why}`;
+    return `At least ${sizeText(bytes)} — ${why}, not counted`;
 }
 
 /** Why an item cannot be changed, by where it lives; null when it can be. */
 function noteFor(node: VNode, path: string): string | null {
     const readOnly = !node.writable && !isWritableDir(path);
+    const folder = isDir(node);
     const within = (root: string) => path === root || path.startsWith(root + '/');
     if (!readOnly) return node.writable ? null : 'One of your system folders: you can save into it, but not rename or delete it.';
-    if (within(HOME_PATH)) return 'Part of the portfolio. Copy it into My Documents to have a copy you can change.';
+    if (within(HOME_PATH)) {
+        if (folder) return 'Part of the portfolio. Its text files can be copied into My Documents, to have copies you can change.';
+        return node.src ? 'Part of the portfolio. It can be viewed, not changed.' : 'Part of the portfolio. Copy it into My Documents to have a copy you can change.';
+    }
     if (within('/proc')) return 'Describes a running window, and exists only while that window does.';
-    if (within(GUEST_PATH)) return 'A built-in picture. It can be viewed and set as the wallpaper, not changed.';
+    if (within(SAMPLE_PICTURES_PATH)) {
+        return folder
+            ? 'The built-in pictures. They can be viewed and set as the wallpaper; nothing here can be changed or added.'
+            : 'A built-in picture. It can be viewed and set as the wallpaper, not changed.';
+    }
+    if (within(GUEST_PATH)) return 'It cannot be changed.';
     return 'Part of the system, generated from this desktop itself. It cannot be changed.';
 }
 
@@ -104,9 +111,13 @@ const rule = <hr className="my-1 border-[#d0d0bf]" />;
 
 export default function PropertiesDialog({ paths, procs, onClose }: PropertiesDialogProps) {
     const okRef = useRef<HTMLButtonElement>(null);
-    useEffect(() => okRef.current?.focus(), []);
+    useEffect(() => okRef.current?.focus({ preventScroll: true }), []);
 
-    const items = paths
+    // Each item once, and not one inside a selected folder, which already counts it (search results
+    // can list a folder and what is in it together).
+    const unique = Array.from(new Set(paths));
+    const items = unique
+        .filter((p) => !unique.some((q) => q !== p && p.startsWith(`${q === '/' ? '' : q}/`)))
         .map((path) => ({ path, node: lookup(path, procs) }))
         .filter((i): i is { path: string; node: VNode } => i.node !== null);
     if (items.length === 0) return null;

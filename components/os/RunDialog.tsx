@@ -43,6 +43,20 @@ export default function RunDialog({ onClose }: RunDialogProps) {
         inputRef.current?.focus();
     }, []);
 
+    /*
+     * /usr/src is mounted by a module the page does not load up front (it is this build's whole
+     * module graph). Fetch it when Run opens, so a path under it is suggested and opens like any
+     * other; a path typed before it arrives waits for it in runPath.
+     */
+    const [sourceMounted, setSourceMounted] = useState(false);
+    useEffect(() => {
+        let open = true;
+        void import('@/system/source').then(() => open && setSourceMounted(true));
+        return () => {
+            open = false;
+        };
+    }, []);
+
     const openApp = (appId: string) => {
         actions.openWindow(appId, APPS[appId].title);
         onClose();
@@ -79,11 +93,12 @@ export default function RunDialog({ onClose }: RunDialogProps) {
         return [...apps, ...paths].slice(0, 10);
         // `runPath` and `openApp` are stable enough for this ephemeral dialog.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value, procs]);
+    }, [value, procs, sourceMounted]);
 
-    /** Open a filesystem path: its owning app if it has one, otherwise the Command Prompt at it. */
-    function runPath(raw: string) {
+    /** Open a filesystem path: its owning app if it has one, otherwise the Explorer at it. */
+    async function runPath(raw: string) {
         const abs = resolvePath(HOME_PATH, raw);
+        if (abs === '/usr' || abs.startsWith('/usr/')) await import('@/system/source');
         const node = lookup(abs, procs);
         if (!node) {
             setError(`Cannot find "${raw}". Check the spelling, then try again.`);

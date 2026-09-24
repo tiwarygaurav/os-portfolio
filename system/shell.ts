@@ -595,7 +595,7 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 text('content/       (built into the page, read-only)       /home/' + HOME_PATH.split('/').pop()),
                 blank(),
                 ...(recycledUsage() > 0
-                    ? [muted(`${recycledUsage() < 1024 ? `${recycledUsage()} bytes` : `${Math.round(recycledUsage() / 1024)}K`} of that is in the Recycle Bin. Empty it to free the space.`)]
+                    ? [muted(`${recycledUsage() < 1024 ? `${recycledUsage()} characters` : `${Math.round(recycledUsage() / 1024)}K`} of that is in the Recycle Bin. Empty it to free the space.`)]
                     : []),
                 muted('Files you save in /home/guest live in this browser only. Nobody else can see them.'),
             );

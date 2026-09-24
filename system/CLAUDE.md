@@ -102,11 +102,15 @@ Document (2).txt" and "Copy of x" names.
 ### `source.ts` and `architecture.generated.ts`
 
 `architecture.generated.ts` is this build's module graph, written by `scripts/gen-architecture.mjs`
-before dev, build and the unit tests, and gitignored — never edit or commit it. `source.ts` imports
-it and calls `mountSource`, which puts it at `/usr/src` (one file per module, plus a README with the
-dependency-rule check). Importing `source.ts` is what mounts it; only lazily loaded windows (the
-Command Prompt, Explorer, System Information) do, so the graph is not in the first page load. The VFS
-declares the shape (`SourceMap`) itself and never imports the generated file.
+before dev, build and the unit tests, and gitignored — never edit or commit it. The analysis is
+`scripts/architecture.mjs` (`analyse(files)`, on the TypeScript parser): each module's imports, line
+count and summary, and this directory's rule checked through every chain of runtime imports — which
+is why a helper this layer imports must be headless too, wherever it lives. `source.ts` imports the
+graph and calls `mountSource`, which puts it at `/usr/src` (one file per module, plus a README with
+the rule and what it covered). Importing `source.ts` is what mounts it; only lazily loaded code (the
+Command Prompt, Explorer, System Information, the file dialog, and Run when it opens) does, so the
+graph is not in the first page load. The VFS declares the shape (`SourceMap`) itself and never
+imports the generated file.
 
 ### `bus.ts`
 
@@ -151,5 +155,4 @@ because the stub `closeProcess` accepted any id; only driving the real browser f
 
 ## Not built yet
 
-`sudo` / root access, and the module-graph source that the future Architecture viewer will
-read. `sudo` currently states plainly that it is not wired up rather than pretending to fail.
+`sudo` / root access. `sudo` states plainly that it is not wired up rather than pretending to fail.

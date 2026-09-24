@@ -99,9 +99,11 @@ constants/    apps.ts — the app registry (id, title, icon, default size, capab
 content/      Typed source of truth for all portfolio facts. No JSX, no styling.
 system/       Headless runtime: virtual filesystem, shell, event bus. No React.
               architecture.generated.ts is built from the source (gitignored).
-scripts/      gen-architecture.mjs: the module graph, run before dev / build / tests
+scripts/      gen-architecture.mjs writes the module graph before dev / build / tests;
+              architecture.mjs is the analysis, on the TypeScript parser
 store/        Zustand store + window manager
-utils/        cn, sound, dialog (XP message boxes), processes (window -> ProcEntry)
+utils/        cn, sound, dialog (XP message boxes), processes (window -> ProcEntry),
+              fs (Explorer's file operations and clipboard), scroll (scroll a list, not the window)
 tests/        unit/ (node:test over the headless layers) + e2e/ (Playwright over the real UI)
 public/       icons, wallpapers, sounds, profile image, resume
 docs/         AUDIT.md (standing audit) + ROADMAP.md (forward plan)
@@ -119,7 +121,10 @@ store/ is a leaf that components/ and system/ may both touch.
 
 `content/` and `system/` must never import from `components/`, `app/`, or `react`. Of `store/`,
 `system/` reads only `store/persistence.ts` (pure data, no imports) — the store itself pushes into the
-VFS instead. `tests/unit/architecture.test.cjs` checks all of this against every import in the tree.
+VFS instead. `scripts/architecture.mjs` checks this through every chain of runtime imports that starts
+in `content/` or `system/` (JSX and any npm package count as breaking it too), on every build and unit
+run; `tests/unit/architecture.test.cjs` proves the checker on made-up trees and fails if the real one
+breaks.
 
 ---
 
@@ -460,6 +465,41 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Fixes from the review of 83545fe: the module graph is parsed, not pattern-matched
+
+The review found System Information's numbers, and the rule it claims to enforce, weaker than they
+read. The analysis is now `scripts/architecture.mjs`, on the TypeScript compiler's parser (already a
+dev dependency, so rule 10 is not engaged); `gen-architecture.mjs` only reads the tree and writes.
+- **The rule follows every chain.** It was checked one import deep. Now every module that
+  `content/` or `system/` reaches through runtime imports is held to it (type-only imports are
+  erased and do not count), and JSX, any npm package (an allowlist, empty today), the store bar
+  `persistence.ts`, and an `import()` whose target cannot be known each break it; a violation names
+  the chain. The window reports the modules and distinct imports the check covered — "Imports
+  checked" used to count every import in the tree, checked or not.
+- **Tested on made-up trees.** The unit tests used to check the generated graph against itself,
+  which could only agree. They now hand the analysis small trees whose right answer is known.
+- **Exact.** An "import" in a string or a comment is not one; line counts were one too high; the
+  generated file is in the graph like any module. A summary is the module's own doc comment: one in
+  its opening or standing alone before the first statement, else the default export's, else a
+  multi-paragraph overview on a first statement that opens the file or is exported. Taking the first
+  comment anywhere labelled the store with its `WindowPayload` type's. The fourteen modules with no
+  file-level doc say exactly that. A module nothing imports is "unused", except `app/`, which Next.js
+  loads by place.
+
+Elsewhere: selecting a module in a window parked low scrolled the whole desktop, because
+`scrollIntoView` and a plain `focus()` scroll `overflow: hidden` ancestors too — `utils/scroll.ts`
+moves only the nearest real scrolling list, and Explorer, the rename box, Properties, the file dialog
+and Search focus with `preventScroll`. Explorer's keys act on the selection (Delete took a focused item
+that a Ctrl+click had just taken out of it), and a right-click no longer leaves the list thinking a
+press is under way. Paste takes an item inside a folder that is also going along with the folder,
+skips one deleted since the Cut, and after a refusal part-way keeps only what did not move on the
+clipboard. Refusals and Properties say what a folder is by where it is (`/proc`, Sample Pictures, the
+root, the portfolio); a folder of built-in pictures is "Not known", not "At least 0 bytes"; a nested
+selection counts once; Total File Size says what it could not count; base64 padding is not data. New
+Text Document could overwrite a file: `nextFreeName` gave up at 10,000 and returned the taken name.
+The file dialog mounts `/usr/src` too, and Run fetches it when it opens. System Information names the
+colour scheme and counts storage exactly, in characters, as the quota does — and `df` says characters.
 
 ### 2026-09-24 - Pipes, and the text tools that make them useful
 

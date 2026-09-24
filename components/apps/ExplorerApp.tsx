@@ -25,12 +25,24 @@ import { useProcesses } from '@/utils/processes';
 import '@/system/source';
 import { playSound } from '@/utils/sound';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
-import { makeNewFolder, pasteInto, renameUserPath, setFileClipboard, transferInto, useFileClipboard, useFsRevision } from '@/utils/fs';
+import {
+    fileBytes,
+    folderLabel,
+    makeNewFolder,
+    pasteInto,
+    renameUserPath,
+    setFileClipboard,
+    transferInto,
+    useFileClipboard,
+    useFsRevision,
+    whyNotWritable,
+} from '@/utils/fs';
+import { focusInList } from '@/utils/scroll';
 import XpIcon from '@/components/ui/XpIcon';
 import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
 import { TaskLink, TaskPane, TaskSection, TaskText } from '@/components/ui/TaskPane';
 import PropertiesDialog from '@/components/os/PropertiesDialog';
-import FileList, { fileBytes, sizeColumn, sortEntries, type Entry, type PickMods, type SortKey, type ViewMode } from '@/components/apps/explorer/FileList';
+import FileList, { sizeColumn, sortEntries, type Entry, type PickMods, type SortKey, type ViewMode } from '@/components/apps/explorer/FileList';
 import SearchPane, { type SearchState } from '@/components/apps/explorer/SearchPane';
 import FolderTree from '@/components/apps/explorer/FolderTree';
 import { FILE_ICONS, fileTypeName } from '@/constants/fileIcons';
@@ -61,6 +73,8 @@ interface ExplorerAppProps {
 
 const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/')) || '/';
+/** Selected files whose size cannot be measured: built-in pictures, files the page never downloaded. */
+const uncounted = (entries: Entry[]) => entries.filter((e) => !isDir(e.node) && fileBytes(e.node) === null).length;
 
 const VIEWS: { id: ViewMode; label: string }[] = [
     { id: 'tiles', label: 'Tiles' },
@@ -320,12 +334,17 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setSelected(null);
     };
 
-    /** Put keyboard focus back on an item after the rename box it was replaced by goes away. */
+    /**
+     * Put keyboard focus on an item — after a rename, or a paste — scrolling the file list to it and
+     * nothing else: a plain focus() also scrolled the window's frame.
+     */
     const focusItem = (itemPath: string) =>
         requestAnimationFrame(() =>
-            Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-path]') ?? [])
-                .find((b) => b.dataset.path === itemPath)
-                ?.focus(),
+            focusInList(
+                Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-path]') ?? []).find(
+                    (b) => b.dataset.path === itemPath,
+                ),
+            ),
         );
 
     /** F2, or "Rename this file": only the visitor's own items; anything else says why not. */
@@ -387,13 +406,15 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         if (!clipboard) return;
         if (!canWriteHere) {
             await xpAlert('Windows Explorer', [
-                results ? 'Search results are not a folder, so nothing can be pasted into them.' : 'Nothing can be pasted here: this is part of the portfolio.',
+                results
+                    ? 'Search results are not a folder, so nothing can be pasted into them.'
+                    : `Nothing can be pasted into ${folderLabel(path)}: ${whyNotWritable(path)}.`,
                 'Paste into My Documents, My Pictures or a folder you made.',
             ], 'error');
             return;
         }
         // What was pasted is what is selected afterwards, as in XP.
-        const done = (await pasteInto(path)).filter((p) => parentOf(p) === path);
+        const done = (await pasteInto(path)).map((d) => d.to).filter((p) => parentOf(p) === path);
         if (done.length) {
             const last = done[done.length - 1];
             setSel({ all: done, primary: last, anchor: last });
@@ -419,18 +440,28 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
      * cannot take anything, and says so.
      */
     const dropOn = async (target: Entry, from: string[], forceCopy: boolean) => {
-        const items = from.filter((p) => p !== target.path && (forceCopy || parentOf(p) !== target.path));
+        const items = from.filter(
+            (p) =>
+                p !== target.path &&
+                (forceCopy || parentOf(p) !== target.path) &&
+                // Something inside a folder that is also being dropped goes with the folder.
+                !from.some((q) => q !== p && p.startsWith(`${q}/`)),
+        );
         if (!items.length) return;
         if (!isWritableDir(target.path)) {
             const what = items.length === 1 ? items[0].slice(items[0].lastIndexOf('/') + 1) : `these ${items.length} items`;
             await xpAlert('Windows Explorer', [
-                `Cannot put ${what} in ${target.node.name}: it is part of the portfolio.`,
+                `Cannot put ${what} in ${folderLabel(target.path)}: ${whyNotWritable(target.path)}.`,
                 'Drop on My Documents, My Pictures or a folder you made.',
             ], 'error');
             return;
         }
         for (const item of items) {
-            const mode = lookup(item, procs)?.writable && !forceCopy ? 'move' : 'copy';
+            const itemNode = lookup(item, procs);
+            // Gone since the drag began: nothing to move, and no reason to stop the rest.
+            if (!itemNode) continue;
+            const mode = itemNode.writable && !forceCopy ? 'move' : 'copy';
+            // Empty means refused, and transferInto has said why.
             if ((await transferInto(target.path, [item], mode)).length === 0) break;
         }
     };
@@ -475,7 +506,11 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         { label: 'Properties', action: () => setProperties([path]) },
     ];
 
-    /** Keys on an item belong to Explorer; they used to reach the desktop and act on its icons. */
+    /**
+     * Keys on an item belong to Explorer; they used to reach the desktop and act on its icons. They
+     * act on the selection, as XP's did — not on the focused item when it is not selected (a
+     * Ctrl+click can take the focused item out of the selection), and not at all when nothing is.
+     */
     const onItemKey = (e: React.KeyboardEvent, entry: Entry) => {
         const ctrl = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
@@ -484,16 +519,19 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         if (!handled) return;
         e.preventDefault();
         e.stopPropagation();
-        const targets = targetsFor(entry);
-        if (e.key === 'Enter' && e.altKey) setProperties(targets.map((t) => t.path));
-        else if (e.key === 'Enter') activate(entry.node, entry.path);
-        else if (e.key === 'Delete') void deleteEntries(targets, e.shiftKey);
-        else if (e.key === 'F2') startRename(entry);
-        else if (e.key === 'Backspace') { if (parent) navigate(parent); }
+        const targets = selectedEntries;
+        // The one a single-item key means: the focused item if it is selected, else the last picked.
+        const one = sel.all.includes(entry.path) ? entry : selectedEntry;
+        if (e.key === 'Backspace') { if (parent) navigate(parent); }
         else if (key === 'a') selectAll();
+        else if (key === 'v') void paste();
+        else if (targets.length === 0) return;
+        else if (e.key === 'Enter' && e.altKey) setProperties(targets.map((t) => t.path));
+        else if (e.key === 'Enter') { if (one) activate(one.node, one.path); }
+        else if (e.key === 'Delete') void deleteEntries(targets, e.shiftKey);
+        else if (e.key === 'F2') { if (one) startRename(one); }
         else if (key === 'x') void cut(targets);
         else if (key === 'c') copy(targets);
-        else void paste();
     };
 
     return (
@@ -627,7 +665,14 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                 {selectedEntries.some((e) => fileBytes(e.node) !== null) && (
                                     <TaskText>
                                         Total File Size: {(selectedEntries.reduce((n, e) => n + (fileBytes(e.node) ?? 0), 0) / 1024).toFixed(1)} KB
-                                        {selectedEntries.some((e) => isDir(e.node)) && ' (files only; Properties counts folders too)'}
+                                        {[
+                                            selectedEntries.some((e) => isDir(e.node)) && 'files only; Properties counts folders too',
+                                            uncounted(selectedEntries) > 0 &&
+                                                `${uncounted(selectedEntries)} built-in picture${uncounted(selectedEntries) === 1 ? '' : 's'} not counted`,
+                                        ]
+                                            .filter(Boolean)
+                                            .map((note) => ` (${note})`)
+                                            .join('')}
                                     </TaskText>
                                 )}
                             </>
@@ -712,7 +757,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                             view={view}
                             sortBy={sortBy}
                             onSort={setSortBy}
-                            selection={sel.all}
+                            selection={selectedEntries.map((e) => e.path)}
                             renaming={renaming}
                             cutPaths={clipboard?.cut ? clipboard.paths : []}
                             listRef={listRef}

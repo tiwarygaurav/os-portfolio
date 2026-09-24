@@ -5,6 +5,7 @@ import { APPS } from '@/constants/apps';
 import { prettyPath } from '@/system/shell';
 import { fileIconFor, fileTypeName } from '@/constants/fileIcons';
 import { isDir, isFile, type VNode } from '@/system/vfs';
+import { fileBytes } from '@/utils/fs';
 import RenameField from '@/components/ui/RenameField';
 import XpIcon from '@/components/ui/XpIcon';
 
@@ -44,8 +45,6 @@ export interface PickMods {
     range?: boolean;
 }
 
-const encoder = new TextEncoder();
-
 /**
  * What XP's Size column showed: nothing for a folder, whole kilobytes rounded up for a file — and
  * 0 KB for an empty one, which this used to call 1 KB. Text is counted in UTF-8 bytes.
@@ -53,13 +52,6 @@ const encoder = new TextEncoder();
 export function sizeColumn(node: VNode): string {
     const bytes = fileBytes(node);
     return bytes === null ? '' : `${Math.ceil(bytes / 1024).toLocaleString()} KB`;
-}
-
-/** A file's size in bytes, or null for a folder or a built-in picture the page never downloaded. */
-export function fileBytes(node: VNode): number | null {
-    if (isDir(node)) return null;
-    if (node.src && !node.src.startsWith('data:')) return null;
-    return node.src ? Math.floor((node.src.length - node.src.indexOf(',') - 1) * 0.75) : encoder.encode(node.content).length;
 }
 
 const sizeValue = (node: VNode) => (isDir(node) ? -1 : node.src ? node.src.length : node.content.length);
@@ -119,8 +111,22 @@ export default function FileList(props: FileListProps) {
      * A press focuses the button before its click. Focus from a press must not select on its own:
      * it would reset a Ctrl+click's selection to one item just before the click toggled it. Focus
      * from the keyboard (Tab) does select, so the keys act on what is shown as selected.
+     *
+     * The press ends when the pointer comes up anywhere, or is cancelled. Ending it only on a click
+     * left it stuck after a right-click or a press dragged off the item, and Tab then focused items
+     * without selecting them.
      */
     const pressing = useRef(false);
+    const press = () => {
+        pressing.current = true;
+        const end = () => {
+            pressing.current = false;
+            window.removeEventListener('pointerup', end, true);
+            window.removeEventListener('pointercancel', end, true);
+        };
+        window.addEventListener('pointerup', end, true);
+        window.addEventListener('pointercancel', end, true);
+    };
     const columns = showFolder ? FOUND_COLUMNS : DETAIL_COLUMNS;
     const folderOf = (path: string) => prettyPath(path.slice(0, path.lastIndexOf('/')) || '/');
     const iconSize = view === 'tiles' ? 48 : view === 'icons' ? 32 : 16;
@@ -237,13 +243,8 @@ export default function FileList(props: FileListProps) {
                                 type="button"
                                 data-name={node.name}
                                 data-path={entry.path}
-                                onPointerDown={() => {
-                                    pressing.current = true;
-                                }}
-                                onClick={(e) => {
-                                    pressing.current = false;
-                                    props.onPick(entry.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
-                                }}
+                                onPointerDown={press}
+                                onClick={(e) => props.onPick(entry.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
                                 onFocus={() => {
                                     if (!pressing.current && !picked.has(entry.path)) props.onPick(entry.path, {});
                                 }}
@@ -252,7 +253,6 @@ export default function FileList(props: FileListProps) {
                                 onContextMenu={(e) => props.onItemMenu(e, entry)}
                                 draggable
                                 onDragStart={(e) => {
-                                    pressing.current = false;
                                     // Dragging a selected item drags the whole selection, as in XP.
                                     const paths = isSelected ? selection : [entry.path];
                                     e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(paths));

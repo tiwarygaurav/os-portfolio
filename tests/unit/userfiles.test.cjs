@@ -483,6 +483,14 @@ test('New Folder in a folder too deep for the name ends, instead of looping for 
     assert.match(vfs.validateUserPath(`${where}/New Folder`, folders), /path is too long/);
 });
 
+test('a new name is never one that is taken, however many are', () => {
+    const where = '/home/guest/My Documents';
+    const files = { [`${where}/New Text Document.txt`]: note('first') };
+    for (let n = 2; n <= 10_001; n++) files[`${where}/New Text Document (${n}).txt`] = note(String(n));
+    // A cap at 10,000 used to hand back "New Text Document.txt" — taken — and New wrote over it.
+    assert.equal(vfs.nextFreeName(where, { files, folders: [] }, 'New Text Document', '.txt'), 'New Text Document (10002).txt');
+});
+
 test('restoring a file from a deleted folder first no longer strands the folder\'s other files', () => {
     const start = { files: { '/home/guest/A/x.txt': note('x'), '/home/guest/A/y.txt': note('y') }, folders: ['/home/guest/A'] };
     const y = vfs.planRecycle(start, '/home/guest/A/y.txt');
@@ -535,10 +543,10 @@ test('rm takes -rf and -f; mkdir -p over a file says "Not a directory"', () => {
     assert.match(s.text(s.run('mkdir -p a/b')), /Not a directory/);
 });
 
-test('df counts a small Recycle Bin in bytes, not as 0K', () => {
+test('df counts a small Recycle Bin in characters, not as 0K', () => {
     const s = session();
     vfs.mountUserFiles(s.files(), s.folders(), 300);
-    assert.match(s.text(s.run('df')), /300 bytes of that is in the Recycle Bin/);
+    assert.match(s.text(s.run('df')), /300 characters of that is in the Recycle Bin/);
 });
 
 test('a pipeline can end in a redirect, and uniq -c counts what repeats', () => {

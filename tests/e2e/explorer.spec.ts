@@ -343,3 +343,110 @@ test('multiple selection: Shift takes a range, Ctrl toggles, and Properties, Del
         page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles).sort()),
     ).toEqual(['/home/guest/My Documents/Box/a.txt', '/home/guest/My Documents/Box/d.txt']);
 });
+
+test('keys act on the selection: nothing when the focused item was Ctrl+clicked out of it', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    for (const n of ['a', 'b']) await shell(page, `echo ${n} > "/home/guest/My Documents/${n}.txt"`);
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+
+    // Selected, then Ctrl+clicked out of the selection: it keeps the focus, and Delete must not take it.
+    await item('a.txt').click();
+    await item('a.txt').click({ modifiers: ['Control'] });
+    await expect(w).toContainText('2 objects');
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(300);
+    await expect(page.getByRole('dialog', { name: 'Confirm File Delete' })).toHaveCount(0);
+    await expect(item('a.txt')).toBeVisible();
+});
+
+test('after a right-click, Tab still selects the item it lands on', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    for (const n of ['a', 'b']) await shell(page, `echo ${n} > "/home/guest/My Documents/${n}.txt"`);
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+
+    // A right-click is a press with no click. It used to leave the list thinking a press was still
+    // going on, so Tab moved the focus without selecting what it landed on.
+    await item('a.txt').click({ button: 'right' });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await item('a.txt').focus();
+    await page.keyboard.press('Tab');
+    await expect(item('b.txt')).toBeFocused();
+    await expect(item('b.txt')).toHaveClass(/bg-\[#316ac5\]/);
+});
+
+test('a Cut that is refused part-way keeps only what did not move, and the next Paste moves it', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    await shell(page, 'mkdir -p "/home/guest/My Documents/One" "/home/guest/My Documents/Two"');
+    for (const n of ['a', 'b']) await shell(page, `echo ${n} > "/home/guest/My Documents/${n}.txt"`);
+    // One already holds a b.txt, so moving b.txt there is refused, after a.txt has gone.
+    await shell(page, 'echo taken > "/home/guest/My Documents/One/b.txt"');
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+
+    await item('a.txt').click();
+    await item('b.txt').click({ modifiers: ['Shift'] });
+    await page.keyboard.press('Control+X');
+    await item('One').dblclick();
+    await item('b.txt').click();
+    await page.keyboard.press('Control+V');
+    const refused = page.getByRole('dialog', { name: 'Error Moving File or Folder' });
+    await expect(refused).toContainText('Cannot move b.txt');
+    await refused.getByRole('button', { name: 'OK' }).click();
+    await expect(item('a.txt')).toBeVisible();
+
+    // The clipboard now holds b.txt alone. Pasting used to try a.txt again, fail on it, and stop.
+    await w.getByRole('button', { name: 'Up one level' }).click();
+    await item('Two').dblclick();
+    await w.getByText('This folder is empty.').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^Paste/ }).click();
+    await expect(item('b.txt')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Error Moving File or Folder' })).toHaveCount(0);
+    const files = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles).sort());
+    expect(files).toEqual([
+        '/home/guest/My Documents/One/a.txt',
+        '/home/guest/My Documents/One/b.txt',
+        '/home/guest/My Documents/Two/b.txt',
+    ]);
+});
+
+test('Properties and Paste say what a folder is by where it is', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+
+    // Sample Pictures holds only built-in pictures, whose size the page never downloaded.
+    await w.getByRole('button', { name: 'My Pictures', exact: true }).first().click();
+    await item('Sample Pictures').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^Properties/ }).click();
+    const props = page.getByRole('dialog', { name: 'Sample Pictures Properties' });
+    await expect(props).toContainText('Not known');
+    await expect(props).not.toContainText('At least 0 bytes');
+    await expect(props).toContainText('The built-in pictures');
+    await props.getByRole('button', { name: 'OK' }).click();
+
+    // A portfolio file copied, then pasted into /proc: refused for what /proc is.
+    await w.locator('#explorer-address').fill('~');
+    await w.locator('#explorer-address').press('Enter');
+    await item('about.md').click();
+    await page.keyboard.press('Control+C');
+    await w.locator('#explorer-address').fill('/proc');
+    await w.locator('#explorer-address').press('Enter');
+    await w.locator('button[data-path^="/proc/"]').first().click();
+    await page.keyboard.press('Control+V');
+    await expect(page.getByRole('dialog', { name: 'Windows Explorer' })).toContainText(
+        'Nothing can be pasted into proc: it lists the windows that are open',
+    );
+});

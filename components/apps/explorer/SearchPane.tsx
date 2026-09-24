@@ -38,7 +38,8 @@ const field = 'mt-0.5 w-full border border-[#7f9db9] bg-white px-1 py-0.5 text-[
 
 export default function SearchPane({ state, current, onChange, onSearch, onClose, className = '' }: SearchPaneProps) {
     const first = useRef<HTMLInputElement>(null);
-    useEffect(() => first.current?.focus(), []);
+    // preventScroll: a plain focus() scrolls every ancestor, the window's frame included.
+    useEffect(() => first.current?.focus({ preventScroll: true }), []);
 
     const places = [
         { path: current, label: prettyPath(current) },

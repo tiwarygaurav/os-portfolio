@@ -505,12 +505,13 @@ export function nextFreeName(parent: string, tree: UserTree, base: string, ext =
         return tree.files[path] !== undefined || tree.folders.includes(path) || lookup(path) !== null;
     };
     if (!taken(base + ext)) return base + ext;
-    for (let n = 2; n < 10_000; n++) if (!taken(`${base} (${n})${ext}`)) return `${base} (${n})${ext}`;
-    return base + ext;
+    // Unbounded, and it ends: the tree is finite. A cap used to hand back the first name, taken,
+    // and New Text Document then wrote over the file that had it.
+    for (let n = 2; ; n++) if (!taken(`${base} (${n})${ext}`)) return `${base} (${n})${ext}`;
 }
 
 /**
- * The name a pasted copy takes in \`parent\` if its own is taken there, as XP named them:
+ * The name a pasted copy takes in `parent` if its own is taken there, as XP named them:
  * "Copy of notes.txt", then "Copy (2) of notes.txt".
  */
 export function copyName(parent: string, name: string, tree: UserTree): string {
@@ -525,7 +526,7 @@ export function copyName(parent: string, name: string, tree: UserTree): string {
 
 /**
  * Copy a file — the visitor's, or one of the portfolio's — or a folder the visitor made, with
- * everything in it, to \`to\`. Pure, like \`planMove\`. A built-in picture is a file on the site, which
+ * everything in it, to `to`. Pure, like `planMove`. A built-in picture is a file on the site, which
  * the browser's storage cannot hold a copy of, and a built-in folder is the portfolio itself: both
  * are refused with the reason rather than half-copied.
  */
@@ -916,9 +917,23 @@ export interface SourceMap {
     commit: string | null;
     modules: SourceModule[];
     violations: { from: string; to: string; rule: string }[];
+    /** What the dependency rule covered: the modules it reached, and the distinct imports between them. */
+    checked: { modules: number; imports: number };
 }
 
 export const SOURCE_PATH = '/usr/src';
+
+/** The dependency rule, as `scripts/architecture.mjs` checks it. */
+export const DEPENDENCY_RULE =
+    'content/ and system/ stay headless: nothing they import, directly or through another module, may be in ' +
+    'components/ or app/, be the store (its pure-data store/persistence.ts excepted), use an npm package, or draw JSX.';
+
+/** What a module with no summary says, since it may well have doc comments on its parts. */
+export const NO_SUMMARY = 'No doc comment describes this module as a whole.';
+
+/** Why nothing imports a module: Next.js loads app/ by where its files are; anything else is unused. */
+export const noImporters = (m: SourceModule): string =>
+    m.layer === 'app' ? 'Nothing: Next.js loads it itself, by its place in app/.' : 'Nothing. No module in this build imports it, so it is unused.';
 
 let sourceMap: SourceMap | null = null;
 let sourceCache: VDir | null = null;
@@ -946,7 +961,7 @@ function renderModule(m: SourceModule, importers: SourceModule[]): string {
         `Layer     : ${m.layer}`,
         `Lines     : ${m.lines.toLocaleString()}`,
         '',
-        m.summary ?? '(This module has no doc comment of its own.)',
+        m.summary ?? `(${NO_SUMMARY})`,
         '',
         `Imports (${m.imports.length})`,
         ...(m.imports.length ? m.imports.map((i) => `  ${i.to}${how(i)}`) : ['  nothing in this repository']),
@@ -955,7 +970,7 @@ function renderModule(m: SourceModule, importers: SourceModule[]): string {
         `Imported by (${importers.length})`,
         ...(importers.length
             ? importers.map((f) => `  ${f.path}${how(f.imports.find((i) => i.to === m.path)!)}`)
-            : ['  nothing — an entry point, or loaded by Next.js itself']),
+            : [`  ${noImporters(m)}`]),
     ].join('\n');
 }
 
@@ -973,11 +988,11 @@ function renderSourceReadme(map: SourceMap): string {
         `Modules   : ${map.modules.length}`,
         ...Array.from(layers.entries()).sort().map(([layer, n]) => `  ${layer.padEnd(16)} ${n}`),
         '',
-        'The dependency rule (CLAUDE.md): content/ and system/ never import components/, app/, the',
-        'store or React.',
+        `The dependency rule (CLAUDE.md): ${DEPENDENCY_RULE}`,
+        `Checked over ${map.checked.modules} modules and the ${map.checked.imports} imports between them.`,
         map.violations.length
-            ? `Broken ${map.violations.length} time(s):\n${map.violations.map((v) => `  ${v.from} -> ${v.to}  (${v.rule})`).join('\n')}`
-            : 'Checked against every import in this build: it holds.',
+            ? `Broken ${map.violations.length} time(s):\n${map.violations.map((v) => `  ${v.rule}`).join('\n')}`
+            : 'It holds.',
         '',
         'System Information (Start > Run > msinfo32) draws the same graph.',
     ].join('\n');

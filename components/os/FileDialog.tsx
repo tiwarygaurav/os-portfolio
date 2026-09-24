@@ -23,6 +23,8 @@ import RenameField from '@/components/ui/RenameField';
 import XpIcon from '@/components/ui/XpIcon';
 import { fileIconFor } from '@/constants/fileIcons';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
+// /usr/src is browsable from here too, so the module graph must be mounted whichever app opened this.
+import '@/system/source';
 
 /**
  * The XP common "Open" / "Save As" dialog, over the virtual filesystem.
@@ -86,7 +88,8 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
     const type = types[typeIndex] ?? types[0];
 
     useEffect(() => {
-        nameRef.current?.focus();
+        // preventScroll: a plain focus() scrolls every ancestor, the window's frame included.
+        nameRef.current?.focus({ preventScroll: true });
         nameRef.current?.select();
     }, []);
 
@@ -121,7 +124,7 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
     const commitRename = async (from: string, typed: string) => {
         setRenaming(null);
         setSelected(await renameUserPath(from, typed));
-        nameRef.current?.focus();
+        nameRef.current?.focus({ preventScroll: true });
     };
 
     const confirm = async (override?: string) => {

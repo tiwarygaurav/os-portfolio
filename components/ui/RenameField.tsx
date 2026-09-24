@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import { focusInList } from '@/utils/scroll';
 
 /**
  * XP's in-place rename box, shared by Explorer and the Open / Save As dialog.
@@ -10,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
  * Every key stays inside it: Enter and Delete in Explorer used to reach the desktop underneath,
  * and Escape in a file dialog must cancel the rename, not the dialog.
  */
+
 interface RenameFieldProps {
     name: string;
     /** A folder's whole name is selected; a file's stops before the extension. */
@@ -28,7 +30,7 @@ export default function RenameField({ name, isFolder, onCommit, onCancel, classN
     useEffect(() => {
         const el = ref.current;
         if (!el) return;
-        el.focus();
+        focusInList(el);
         const dot = isFolder ? -1 : name.lastIndexOf('.');
         el.setSelectionRange(0, dot > 0 ? dot : name.length);
     }, [name, isFolder]);

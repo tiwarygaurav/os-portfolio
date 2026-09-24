@@ -1,6 +1,11 @@
 import type { ExternalLink, Sourced } from './types';
 
 /**
+ * Who the portfolio belongs to and what the desktop is called: `SYSTEM`, `PROFILE`, `RESUME` and
+ * the owner's `LINKS`.
+ */
+
+/**
  * Identity of the environment itself.
  *
  * The XP identity is deliberate and stays. This is a Windows XP-style desktop, and it should feel

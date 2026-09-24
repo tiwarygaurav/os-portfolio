@@ -3,9 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSystemStore, type WindowPayload } from '@/store/useSystemStore';
 import { SYSTEM } from '@/content';
+import { THEMES } from '@/constants/prefs';
 import { SOURCE } from '@/system/source';
-import { USER_FILES_QUOTA, guestUsage, importersOf, recycledUsage, type SourceModule } from '@/system/vfs';
+import {
+    DEPENDENCY_RULE,
+    NO_SUMMARY,
+    USER_FILES_QUOTA,
+    guestUsage,
+    importersOf,
+    noImporters,
+    recycledUsage,
+    type SourceModule,
+} from '@/system/vfs';
 import { useProcesses } from '@/utils/processes';
+import { revealInList } from '@/utils/scroll';
 
 /**
  * System Information — XP's msinfo32 — over things this page can actually measure.
@@ -15,7 +26,8 @@ import { useProcesses } from '@/utils/processes';
  * The software half is this desktop's own architecture: Loaded Modules is the module graph that
  * `scripts/gen-architecture.mjs` read from the source when this build was made — every module, its
  * layer and size, the first paragraph of its own doc comment, what it imports and what imports it —
- * and Dependency Rule is CLAUDE.md's layering rule checked against every one of those imports.
+ * and Dependency Rule is CLAUDE.md's layering rule, checked through every chain of imports that
+ * starts in content/ or system/.
  */
 
 interface SystemInfoAppProps {
@@ -48,6 +60,10 @@ const TREE: { label: string; items: { id: Section; label: string }[] }[] = [
 const NOT_REPORTED = 'Not reported by this browser';
 
 type Row = [string, string];
+
+const chars = (n: number) => `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
+/** A share as a percentage, and never "0%" for something that is there. */
+const percent = (f: number) => (f > 0 && f < 0.01 ? 'under 1%' : `${Math.round(f * 100)}%`);
 
 /** What the browser reports right now. Read on the client, never guessed. */
 function browserFacts() {
@@ -105,7 +121,10 @@ export default function SystemInfoApp({ payload }: SystemInfoAppProps) {
 
     const importers = useMemo(() => importersOf(SOURCE), []);
     const selectedModule = moduleSel ? SOURCE.modules.find((m) => m.path === moduleSel) : undefined;
-    useEffect(() => detailRef.current?.scrollIntoView({ block: 'nearest' }), [moduleSel]);
+    // Show the details in the section's own scroll, never by moving the window (utils/scroll.ts).
+    useEffect(() => {
+        if (detailRef.current) revealInList(detailRef.current);
+    }, [moduleSel]);
 
     const q = find.trim().toLowerCase();
     const matches = (...texts: (string | null | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q));
@@ -166,7 +185,7 @@ export default function SystemInfoApp({ payload }: SystemInfoAppProps) {
                     ['This browser window', f.viewport],
                     ['Pixel ratio', f.ratio],
                     ['Colour depth', f.depth],
-                    ['Colour scheme (Luna)', themeId],
+                    ['Colour scheme (Luna)', THEMES.find((t) => t.id === themeId)?.name ?? themeId],
                     ['System colour scheme', f.scheme],
                     ['Motion', f.motion],
                 ];
@@ -180,16 +199,17 @@ export default function SystemInfoApp({ payload }: SystemInfoAppProps) {
                 return [
                     ['Your files', `${fileCount}`],
                     ['Your folders', `${folderCount}`],
-                    ['In the Recycle Bin', `${binCount} item(s), ${Math.round(recycledUsage() / 1024)} KB`],
-                    ['Used', `${Math.round(usage / 1024)} KB of ${Math.round(USER_FILES_QUOTA / 1024)} KB (${Math.round((usage / USER_FILES_QUOTA) * 100)}%)`],
-                    ['Where', "This browser's localStorage. Nobody else can see it."],
+                    ['In the Recycle Bin', `${binCount} item(s), ${chars(recycledUsage())}`],
+                    ['Used', `${chars(usage)} of ${chars(USER_FILES_QUOTA)} (${percent(usage / USER_FILES_QUOTA)})`],
+                    ['Where', "This browser's localStorage, which counts characters, not bytes. Nobody else can see it."],
                 ];
             case 'rule':
                 return [
-                    ['Rule', 'content/ and system/ never import components/, app/, the store or React.'],
-                    ['Imports checked', `${SOURCE.modules.reduce((n, m) => n + m.imports.length + m.packages.length, 0)}`],
+                    ['Rule', DEPENDENCY_RULE],
+                    ['Modules checked', `${SOURCE.checked.modules}: content/, system/ and every module their runtime imports reach`],
+                    ['Imports checked', `${SOURCE.checked.imports}, each checked once (type-only imports are erased, so they do not count)`],
                     ['Result', SOURCE.violations.length ? `Broken ${SOURCE.violations.length} time(s)` : 'Holds: no import breaks it'],
-                    ...SOURCE.violations.map((v): Row => [v.from, `${v.to} — ${v.rule}`]),
+                    ...SOURCE.violations.map((v): Row => [v.from, v.rule]),
                 ];
             default:
                 return [];
@@ -292,7 +312,7 @@ export default function SystemInfoApp({ payload }: SystemInfoAppProps) {
                                 {selectedModule.layer} · {selectedModule.lines.toLocaleString()} lines
                                 {selectedModule.packages.length > 0 && ` · packages: ${selectedModule.packages.join(', ')}`}
                             </p>
-                            <p className="my-1.5">{selectedModule.summary ?? 'This module has no doc comment of its own.'}</p>
+                            <p className="my-1.5">{selectedModule.summary ?? NO_SUMMARY}</p>
                             <div className="grid gap-2 sm:grid-cols-2">
                                 <div>
                                     <p className="font-bold">Imports ({selectedModule.imports.length})</p>
@@ -313,7 +333,7 @@ export default function SystemInfoApp({ payload }: SystemInfoAppProps) {
                                             <li key={m.path}>{moduleLink(m.path)}</li>
                                         ))}
                                         {!importers.get(selectedModule.path)?.length && (
-                                            <li className="text-gray-500">Nothing — an entry point, or loaded by Next.js itself.</li>
+                                            <li className="text-gray-500">{noImporters(selectedModule)}</li>
                                         )}
                                     </ul>
                                 </div>
