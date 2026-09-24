@@ -461,6 +461,18 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-09-24 - Pipes, and the text tools that make them useful
+
+A shell over a real filesystem without `|` is the first thing an engineer notices is missing. An
+unquoted `|` now splits a command line (with or without spaces); each command's text output — what
+`>` would write — is the next one's input, and errors from any stage still show, as stderr does. A
+pipeline runs as a subshell does in bash: `cd` inside one changes nothing, and only the last command
+may be redirected. `grep` filters what is piped in (`-v`, `-c`; still a plain, case-insensitive text
+match, not a regular expression), `cat` passes it through, and new `head`, `tail`, `wc`, `sort` and
+`uniq` read either a file or the pipe; `find [folder] -name / -iname / -type` walks the tree with
+shell patterns. Tab completes a command name after a `|`. Commands receive `stdin` as a third
+argument, so a new filter is still one entry in the command table.
+
 ### 2026-09-24 - Several at once: multiple selection in Explorer
 
 XP's selection rules: a click selects one, Ctrl+click adds or removes one, Shift+click takes the range

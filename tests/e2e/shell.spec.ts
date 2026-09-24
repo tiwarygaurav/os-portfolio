@@ -71,3 +71,12 @@ test('/etc/system.conf is generated from what is really persisted', async ({ pag
         'persisted      = volume, mute, wallpaper, wallpaper picture, colour scheme, screen saver, your files (/home/guest), your folders, icon positions, recycle bin, deleted desktop icons',
     );
 });
+
+test('a pipeline runs in the real Command Prompt', async ({ page }) => {
+    await shell(page, 'ls ~/projects | grep portfolio');
+    // The prompt echoes the command, which says "portfolio" but not the folder's full name.
+    await expect.poll(() => terminalText(page)).toContain('os-portfolio/');
+    expect(await terminalText(page)).not.toContain('url-shortener/');
+    await shell(page, 'find ~ -name *.md | wc -l');
+    await expect.poll(() => terminalText(page)).toMatch(/\n\s*\d+\s*\n/);
+});

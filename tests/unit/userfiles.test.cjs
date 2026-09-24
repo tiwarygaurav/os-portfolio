@@ -540,3 +540,13 @@ test('df counts a small Recycle Bin in bytes, not as 0K', () => {
     vfs.mountUserFiles(s.files(), s.folders(), 300);
     assert.match(s.text(s.run('df')), /300 bytes of that is in the Recycle Bin/);
 });
+
+test('a pipeline can end in a redirect, and uniq -c counts what repeats', () => {
+    const s = session();
+    s.run('echo b > l.txt');
+    s.run('echo a >> l.txt');
+    s.run('echo b >> l.txt');
+    assert.equal(s.text(s.run('sort l.txt | uniq -c')).replace(/ +/g, ' ').trim(), '1 a\n 2 b'.replace(/ +/g, ' '));
+    s.run(`ls ${vfs.HOME_PATH}/projects | grep portfolio > found.txt`);
+    assert.equal(s.files()[`${vfs.GUEST_PATH}/found.txt`].content, 'os-portfolio/\n');
+});

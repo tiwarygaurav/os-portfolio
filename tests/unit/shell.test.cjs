@@ -160,3 +160,55 @@ test('every command in help runs without throwing', () => {
         assert.doesNotThrow(() => s.run(name), name);
     }
 });
+
+/* ------------------------------------------------------------------ pipes */
+
+test('a pipe feeds one command\'s output to the next, with or without spaces', () => {
+    const s = session();
+    const projects = vfs.listDir(`${vfs.HOME_PATH}/projects`).length;
+    assert.equal(s.text(s.run('ls ~/projects | wc -l')), String(projects));
+    assert.equal(s.text(s.run('ls ~/projects|grep portfolio')), 'os-portfolio/', 'ls marks folders with /, as ls -F does');
+    // grep matches text, not a regular expression: every folder line ends in "/".
+    assert.equal(s.text(s.run('ls ~/projects | grep -v portfolio | grep -c /')), String(projects - 1));
+    // A quoted | is text, not a pipe.
+    assert.equal(s.text(s.run('echo "a | b"')), 'a | b');
+});
+
+test('head, tail, sort and cat read what is piped in, or a file', () => {
+    const s = session();
+    const stack = vfs.lookup(`${vfs.HOME_PATH}/projects/os-portfolio/stack.txt`).content.split('\n').filter(Boolean);
+    assert.equal(s.text(s.run('cat ~/projects/os-portfolio/stack.txt | head -n 2')), stack.slice(0, 2).join('\n'));
+    assert.equal(s.text(s.run('tail -1 ~/projects/os-portfolio/stack.txt')), stack[stack.length - 1]);
+    assert.equal(s.text(s.run('cat ~/projects/os-portfolio/stack.txt | sort | head -n 1')), [...stack].sort((a, b) => a.localeCompare(b))[0]);
+    assert.equal(s.text(s.run('ls ~/projects | cat | wc -l')), String(vfs.listDir(`${vfs.HOME_PATH}/projects`).length));
+    assert.match(s.text(s.run('head -n x ~/about.md')), /invalid number of lines/);
+    assert.match(s.text(s.run('wc')), /missing operand. Name a file, or pipe something in/);
+});
+
+test('find walks a folder by name and kind', () => {
+    const s = session();
+    const md = s.text(s.run('find ~ -name *.md -type f')).split('\n');
+    assert.ok(md.length > 3);
+    assert.ok(md.every((p) => p.endsWith('.md')));
+    const dirs = s.text(s.run('find ~/projects -type d')).split('\n');
+    assert.ok(dirs.includes('~/projects/os-portfolio'));
+    assert.match(s.text(s.run('find /nowhere')), /No such file or directory/);
+    assert.equal(s.text(s.run('find ~ -iname readme.MD | wc -l')), s.text(s.run('find ~ -name README.md | wc -l')));
+});
+
+test('a pipeline is a subshell: cd inside it stays there, and a broken pipe says so', () => {
+    const s = session();
+    s.run('cd /etc | ls');
+    assert.equal(s.state.cwd, vfs.HOME_PATH);
+    assert.match(s.text(s.run('ls |')), /syntax error near unexpected token `\|'/);
+    assert.match(s.text(s.run('| ls')), /syntax error/);
+    assert.match(s.text(s.run('ls > x.txt | wc')), /Only the last command in a pipeline/);
+    // An error from an earlier stage still shows.
+    assert.match(s.text(s.run('cat /nope | wc -l')), /no such file or directory/);
+});
+
+test('after a |, Tab completes a command name', () => {
+    const s = session();
+    assert.deepEqual(shell.complete('ls | gr', s.ctx), ['grep']);
+    assert.deepEqual(shell.complete('ls ~/projects | hea', s.ctx), ['head']);
+});
