@@ -501,7 +501,11 @@ hand-edited bin entry could restore text as a "picture" or smuggle in extra file
 source's type while `mv` took the new name's; `rm -rf` read `-rf` as a file name; `mkdir -p` over a
 file said "does not exist"; Properties and `cp` on `/proc` did nothing or said "Cannot find". One
 finding — Delete and Enter leaking from a window to a selected desktop icon when that window was
-already active — is in Desktop.tsx and went to the chrome session.
+already active — was in Desktop.tsx and is fixed there: the desktop now holds the keyboard only
+while the last press landed in its icon layer (a capture-phase listener, so no app can hide a
+press from it), and keys aimed inside a window are ignored outright. `tests/e2e/desktop-keys.spec.ts`
+covers it. In the same fix, a context menu stops listening for keys the moment its exit fade starts;
+it used to swallow the Enter meant for the rename box its New › Text Document had just opened.
 
 ### 2026-09-24 - Explorer's Folders pane
 

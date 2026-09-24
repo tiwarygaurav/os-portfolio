@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import { taskbarHeight } from '@/utils/viewport';
 
 /** Breathing room between a menu and a viewport edge, in px. */
@@ -146,6 +146,12 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
     const [openSub, setOpenSub] = useState(-1);
     const [keyboardInSub, setKeyboardInSub] = useState(false);
     const timer = useRef<number>();
+    /*
+     * False from the moment the menu starts its exit fade. A closing menu must stop listening at
+     * once: its capture-phase key handler used to stay attached for the whole fade and swallow the
+     * Enter meant for whatever the chosen item just opened (a rename box, a dialog).
+     */
+    const isPresent = useIsPresent();
 
     useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -162,6 +168,7 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
 
     // Keyboard: only the innermost open panel listens.
     useEffect(() => {
+        if (!isPresent) return;
         if (keyboardInSub) return;
         if (!root && !onBack) return;
         const step = (from: number, dir: 1 | -1) => {

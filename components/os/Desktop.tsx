@@ -100,6 +100,21 @@ export default function Desktop() {
     }, [activeWindowId, windows.length]);
 
     /*
+     * The desktop has the keyboard only while the last press landed on it. Clearing the flag only
+     * when the active window changed was not enough: a click inside a window that was already
+     * active changes nothing in the store, so the flag stayed set and Delete pressed over that
+     * window offered to recycle the icon selected on the desktop. Capture phase, so an app that
+     * stops propagation on its own pointerdown cannot hide the press from this.
+     */
+    useEffect(() => {
+        const onPointerDown = (e: PointerEvent) => {
+            desktopFocused.current = !!iconLayer.current?.contains(e.target as Node);
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    }, []);
+
+    /*
      * Apply the chosen Luna colour scheme. `data-theme` on <html> is what `app/luna.css` keys
      * the scheme variables off, so every window, the taskbar, the Start menu and the dialogs
      * follow it. Removed again on unmount: the boot and login screens are always the XP blue.
@@ -307,7 +322,10 @@ export default function Desktop() {
                 setRunOpen(false);
             }
 
-            if (!inForm && desktopFocused.current) {
+            // A key aimed at something inside a window belongs to that window, whatever the flag says.
+            const inWindow = !!target.closest?.('[data-window]');
+
+            if (!inForm && !inWindow && desktopFocused.current) {
                 // Delete sends the selection to the Recycle Bin
                 if (e.key === 'Delete' && selected.length > 0) {
                     void confirmDelete(selected).then((deleted) => {
