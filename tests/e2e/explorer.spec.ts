@@ -216,3 +216,27 @@ test('the Search Companion finds portfolio files by a word in them, and by name 
     await expect(w.getByText('Search Companion')).toHaveCount(0);
     await expect(w.locator('button[data-name="about.md"]')).toBeVisible();
 });
+
+test('dragging a file onto a folder moves it, and Ctrl+drag copies it', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    await shell(page, 'mkdir "/home/guest/My Documents/Box"');
+    await shell(page, 'echo a > "/home/guest/My Documents/a.txt"');
+    await shell(page, 'echo b > "/home/guest/My Documents/b.txt"');
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    const saved = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles).sort());
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+
+    await item('a.txt').dragTo(item('Box'));
+    await expect(item('a.txt')).toHaveCount(0);
+    await page.keyboard.down('Control');
+    await item('b.txt').dragTo(item('Box'));
+    await page.keyboard.up('Control');
+    await expect.poll(saved).toEqual([
+        '/home/guest/My Documents/Box/a.txt',
+        '/home/guest/My Documents/Box/b.txt',
+        '/home/guest/My Documents/b.txt',
+    ]);
+});

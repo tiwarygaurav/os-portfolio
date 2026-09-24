@@ -11,6 +11,7 @@ import {
     PICTURES_PATH,
     isDir,
     isFile,
+    copyName,
     findFiles,
     isWritableDir,
     listDir,
@@ -314,6 +315,32 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         setRenaming(join(path, name));
     };
 
+    /**
+     * A drop on a folder, as XP handled one: the visitor's own file or folder moves (Ctrl copies
+     * it), and one of the portfolio's is copied, as dragging from a CD was. A folder of the portfolio
+     * cannot take anything, and says so.
+     */
+    const dropOn = async (target: Entry, from: string, forceCopy: boolean) => {
+        const name = from.slice(from.lastIndexOf('/') + 1);
+        if (from === target.path || (!forceCopy && parentOf(from) === target.path)) return;
+        if (!isWritableDir(target.path)) {
+            await xpAlert('Windows Explorer', [
+                `Cannot put ${name} in ${target.node.name}: it is part of the portfolio.`,
+                'Drop it on My Documents, My Pictures or a folder you made.',
+            ], 'error');
+            return;
+        }
+        if (lookup(from)?.writable && !forceCopy) {
+            const problem = actions.moveUserPath(from, join(target.path, name));
+            if (problem) await xpAlert('Error Moving File or Folder', [`Cannot move ${name}: ${problem}`], 'error');
+            return;
+        }
+        const { userFiles, userFolders } = useSystemStore.getState();
+        const as = copyName(target.path, name, { files: userFiles, folders: userFolders });
+        const problem = actions.copyUserPath(from, join(target.path, as));
+        if (problem) await xpAlert('Error Copying File or Folder', [`Cannot copy ${name}: ${problem}`], 'error');
+    };
+
     /* ---------------------------------------------------------------- menus and keys */
 
     const viewItems = (): MenuItem[] => VIEWS.map((v) => ({ label: v.label, checked: view === v.id, action: () => setView(v.id) }));
@@ -560,6 +587,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                                 setMenu({ x: e.clientX, y: e.clientY, items: itemMenu(entry) });
                             }}
                             onRenameCommit={(entry, typed) => void commitRename(entry.path, typed)}
+                            onDropOn={(target, from, copy) => void dropOn(target, from, copy)}
                             onRenameCancel={(entry) => {
                                 setRenaming(null);
                                 focusItem(entry.path);

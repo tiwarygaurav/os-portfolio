@@ -524,7 +524,8 @@ export function planCopy(tree: UserTree, from: string, to: string): UserTree | s
 
     if (isDir(node)) {
         if (!tree.folders.includes(from)) {
-            return `${node.name} is part of the portfolio. Its files can be copied one at a time; the folder cannot.`;
+            const what = from === GUEST_PATH || from.startsWith(GUEST_PATH + '/') ? 'a system folder' : 'part of the portfolio';
+            return `${node.name} is ${what}. Its files can be copied one at a time; the folder cannot.`;
         }
         if (inside(to, from)) return `Cannot copy ${node.name}: the destination folder is inside the folder being copied.`;
         const files = { ...tree.files };

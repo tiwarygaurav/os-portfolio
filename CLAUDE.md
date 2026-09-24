@@ -351,7 +351,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no drag-and-drop between folders (Cut and Paste move instead), no multiple selection, no Explorer folder tree. |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no multiple selection, no Explorer folder tree, no dragging between windows or onto the desktop (within Explorer, dragging onto a folder works). |
 
 ---
 
@@ -455,6 +455,16 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Drag and drop onto a folder in Explorer
+
+XP's rule, which people relied on without knowing it: dragging within a drive moved, dragging from
+somewhere read-only (a CD) copied, and Ctrl forced a copy. Here the visitor's own files and folders
+move, the portfolio's are copied, and Ctrl copies either — through the same `planMove` /
+`planCopy` as the menus and the shell, so a drop refuses exactly what Paste would, with the same
+words. A folder of the portfolio takes nothing, and says so. The drag carries the path as
+`text/plain` too, so a file dropped into a text box types its path, as XP's did. The Open / Save
+As dialog now draws XP's icons from `constants/fileIcons.ts`, like Explorer.
 
 ### 2026-09-24 - Explorer's Search Companion
 

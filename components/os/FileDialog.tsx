@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, FileText, FolderClosed, FolderPlus, Image as ImageIcon } from 'lucide-react';
+import { ArrowUp, FolderPlus } from 'lucide-react';
 import {
     DOCUMENTS_PATH,
     GUEST_PATH,
@@ -20,6 +20,8 @@ import {
 import { prettyPath } from '@/system/shell';
 import { makeNewFolder, renameUserPath, useFsRevision } from '@/utils/fs';
 import RenameField from '@/components/ui/RenameField';
+import XpIcon from '@/components/ui/XpIcon';
+import { fileIconFor } from '@/constants/fileIcons';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 
 /**
@@ -66,10 +68,9 @@ const PLACES = [
     { label: 'Portfolio', path: HOME_PATH },
 ];
 
-function NodeIcon({ node }: { node: VNode }) {
-    if (isDir(node)) return <FolderClosed size={16} className="shrink-0 text-[#e8a93b]" aria-hidden />;
-    if (node.src) return <ImageIcon size={16} className="shrink-0 text-[#2f8b19]" aria-hidden />;
-    return <FileText size={16} className="shrink-0 text-[#5a8ac6]" aria-hidden />;
+/** XP's icon for a node in `dir`, from the one map Explorer uses too. */
+function NodeIcon({ node, dir }: { node: VNode; dir: string }) {
+    return <XpIcon src={fileIconFor(node, resolvePath(dir, node.name))} size={16} className="shrink-0" />;
 }
 
 export default function FileDialog({ mode, initialDir, initialName = '', types, onCancel, onConfirm }: FileDialogProps) {
@@ -244,7 +245,7 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
                         {entries.length === 0 && <li className="p-2 text-gray-500">This folder is empty.</li>}
                         {entries.map((node) => renaming === node.name ? (
                             <li key={node.name} className="flex items-center gap-2 bg-[#316ac5] px-1 py-0.5">
-                                <NodeIcon node={node} />
+                                <NodeIcon node={node} dir={dir} />
                                 <RenameField
                                     name={node.name}
                                     isFolder={isDir(node)}
@@ -268,7 +269,7 @@ export default function FileDialog({ mode, initialDir, initialName = '', types, 
                                     }}
                                     className={`flex w-full items-center gap-2 px-1 py-0.5 text-left ${selected === node.name ? 'bg-[#316ac5] text-white' : 'hover:bg-[#e8f0fe]'}`}
                                 >
-                                    <NodeIcon node={node} />
+                                    <NodeIcon node={node} dir={dir} />
                                     <span className="truncate">{node.name}</span>
                                 </button>
                             </li>

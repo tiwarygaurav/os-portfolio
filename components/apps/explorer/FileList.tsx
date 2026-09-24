@@ -1,6 +1,6 @@
 "use client";
 
-import type { RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import { APPS } from '@/constants/apps';
 import { prettyPath } from '@/system/shell';
 import { fileIconFor, fileTypeName } from '@/constants/fileIcons';
@@ -22,6 +22,9 @@ export interface Entry {
     node: VNode;
     path: string;
 }
+
+/** The drag payload an Explorer item carries: its path. Anything else dropped here is ignored. */
+export const DRAG_TYPE = 'application/x-xp-path';
 
 /** What XP's Size column showed: nothing for a folder, whole kilobytes (at least 1) for a file. */
 export function sizeColumn(node: VNode): string {
@@ -66,6 +69,8 @@ interface FileListProps {
     onItemMenu: (e: React.MouseEvent, entry: Entry) => void;
     onRenameCommit: (entry: Entry, typed: string) => void;
     onRenameCancel: (entry: Entry) => void;
+    /** Something was dragged onto a folder. `copy` when Ctrl was held, as XP read it. */
+    onDropOn: (target: Entry, from: string, copy: boolean) => void;
 }
 
 const LAYOUT: Record<ViewMode, string> = {
@@ -84,6 +89,8 @@ export default function FileList(props: FileListProps) {
     const columns = showFolder ? FOUND_COLUMNS : DETAIL_COLUMNS;
     const folderOf = (path: string) => prettyPath(path.slice(0, path.lastIndexOf('/')) || '/');
     const iconSize = view === 'tiles' ? 48 : view === 'icons' ? 32 : 16;
+    /** The folder a drag is over, drawn selected as XP drew a drop target. */
+    const [dropTarget, setDropTarget] = useState<string | null>(null);
 
     const title = (node: VNode) =>
         isDir(node)
@@ -200,7 +207,30 @@ export default function FileList(props: FileListProps) {
                                 onDoubleClick={() => props.onActivate(entry)}
                                 onKeyDown={(e) => props.onItemKey(e, entry)}
                                 onContextMenu={(e) => props.onItemMenu(e, entry)}
-                                className={itemClass(isSelected)}
+                                draggable
+                                onDragStart={(e) => {
+                                    e.dataTransfer.setData(DRAG_TYPE, entry.path);
+                                    // Dropped into a text box elsewhere, it is the path, as a real one gives.
+                                    e.dataTransfer.setData('text/plain', entry.path);
+                                    e.dataTransfer.effectAllowed = 'copyMove';
+                                }}
+                                onDragOver={(e) => {
+                                    if (!isDir(node) || !e.dataTransfer.types.includes(DRAG_TYPE)) return;
+                                    e.preventDefault();
+                                    // What the drag carries cannot be read until the drop, so the cursor follows Ctrl alone.
+                                    e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move';
+                                    setDropTarget(entry.path);
+                                }}
+                                onDragLeave={() => setDropTarget((t) => (t === entry.path ? null : t))}
+                                onDrop={(e) => {
+                                    setDropTarget(null);
+                                    const from = e.dataTransfer.getData(DRAG_TYPE);
+                                    if (!isDir(node) || !from) return;
+                                    e.preventDefault();
+                                    props.onDropOn(entry, from, e.ctrlKey);
+                                }}
+                                onDragEnd={() => setDropTarget(null)}
+                                className={itemClass(isSelected || dropTarget === entry.path)}
                                 title={title(node)}
                             >
                                 {body(entry, isSelected)}
