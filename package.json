@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:unit": "tsc -p tests/unit/tsconfig.json && node --require ./tests/unit/alias.cjs --test \"tests/unit/*.test.cjs\"",
+    "test:unit": "tsc -p tests/unit/tsconfig.json && tsc -p tests/unit/tsconfig.engines.json && node --require ./tests/unit/alias.cjs --test \"tests/unit/*.test.cjs\"",
     "test:e2e": "playwright test",
     "test": "npm run test:unit && npm run test:e2e"
   },

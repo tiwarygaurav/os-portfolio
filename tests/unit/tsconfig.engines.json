@@ -1,0 +1,8 @@
+{
+    "//": "Paint's document engine and codec use DOM types (ImageData, canvas). They compile here, so tsconfig.json can stay DOM-free as the check that system/ and content/ remain headless.",
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "lib": ["es2022", "dom"]
+    },
+    "include": ["../../components/apps/paint/engine.ts", "../../components/apps/paint/codec.ts"]
+}

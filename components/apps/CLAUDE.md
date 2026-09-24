@@ -52,6 +52,10 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 5. **Selectors, not the bare store.** See `store/CLAUDE.md`.
 6. **Own your cleanup.** Timers, listeners, audio and animation frames must be torn down on
    unmount — an app can be closed at any moment.
+7. **Menus and in-window dialogs come from `components/ui/`.** `MenuBar` (access keys, F10,
+   status-bar hints, dropdowns that overhang the window) and `AppDialog` (focus trapped, then handed
+   back) carry XP's keyboard behaviour; `xp-controls` wraps the `app/luna.css` buttons, inputs and
+   group boxes. Do not hand-roll another.
 
 ## Current inventory
 
@@ -63,9 +67,10 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 | `SkillsApp` | **Rewritten** | Evidence model replaced invented percentages; selecting a skill opens the work that demonstrates it. |
 | `ResumeApp` | **Fixed** | Real PDF verified with a HEAD request, plus a document generated from `content/`. Download and open-in-tab both work. |
 | `ContactApp` | **Fixed** | `mailto:` hand-off with validation and a clipboard fallback. Never claims delivery. |
-| `MusicPlayerApp` | **Fixed** | Keeps the original XP playlist and files. `isPlaying` now follows the audio element's own events, taskbar volume + mute apply, and failures are reported. |
-| `MinesweeperApp` | Complete | First-click-safe generation, flood fill, flagging, win detection. Correct. |
-| `CalculatorApp` | Complete | Incl. memory, `sqrt`, `%`, `1/x`, backspace. |
+| `MusicPlayerApp` | **WMP 9** | Now Playing over the original XP playlist and files (`mediaplayer/`). Transport follows the audio element's own events; volume and mute are a gain node after an `AnalyserNode`, so the visualisations show the music with the sound down; shuffle, repeat, WMP's keys; failures are reported. |
+| `MinesweeperApp` | **winmine** | Beginner / Intermediate / Expert / Custom, chording, Marks, Color, Sound, best times for the session, a window that hugs the field. Rules in `minesweeper/engine.ts` (pure, unit-tested). |
+| `SolitaireApp` | **New** | Klondike as sol.exe: Draw One / Three, Standard / Vegas / None scoring, Deck and Options, auto-play, undo, the win cascade. Rules in `solitaire/engine.ts` (pure, unit-tested). Settings last the session. |
+| `CalculatorApp` | **calc.exe** | Standard (left to right) and Scientific (precedence, parentheses); Hex / Dec / Oct / Bin with exact BigInt word sizes; Inv / Hyp; Statistics Box; paste as keystrokes; the window fits each view. Engine in `calculator/` (pure, unit-tested). Decimals are doubles to 16 digits, and Help says so. |
 | `SettingsApp` | **Complete** | Every tab is real: Themes (Windows XP / Modified), Desktop (wallpaper, Browse... for a picture with Center / Tile / Stretch, icon reset, restore deleted icons), Screen Saver (four savers, wait, Preview), Appearance (Blue / Olive Green / Silver, applied as soon as chosen), Settings (read from the browser). |
 | `EventViewerApp` | **New** | Application / Security / System logs over `system/bus.ts`. Nothing seeded; Clear all events is real. |
 | `MyComputerApp` | Partial, honest | Inert toolbar removed; volumes report real counts from `content/`. My Documents and My Pictures open the real folders in Explorer. |
@@ -73,5 +78,5 @@ To make an app reachable from the shell, add a file in `system/vfs.ts` carrying
 | `TaskManagerApp` | **New** | Applications / Processes / Performance over the live window list. End Task really closes. No metric is drawn that the browser cannot supply — a minimised window shows "Minimized", never a fabricated "Not Responding". |
 | `ImageViewerApp` | **Real folder** | Shows the pictures in the opened picture's folder (Sample Pictures by default); Previous/Next walk the same files Explorer lists; visitor pictures can be deleted, built-in ones cannot and the button says why. |
 | `RecycleBinApp` | Works | Real state, restore + empty. |
-| `PaintApp` | **Third-party** | An `<iframe>` to `jspaint.app`. Not the owner's work, and blockable by the host. Unresolved. |
+| `PaintApp` | **Rebuilt** | XP's Paint on an aliased pixel engine (`paint/`): sixteen tools, the colour box and Edit Colors, the Image menu, text, undo. Open / Save into My Pictures through `FileDialog`, a close guard, Set As Background, Open / Save to Computer; `payload.path` opens a picture. |
 | `ExplorerApp` | **New** | Windows Explorer over `system/vfs.ts`. Folders navigate, the way real Explorer does; a file's `open` hint launches its app, same as the shell. Back/Forward/Up/address bar are real. |

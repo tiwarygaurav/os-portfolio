@@ -16,7 +16,7 @@
 
 A browser-based Windows XP simulation used as a personal portfolio. Boot screen -> login ->
 desktop with draggable icons, taskbar, start menu, and floating windows containing portfolio
-content plus toy apps (Minesweeper, Calculator, Notepad, Paint).
+content plus toy apps (Minesweeper, Solitaire, Calculator, Notepad, Paint).
 
 ### What it is becoming
 
@@ -298,9 +298,11 @@ impact for these.
 Boot/login/shutdown flow - window open/close/min/max/restore/drag/resize - taskbar + tray
 popovers (volume, network, calendar) - start menu incl. All Programs flyout - desktop icon drag
 with persisted positions - context menus - recycle bin (delete/restore/empty, persisted) -
-Minesweeper (complete, correct first-click-safe generation) - Calculator (complete, incl.
-memory) - Notepad (edit, word-wrap, save-as-download, insert date) - Image viewer - Display
-Properties (wallpaper switch, icon reset) - Media player (real playback, real playlist).
+Minesweeper (winmine's levels, Custom, chording) - Solitaire (Klondike, Draw One/Three, Vegas) -
+Calculator (Standard and Scientific, radix and word size) - Paint (sixteen tools, saves into My
+Pictures) - Notepad (edit, word-wrap, save-as-download, insert date) - Image viewer - Display
+Properties (wallpaper switch, icon reset) - Media player (real playback, real playlist,
+visualisations driven by the audio).
 
 ### Fixed in the P1 honesty pass (2026-08-20)
 
@@ -347,7 +349,6 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | Item | Detail |
 | --- | --- |
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
-| Paint | Still an `<iframe>` to `jspaint.app` — not the owner's work, blockable by the host. |
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
@@ -455,6 +456,60 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-24 - Five apps rebuilt as their XP originals: Paint, Solitaire, Minesweeper, Calculator, Media Player
+
+**Why:** the toy apps are what most visitors actually touch, and each fell short of the rule that the
+surface is XP and the substance is real. Paint was an `<iframe>` of jspaint.app — not the owner's
+work, blockable by the host, and an empty grey box in every headless run. Minesweeper drew emoji,
+had one level and no chording. Calculator had no Scientific view. The media player's picture was
+decoration. There was no Solitaire, the single most recognisable XP program.
+**What each is now:**
+- **Paint** (`components/apps/paint/`): all sixteen tools with their option box, the 28-colour box and
+  Edit Colors (XP's 48 basic colours and 0–240 Hue/Sat/Lum), undo/repeat, Flip/Rotate, Stretch/Skew,
+  Invert, Attributes, the text tool and its Fonts toolbar, View Bitmap, Print. Open / Save / Save As
+  go through `FileDialog` into My Pictures (PNG or JPEG) and the title reads "name - Paint"; a close
+  guard asks "Save changes to name?"; Set As Background (Tiled / Centered) points the wallpaper at the
+  saved file; Open from Computer / Save to Computer read and write real files, including a hand-written
+  24-bit BMP encoder. `payload.path` opens a picture handed over by the shell or another window.
+- **Solitaire** (`components/apps/solitaire/`): Klondike as sol.exe played it — Draw One/Three,
+  Standard/Vegas/None scoring with the time bonus, Deck and Options dialogs, double-click and
+  right-click auto-play, undo, and the bouncing-card cascade on a win. Card art is original.
+- **Minesweeper** (`components/apps/minesweeper/`): winmine's levels and Custom Field, LED counters,
+  the four faces, Marks, Color, Sound, chording (middle button, both buttons, Shift), session best
+  times, and a window resized to hug its field. Pixel art is original SVG.
+- **Calculator** (`components/apps/calculator/`): Standard and Scientific views, radix and word size
+  with exact BigInt integer maths, Inv/Hyp, precedence and parentheses, the Statistics Box, paste as
+  keystrokes, and a window that fits each view. The display carries `data-calc-display`.
+- **Windows Media Player**: WMP 9's Now Playing view over the unchanged playlist (§9).
+**A real decision point (Paint):** the pixel engine (`paint/raster.ts`) writes whole pixels rather than
+drawing canvas 2D paths. Canvas paths are anti-aliased, and a flood fill stops at the half-tone fringe
+they leave, so Fill With Color would never have met a line. Text is rasterised through a canvas and
+thresholded for the same reason. It is also what XP's Paint did. The document engine is a class React
+reads through two `useSyncExternalStore` snapshots (UI state, pointer), so pointer-rate drawing never
+re-renders the window.
+**A real decision point (Media Player):** the visualisations are driven by a Web Audio `AnalyserNode`
+on the playing track, not animated for effect. Volume and mute are a gain node *after* the analyser,
+so the picture shows the music with the sound down, as WMP's did, and the loop stops once playback
+stops and the bars settle — asserted by counting animation-frame requests in e2e.
+**Shared primitives:** `components/ui/MenuBar.tsx` (portaled dropdowns that overhang the window, the
+dismissing click swallowed inside its own window, access-key underlines only in keyboard use, status
+hints), `AppDialog.tsx` (an in-window modal that hands focus back on close — the Ctrl+Z-after-a-dialog
+bug the browser pass found), `xp-controls.tsx`. They emit only `app/luna.css` classes, so an app's
+dialog cannot drift from a system one. Do not hand-roll another menu.
+**Honest limits:** menus list only shortcuts a browser tab can receive (Ctrl+N, Ctrl+T, Ctrl+W,
+Ctrl+Shift+N and Ctrl+PgUp/PgDn belong to the browser). Paint's undo is a memory budget rather than
+XP's three levels, pictures are capped at 2000 x 2000 (larger files are scaled and the visitor told),
+and My Pictures holds PNG and JPEG only. Solitaire and Minesweeper settings and best times last the
+page's lifetime and are not persisted. Calculator's decimal maths is IEEE-754 doubles rounded to 16
+significant digits where XP's was arbitrary-precision to 32; its Help says so. Qword's F12 is not
+advertised, because browsers keep F12 for their developer tools.
+**Consequences:** the pure engines (Paint's raster, history, palette and tools; Solitaire; Minesweeper;
+Calculator) are unit-tested in `tests/unit/`, whose base tsconfig stays DOM-free as the check that
+they, `system/` and `content/` are headless. Paint's document engine and codec need DOM types
+(`ImageData`, canvas), so they compile under a second `tsconfig.engines.json`. Each app has an e2e
+spec, each assertion mutation-checked to fail with its fix reverted. The window-manager size test
+moved from Calculator to Notepad, since Calculator and Minesweeper now size themselves as XP's did.
 
 ### 2026-09-24 - Drag and drop onto a folder in Explorer
 

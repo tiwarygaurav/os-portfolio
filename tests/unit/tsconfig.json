@@ -1,7 +1,9 @@
 {
     "compilerOptions": {
         "target": "es2022",
-        "lib": ["es2022"],
+        "lib": [
+            "es2022"
+        ],
         "module": "commonjs",
         "moduleResolution": "node",
         "strict": true,
@@ -11,7 +13,23 @@
         "outDir": "../../.test-out",
         "rootDir": "../..",
         "baseUrl": "../..",
-        "paths": { "@/*": ["./*"] }
+        "paths": {
+            "@/*": [
+                "./*"
+            ]
+        }
     },
-    "include": ["../../content/**/*.ts", "../../system/**/*.ts", "../../store/persistence.ts"]
+    "include": [
+        "../../content/**/*.ts",
+        "../../system/**/*.ts",
+        "../../store/persistence.ts",
+        "../../components/apps/paint/raster.ts",
+        "../../components/apps/paint/history.ts",
+        "../../components/apps/paint/palette.ts",
+        "../../components/apps/paint/tools.ts",
+        "../../components/apps/solitaire/engine.ts",
+        "../../components/apps/minesweeper/engine.ts",
+        "../../components/apps/calculator/engine.ts",
+        "../../components/apps/calculator/input.ts"
+    ]
 }

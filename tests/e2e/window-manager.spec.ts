@@ -6,11 +6,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('windows open at the size the registry declares', async ({ page }) => {
-    await openFromDesktop(page, 'calculator');
-    const box = await settledBox(win(page, 'Calculator'));
-    // It used to open everything at 800x600, stretching the keypad across a window it was also
-    // forbidden to resize.
-    expect(Math.round(box.width)).toBe(240);
+    // Notepad, because Calculator and Minesweeper size themselves to their content, as XP's did.
+    await openFromDesktop(page, 'notepad');
+    const box = await settledBox(win(page, 'Untitled - Notepad'));
+    // It used to open everything at 800x600.
+    expect(Math.round(box.width)).toBe(600);
+    expect(Math.round(box.height)).toBe(460);
 });
 
 test('minimising hides a window without destroying its app', async ({ page }) => {
@@ -18,7 +19,7 @@ test('minimising hides a window without destroying its app', async ({ page }) =>
     const calc = win(page, 'Calculator');
     await calc.getByRole('button', { name: '7', exact: true }).click();
     await calc.getByRole('button', { name: '8', exact: true }).click();
-    await expect(calc.locator('div.font-mono').first()).toHaveText('78');
+    await expect(calc.locator('[data-calc-display]')).toHaveText('78', { useInnerText: true });
 
     await calc.locator('button[aria-label="Minimize"], button[title="Minimize"]').click();
     await expect(calc).toBeHidden();
@@ -26,7 +27,7 @@ test('minimising hides a window without destroying its app', async ({ page }) =>
 
     await page.locator('button', { hasText: 'Calculator' }).last().click();
     await expect(calc).toBeVisible();
-    await expect(calc.locator('div.font-mono').first()).toHaveText('78');
+    await expect(calc.locator('[data-calc-display]')).toHaveText('78', { useInnerText: true });
 });
 
 test('the Start button closes its own menu', async ({ page }) => {
