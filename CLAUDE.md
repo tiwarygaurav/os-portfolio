@@ -10,7 +10,7 @@
 
 **Repo:** `os-portfolio` — https://github.com/tiwarygaurav/os-portfolio
 **Owner:** Kumar Gaurav (`tiwarygaurav`) — software engineer; backend, geospatial data, applied ML.
-**Deployed:** on Vercel, project `os-portfolio` in the owner's personal account `gaurav-4410` (Hobby) — **not** the CaratSense team the Vercel connector reaches. Production answers at `https://os-portfolio-amber-gamma.vercel.app`; `gauravtiwary.com` is attached (www redirects to it, 308) and serves once its DNS at Northwest Registered Agent points to Vercel (A `@` 216.198.79.1 and 64.29.17.1, CNAME `www` → the project's `vercel-dns-017.com` target; `vercel domains verify gauravtiwary.com` prints the exact values). Git is **not** connected yet (Vercel needs a GitHub login connection on that account), so a push does not deploy: deploy with `vercel deploy --prod` from a clean checkout of `origin/main`, never from the shared tree. `https://os-portfolio.vercel.app` is someone else's site. Add a "Live" link in `content/projects.ts` only once gauravtiwary.com answers.
+**Deployed:** at **https://gauravtiwary.com** (www redirects to it, 308), on Vercel: project `os-portfolio` in the owner's personal account `gaurav-4410` (Hobby) — **not** the CaratSense team the Vercel connector reaches. The domain is registered at Northwest Registered Agent with its nameservers moved to Vercel (`ns1`/`ns2.vercel-dns.com`), so its DNS lives in Vercel (`vercel dns ls gauravtiwary.com`); Northwest's mail records (MX, SPF, DMARC) were copied there, its DKIM record was not (it cannot be read from outside). Git is **not** connected yet (Vercel needs a GitHub login connection on that account), so a push does not deploy: deploy with `vercel deploy --prod` from a clean checkout of `origin/main`, never from the shared tree. `https://os-portfolio.vercel.app` is someone else's site. The Live link in `content/projects.ts` points at gauravtiwary.com.
 
 ### What it is today
 
@@ -528,7 +528,7 @@ a pipeline over `/usr/src` with no page errors or failed requests.
 **A trap, recorded:** `vercel project add` creates a project with no framework, and Vercel then
 published `public/` as a static site — the resume and sounds served, the page was a 404. `vercel.json`
 now says `"framework": "nextjs"`, so every build, from the CLI or from Git, is a Next.js build.
-**Not yet:** DNS at the registrar (the owner's step), and Git auto-deploy, which needs a GitHub login
+**DNS:** Northwest's DNS editor did not save the owner's records — its own nameservers still served the purchase-day zone — so the nameservers were moved to Vercel instead, after Northwest's MX, SPF and DMARC records were copied into Vercel DNS. The apex certificate was issued with `vercel certs issue`; the live domain then passed the same browser smoke test. **Not yet:** Git auto-deploy, which needs a GitHub login
 connection on the Vercel account; until then a push does not deploy. The media (§9) and the Bliss
 wallpaper (open question 4) are now public, as the owner chose.
 

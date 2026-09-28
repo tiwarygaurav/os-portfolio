@@ -38,10 +38,10 @@ export const PROJECTS: Project[] = [
             'UI sounds synthesised with WebAudio oscillators; one sampled file for the startup chime.',
         ],
         availability: 'public',
-        // No "Live" link: the site is not deployed. `os-portfolio.vercel.app` was listed here once,
-        // but that address serves an unrelated person's site and no deployment of this repository
-        // exists on the owner's Vercel account (checked 2026-09-02). Add the link when one is real.
+        // Deployed on the owner's Vercel account at his own domain (live since 2026-09-29).
+        // `os-portfolio.vercel.app` is an unrelated person's site; never link it.
         links: [
+            { label: 'Live', url: 'https://gauravtiwary.com', known: true },
             { label: 'Source', url: 'https://github.com/tiwarygaurav/os-portfolio', known: true },
         ],
         provenance: 'repo',
