@@ -56,6 +56,12 @@ export interface ShellResult {
     cwd?: string;
     /** `clear` wipes the transcript instead of appending. */
     clear?: boolean;
+    /**
+     * The exact text, when a command passes a file through untouched (`cat` into a pipe or a file).
+     * Lines lose whether the last one ended in a newline; this keeps it, so `cat f | wc` and `wc f`
+     * agree and `cat f > g` copies f exactly.
+     */
+    raw?: string;
 }
 
 export interface ShellContext {
@@ -98,8 +104,18 @@ interface Command {
     usage?: string;
     /** Hidden commands work but are not listed by `help`. */
     hidden?: boolean;
-    /** `stdin` is the lines piped in from the command before a `|`, when there is one. */
-    run: (args: string[], ctx: ShellContext, stdin?: string[]) => ShellResult;
+    /**
+     * `stdin` is the lines piped in from the command before a `|`, when there is one. `io.captured`
+     * says the output goes into a pipe or a file rather than onto the screen, so what is only for
+     * the eye (a tip, a link repeated, a cap on a long list) must stay out of it.
+     */
+    run: (args: string[], ctx: ShellContext, stdin?: string[], io?: CommandIO) => ShellResult;
+}
+
+interface CommandIO {
+    captured: boolean;
+    /** The exact text of what is piped in, when the command before passed it through untouched. */
+    stdinText?: string;
 }
 
 /* ---------------------------------------------------------------- helpers */
@@ -129,26 +145,77 @@ const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
 const joinPath = (dir: string, name: string): string => `${dir === '/' ? '' : dir}/${name}`;
 
 /**
- * The lines a filter works on: the files named, or else what was piped in. Reading a file is logged
- * as `cat` logs it.
+ * What a filter works on: the files named, or else what was piped in — as lines, and as the exact
+ * text, which `wc` needs (a file's last line may have no newline; every line in a pipe has one).
+ * Reading a file is logged as `cat` logs it.
  */
-function readInput(name: string, paths: string[], ctx: ShellContext, stdin?: string[]): { lines: string[] } | { error: ShellLine } {
+function readInput(
+    name: string,
+    paths: string[],
+    ctx: ShellContext,
+    stdin?: string[],
+    stdinText?: string,
+): { lines: string[]; text: string } | { error: ShellLine } {
     if (paths.length) {
         const lines: string[] = [];
+        let all = '';
         for (const arg of paths) {
             const target = resolvePath(ctx.cwd, arg);
             const node = lookup(target, ctx.processes());
             if (!node) return { error: error(`${name}: ${prettyPath(target)}: no such file or directory`) };
             if (isDir(node)) return { error: error(`${name}: ${prettyPath(target)}: is a directory`) };
             publish({ type: 'fs:read', path: prettyPath(target) });
-            const own = node.content.split('\n');
-            if (own[own.length - 1] === '') own.pop();
-            lines.push(...own);
+            all += node.content;
+            lines.push(...fileLines(node.content));
         }
-        return { lines };
+        return { lines, text: all };
     }
-    if (stdin) return { lines: stdin };
+    if (stdin) return { lines: stdin, text: stdinText ?? stdin.map((l) => `${l}\n`).join('') };
     return { error: error(`${name}: missing operand. Name a file, or pipe something in: ls | ${name}`) };
+}
+
+/**
+ * UTF-8 bytes in a string, as `wc -c` counts them. Counted by hand: this layer compiles without the
+ * DOM's types, so TextEncoder is not here. A lone surrogate is 3, as the encoder's U+FFFD would be.
+ */
+const utf8Bytes = (s: string): number => {
+    let n = 0;
+    for (const ch of s) {
+        const c = ch.codePointAt(0) ?? 0;
+        n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    }
+    return n;
+};
+
+/** A file's lines, as a pipe carries them: a final newline ends the last line, it does not start one. */
+const fileLines = (content: string): string[] => {
+    const lines = content.split('\n');
+    if (lines[lines.length - 1] === '') lines.pop();
+    return lines;
+};
+
+/**
+ * Short options the way getopt reads them: `-vc` is `-v -c`, and `--` ends them. Anything else is
+ * an operand. It used to be `args.includes('-v')`, so `grep -vc md` searched for "-vc md", and
+ * `sort -rn` looked for a file called "-rn".
+ */
+function options(name: string, args: string[], allowed: string): { flags: Set<string>; rest: string[] } | { error: ShellLine } {
+    const flags = new Set<string>();
+    const rest: string[] = [];
+    let ended = false;
+    for (const a of args) {
+        if (!ended && a === '--') {
+            ended = true;
+        } else if (!ended && /^-[A-Za-z]+$/.test(a)) {
+            for (const ch of a.slice(1)) {
+                if (!allowed.includes(ch)) return { error: error(`${name}: invalid option -- '${ch}'`) };
+                flags.add(ch);
+            }
+        } else {
+            rest.push(a);
+        }
+    }
+    return { flags, rest };
 }
 
 /** `-n 5`, `-n5` or `-5`: how many lines head and tail take. Null when the number is not one. */
@@ -167,9 +234,32 @@ function lineCount(args: string[], fallback: number): { n: number | null; rest: 
     return { n, rest };
 }
 
-/** A shell pattern, matched against a whole name: `*.md`, `README*`, `?.txt`. */
+/**
+ * A shell pattern, matched against a whole name: `*.md`, `README*`, `?.txt`, and the classes
+ * `[ab]*`, `[a-z]*`, `[!.]*`. A `]` straight after `[` or `[!` is one of the class, and a `[` with no
+ * closing `]` is just a character, as in bash.
+ */
 function globMatcher(pattern: string, ignoreCase: boolean): (name: string) => boolean {
-    const re = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, ignoreCase ? 'i' : '');
+    const literal = (s: string) => s.replace(/[.+^${}()|[\]\\*?]/g, '\\$&');
+    let source = '';
+    for (let i = 0; i < pattern.length; i++) {
+        const ch = pattern[i];
+        if (ch === '*') source += '.*';
+        else if (ch === '?') source += '.';
+        else if (ch === '[') {
+            let j = i + 1;
+            const negate = pattern[j] === '!' || pattern[j] === '^';
+            if (negate) j++;
+            const close = pattern.indexOf(']', pattern[j] === ']' ? j + 1 : j);
+            if (close === -1) {
+                source += literal(ch);
+                continue;
+            }
+            source += `[${negate ? '^' : ''}${pattern.slice(j, close).replace(/[\\^\][]/g, '\\$&')}]`;
+            i = close;
+        } else source += literal(ch);
+    }
+    const re = new RegExp(`^${source}$`, ignoreCase ? 'i' : '');
     return (name) => re.test(name);
 }
 
@@ -281,13 +371,15 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
         name: 'cat',
         summary: 'Print a file.',
         usage: 'cat <path>',
-        run: (args, ctx, stdin) => {
-            if (!args[0]) return stdin ? out(...stdin.map(text)) : out(error('cat: missing operand'));
+        run: (args, ctx, stdin, io) => {
+            if (!args[0]) return stdin ? { lines: stdin.map(text), raw: io?.stdinText } : out(error('cat: missing operand'));
             const target = resolvePath(ctx.cwd, args[0]);
             const node = lookup(target, ctx.processes());
             if (!node) return out(error(`cat: ${prettyPath(target)}: no such file or directory`));
             if (isDir(node)) return out(error(`cat: ${prettyPath(target)}: is a directory`));
             publish({ type: 'fs:read', path: prettyPath(target) });
+            // Into a pipe or a file, the file exactly: `cat f | wc` and `wc f` must agree.
+            if (io?.captured) return { lines: fileLines(node.content).map(text), raw: node.content };
             const lines = body(node.content);
             if (node.href) lines.push(blank(), { kind: 'link', text: node.href, href: node.href });
             if (node.open)
@@ -494,30 +586,38 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
 
     wc: {
         name: 'wc',
-        summary: 'Count lines, words and characters.',
-        usage: 'wc [-l | -w | -m] [file]',
-        run: (args, ctx, stdin) => {
-            const flag = args.find((a) => /^-[lwm]$/.test(a));
-            const input = readInput('wc', args.filter((a) => !/^-[lwm]$/.test(a)), ctx, stdin);
+        summary: 'Count lines, words, characters and bytes.',
+        usage: 'wc [-lwmc] [file]',
+        run: (args, ctx, stdin, io) => {
+            const opts = options('wc', args, 'lwmc');
+            if ('error' in opts) return out(opts.error);
+            const input = readInput('wc', opts.rest, ctx, stdin, io?.stdinText);
             if ('error' in input) return out(input.error);
-            const lines = input.lines.length;
-            const words = input.lines.join(' ').split(/\s+/).filter(Boolean).length;
-            const chars = input.lines.reduce((sum, l) => sum + l.length + 1, 0);
-            if (flag === '-l') return out(text(String(lines)));
-            if (flag === '-w') return out(text(String(words)));
-            if (flag === '-m') return out(text(String(chars)));
-            return out(text(`${String(lines).padStart(7)} ${String(words).padStart(7)} ${String(chars).padStart(7)}`));
+            // Counted as GNU wc counts: a line is a newline, so a last line without one is not a line.
+            const counts = {
+                l: (input.text.match(/\n/g) ?? []).length,
+                w: input.text.split(/\s+/).filter(Boolean).length,
+                m: Array.from(input.text).length,
+                c: utf8Bytes(input.text),
+            };
+            // Asked for together, they print in wc's own order; with no option, lines, words and bytes.
+            const chosen = (['l', 'w', 'm', 'c'] as const).filter((f) => opts.flags.has(f));
+            const shown = chosen.length ? chosen : (['l', 'w', 'c'] as const);
+            if (shown.length === 1) return out(text(String(counts[shown[0]])));
+            return out(text(shown.map((f) => String(counts[f]).padStart(7)).join(' ')));
         },
     },
 
     sort: {
         name: 'sort',
         summary: 'Sort lines: alphabetically, or by number with -n.',
-        usage: 'sort [-r] [-n] [file]',
+        usage: 'sort [-rn] [file]',
         run: (args, ctx, stdin) => {
-            const reverse = args.includes('-r');
-            const numeric = args.includes('-n');
-            const input = readInput('sort', args.filter((a) => a !== '-r' && a !== '-n'), ctx, stdin);
+            const opts = options('sort', args, 'rn');
+            if ('error' in opts) return out(opts.error);
+            const reverse = opts.flags.has('r');
+            const numeric = opts.flags.has('n');
+            const input = readInput('sort', opts.rest, ctx, stdin);
             if ('error' in input) return out(input.error);
             const sorted = [...input.lines].sort((a, b) =>
                 numeric ? (parseFloat(a) || 0) - (parseFloat(b) || 0) || a.localeCompare(b) : a.localeCompare(b),
@@ -528,16 +628,19 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
 
     uniq: {
         name: 'uniq',
-        summary: 'Drop repeated lines next to each other; -c counts them.',
-        usage: 'uniq [-c] [file]',
+        summary: 'Drop repeated lines next to each other; -c counts them, -i ignores case.',
+        usage: 'uniq [-ci] [file]',
         run: (args, ctx, stdin) => {
-            const counts = args.includes('-c');
-            const input = readInput('uniq', args.filter((a) => a !== '-c'), ctx, stdin);
+            const opts = options('uniq', args, 'ci');
+            if ('error' in opts) return out(opts.error);
+            const counts = opts.flags.has('c');
+            const same = (a: string, b: string) => (opts.flags.has('i') ? a.toLowerCase() === b.toLowerCase() : a === b);
+            const input = readInput('uniq', opts.rest, ctx, stdin);
             if ('error' in input) return out(input.error);
             const runs: { line: string; n: number }[] = [];
             for (const line of input.lines) {
                 const last = runs[runs.length - 1];
-                if (last && last.line === line) last.n++;
+                if (last && same(last.line, line)) last.n++;
                 else runs.push({ line, n: 1 });
             }
             return out(...runs.map((r) => text(counts ? `${String(r.n).padStart(7)} ${r.line}` : r.line)));
@@ -547,9 +650,10 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
     find: {
         name: 'find',
         summary: 'List the files and folders under a folder, optionally by name or kind.',
-        usage: 'find [folder] [-name pattern] [-iname pattern] [-type f|d]',
+        usage: 'find [folder...] [-name pattern] [-iname pattern] [-type f|d]',
         run: (args, ctx) => {
-            let start = '.';
+            // Every folder named is searched, in order, as find does; it used to keep only the last.
+            const starts: string[] = [];
             let match: ((name: string) => boolean) | null = null;
             let kind: 'f' | 'd' | null = null;
             for (let i = 0; i < args.length; i++) {
@@ -565,20 +669,23 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
                 } else if (a.startsWith('-')) {
                     return out(error(`find: unknown predicate '${a}'`));
                 } else {
-                    start = a;
+                    starts.push(a);
                 }
             }
-            const root = resolvePath(ctx.cwd, start);
-            const top = lookup(root, ctx.processes());
-            if (!top) return out(error(`find: '${start}': No such file or directory`));
-            const found: string[] = [];
+            const lines: ShellLine[] = [];
             const walk = (node: VNode, path: string) => {
                 const fits = (!match || match(node.name || '/')) && (!kind || (kind === 'd') === isDir(node));
-                if (fits) found.push(prettyPath(path));
+                if (fits) lines.push(text(prettyPath(path)));
                 if (isDir(node)) node.children.forEach((c) => walk(c, joinPath(path, c.name)));
             };
-            walk(top, root);
-            return out(...found.map(text));
+            for (const start of starts.length ? starts : ['.']) {
+                const root = resolvePath(ctx.cwd, start);
+                const top = lookup(root, ctx.processes());
+                // A missing folder is reported, and the others are still searched.
+                if (!top) lines.push(error(`find: '${start}': No such file or directory`));
+                else walk(top, root);
+            }
+            return out(...lines);
         },
     },
 
@@ -587,16 +694,18 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
         summary: 'How much room your files in /home/guest are using.',
         run: () => {
             const used = guestUsage();
-            const pct = Math.round((used / USER_FILES_QUOTA) * 100);
-            const kb = (n: number) => `${Math.round(n / 1024)}K`.padStart(7);
+            const share = used / USER_FILES_QUOTA;
+            // Something stored is never "0%".
+            const pct = share > 0 && share < 0.01 ? ' <1' : String(Math.round(share * 100)).padStart(3);
+            const k = (n: number) => `${Math.round(n / 1024)}K`.padStart(7);
+            const bin = recycledUsage();
             return out(
                 heading('Filesystem     Size    Used   Avail  Use%  Mounted on'),
-                text(`localStorage ${kb(USER_FILES_QUOTA)} ${kb(used)} ${kb(USER_FILES_QUOTA - used)}  ${String(pct).padStart(3)}%  ${GUEST_PATH}`),
+                text(`localStorage ${k(USER_FILES_QUOTA)} ${k(used)} ${k(USER_FILES_QUOTA - used)}  ${pct}%  ${GUEST_PATH}`),
                 text('content/       (built into the page, read-only)       /home/' + HOME_PATH.split('/').pop()),
                 blank(),
-                ...(recycledUsage() > 0
-                    ? [muted(`${recycledUsage() < 1024 ? `${recycledUsage()} characters` : `${Math.round(recycledUsage() / 1024)}K`} of that is in the Recycle Bin. Empty it to free the space.`)]
-                    : []),
+                muted(`Sizes are in K of characters, which is what localStorage counts: ${used.toLocaleString()} of ${USER_FILES_QUOTA.toLocaleString()} used.`),
+                ...(bin > 0 ? [muted(`${bin.toLocaleString()} characters of that are in the Recycle Bin. Empty it to free the space.`)] : []),
                 muted('Files you save in /home/guest live in this browser only. Nobody else can see them.'),
             );
         },
@@ -617,11 +726,14 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
     grep: {
         name: 'grep',
         summary: 'Search every file for a term — or, after a |, the lines piped in. Case does not matter.',
-        usage: 'grep [-v] [-c] <term>',
-        run: (args, ctx, stdin) => {
-            const invert = args.includes('-v');
-            const countOnly = args.includes('-c');
-            const term = args.filter((a) => a !== '-v' && a !== '-c' && a !== '-i').join(' ');
+        usage: 'grep [-vci] <term>',
+        run: (args, ctx, stdin, io) => {
+            // -i is accepted and changes nothing: the match never cared about case.
+            const opts = options('grep', args, 'vci');
+            if ('error' in opts) return out(opts.error);
+            const invert = opts.flags.has('v');
+            const countOnly = opts.flags.has('c');
+            const term = opts.rest.join(' ');
             if (!term) return out(error('grep: missing search term'));
             const needle = term.toLowerCase();
             if (stdin) {
@@ -632,10 +744,13 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
             const hits = searchFiles(term, ctx.processes());
             if (countOnly) return out(text(String(hits.length)));
             if (!hits.length) return out(muted(`No matches for "${term}".`));
+            // The screen shows the first 40. A pipe or a file gets every one: `grep a | wc -l` and
+            // `grep -c a` must agree, and the note saying more were left out never reaches a pipe.
+            const shown = io?.captured ? hits : hits.slice(0, 40);
             return out(
                 muted(`${hits.length} match${hits.length === 1 ? '' : 'es'}`),
-                ...hits.slice(0, 40).map((h) => pair(prettyPath(h.path), h.line)),
-                ...(hits.length > 40 ? [muted(`… ${hits.length - 40} more`)] : []),
+                ...shown.map((h) => pair(prettyPath(h.path), h.line)),
+                ...(shown.length < hits.length ? [muted(`… ${hits.length - shown.length} more. Pipe or redirect to get them all.`)] : []),
             );
         },
     },
@@ -951,8 +1066,8 @@ const COMMANDS: Record<string, Command> = Object.assign(Object.create(null) as R
         hidden: true,
         run: (_args, ctx) => {
             const self = ctx.processes().find((p) => p.appId === 'terminal');
-            if (self) ctx.closeProcess(self.pid, 'exit');
-            return out(muted('Closing.'));
+            // In a pipeline it ends only that subshell, as in bash: nothing closes, nothing is said.
+            return self && ctx.closeProcess(self.pid, 'exit') ? out(muted('Closing.')) : out();
         },
     },
 } satisfies Record<string, Command>);
@@ -1044,16 +1159,16 @@ function lineText(l: ShellLine): string | null {
  * `command > file` and `command >> file`. Only files under /home/guest can be written, and the
  * refusal says so; errors from the command itself still print, as stderr would.
  */
-function redirect(tokens: Token[], at: number, ctx: ShellContext, stdin?: string[]): ShellResult {
+function redirect(tokens: Token[], at: number, ctx: ShellContext, stdin?: string[], stdinText?: string): ShellResult {
     const append = tokens[at].value === '>>';
     const targetTok = tokens[at + 1];
     if (!targetTok) return out(error("syntax error near unexpected token `newline'"));
     if (tokens.length > at + 2) return out(error(`syntax error near unexpected token \`${tokens[at + 2].value}'`));
 
-    const result = at === 0 ? { lines: [] } : execute(tokens.slice(0, at).map((t) => t.value), ctx, stdin);
+    const result: ShellResult =
+        at === 0 ? { lines: [] } : execute(tokens.slice(0, at).map((t) => t.value), ctx, stdin, { captured: true, stdinText });
     const stderr = result.lines.filter((l) => l.kind === 'error');
-    const body = result.lines.map(lineText).filter((t): t is string => t !== null);
-    while (body.length && body[body.length - 1] === '') body.pop();
+    const body = outputLines(result);
 
     const target = resolvePath(ctx.cwd, targetTok.value);
     const existing = lookup(target, ctx.processes());
@@ -1063,7 +1178,8 @@ function redirect(tokens: Token[], at: number, ctx: ShellContext, stdin?: string
     }
 
     const before = append && existing && isFile(existing) ? existing.content : '';
-    const joined = body.length ? body.join('\n') + '\n' : '';
+    // A file passed through untouched is written exactly; any other output, a line at a time.
+    const joined = result.raw ?? (body.length ? body.join('\n') + '\n' : '');
     const content = before && !before.endsWith('\n') && joined ? `${before}\n${joined}` : before + joined;
     const problem = ctx.writeFile(target, content);
     return {
@@ -1073,17 +1189,17 @@ function redirect(tokens: Token[], at: number, ctx: ShellContext, stdin?: string
     };
 }
 
-function execute(tokens: string[], ctx: ShellContext, stdin?: string[]): ShellResult {
+function execute(tokens: string[], ctx: ShellContext, stdin?: string[], io?: CommandIO): ShellResult {
     if (!tokens.length) return { lines: [] };
     const [name, ...args] = tokens;
     const command = findCommand(name);
-    if (command) return command.run(args, ctx, stdin);
+    if (command) return command.run(args, ctx, stdin, io);
 
     // Bare path? Treat it as `cat`/`cd` so exploring is forgiving.
     if (name.startsWith('/') || name.startsWith('~') || name.startsWith('.')) {
         const target = resolvePath(ctx.cwd, name);
         const node = lookup(target, ctx.processes());
-        if (node) return COMMANDS[isDir(node) ? 'cd' : 'cat'].run([name], ctx);
+        if (node) return COMMANDS[isDir(node) ? 'cd' : 'cat'].run([name], ctx, undefined, io);
     }
 
     return out(
@@ -1094,11 +1210,15 @@ function execute(tokens: string[], ctx: ShellContext, stdin?: string[]): ShellRe
 
 const isRedirect = (t: Token) => !t.quoted && (t.value === '>' || t.value === '>>');
 
-/** What a command's output is as text, for the next command in a pipeline: what `>` would write. */
+/**
+ * What a command's output is as text, for the next command in a pipeline or for `>`. The spacing a
+ * command leaves at the end for the screen (`blank`) goes; an empty line it really printed stays —
+ * `echo | wc -l` is 1, as in bash, and a file's own trailing empty lines survive `cat f > g`.
+ */
 function outputLines(result: ShellResult): string[] {
-    const lines = result.lines.map(lineText).filter((t): t is string => t !== null);
-    while (lines.length && lines[lines.length - 1] === '') lines.pop();
-    return lines;
+    const kept = result.lines.filter((l) => lineText(l) !== null);
+    while (kept.length && kept[kept.length - 1].kind === 'blank') kept.pop();
+    return kept.map((l) => lineText(l) ?? '');
 }
 
 export function runCommand(input: string, ctx: ShellContext): ShellResult {
@@ -1126,15 +1246,26 @@ export function runCommand(input: string, ctx: ShellContext): ShellResult {
      */
     const errors: ShellLine[] = [];
     let stdin: string[] | undefined;
+    // `exit` in a pipeline ends only its own subshell: it must not close the Command Prompt.
+    const subshell: ShellContext = Object.create(ctx, {
+        closeProcess: {
+            value: (pid: string, how?: 'kill' | 'exit') => (how === 'exit' ? false : ctx.closeProcess(pid, how)),
+        },
+    });
+    let stdinText: string | undefined;
     for (const stage of stages.slice(0, -1)) {
         if (stage.some(isRedirect)) return out(error('Only the last command in a pipeline can be redirected with > or >>.'));
-        const result = execute(stage.map((t) => t.value), ctx, stdin);
+        const result = execute(stage.map((t) => t.value), subshell, stdin, { captured: true, stdinText });
         errors.push(...result.lines.filter((l) => l.kind === 'error'));
         stdin = outputLines(result);
+        stdinText = result.raw;
     }
     const last = stages[stages.length - 1];
     const at = last.findIndex(isRedirect);
-    const result = at !== -1 ? redirect(last, at, ctx, stdin) : execute(last.map((t) => t.value), ctx, stdin);
+    const result =
+        at !== -1
+            ? redirect(last, at, subshell, stdin, stdinText)
+            : execute(last.map((t) => t.value), subshell, stdin, { captured: false, stdinText });
     return { lines: [...errors, ...result.lines] };
 }
 
@@ -1151,7 +1282,9 @@ function lastArgument(input: string): { start: number; value: string; isFirst: b
             if (ch === quote) quote = null;
         } else if ((ch === '"' || ch === "'") && opensQuote(input, i)) {
             quote = ch;
-        } else if (ch === ' ') {
+        } else if (ch === ' ' || ch === '|' || ch === '>') {
+            // An unquoted | or > ends a word as a space does: `ls|gr` completes "gr", and Tab used
+            // to replace the whole "ls|gr" with "ls".
             start = i + 1;
         }
     }

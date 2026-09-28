@@ -13,7 +13,21 @@ import { execSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyse } from './architecture.mjs';
+
+/*
+ * The analysis needs the TypeScript parser, a dev dependency. An install without dev dependencies
+ * (`npm ci --omit=dev` for a runtime image) has no use for the graph, which only a build reads, so
+ * the install step passes `--if-typescript` and is skipped there instead of failing the install.
+ * dev, build and the tests run it without the flag: for them a missing parser is an error.
+ */
+let analyse;
+try {
+    ({ analyse } = await import('./architecture.mjs'));
+} catch (e) {
+    if (!process.argv.includes('--if-typescript') || e?.code !== 'ERR_MODULE_NOT_FOUND') throw e;
+    console.log('architecture: skipped; the TypeScript parser is not installed (no dev dependencies). dev and build run it.');
+    process.exit(0);
+}
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_PATH = 'system/architecture.generated.ts';

@@ -29,8 +29,11 @@ which both overflowed the `ps` column and made the pid impossible to identify.
 
 `persist` under the key `gaurav-xp-os`. `partialize` is derived from `PERSISTED_KEYS`, so the
 persisted slice is exactly: volume, mute, wallpaper, colour scheme, screen saver, icon positions,
-recycle bin, deleted app ids. `merge` validates `themeId` and `screenSaver` on the way back in —
-localStorage is user-editable, and a save from an older build has neither key.
+recycle bin, deleted app ids. `merge` takes back only those keys and checks each one — volume and
+mute, a wallpaper this build has, icon positions that are finite numbers for real apps, deleted ids
+that are real apps, and the files, folders, bin, theme and saver through their sanitisers.
+localStorage is user-editable, and a save from an older build lacks the newer keys; a stray or
+hand-edited key (`deletedAppIds: {}`, `windows`) used to be spread straight over the live state.
 Windows, focus and session state are deliberately not persisted — a reload should return to a
 clean desktop.
 
@@ -75,9 +78,14 @@ file entries in the bin. Bin entries are sanitised on hydration; a file entry's 
 re-validated when it is restored. What the bin holds counts toward `USER_FILES_QUOTA`. Storage itself goes through `safeLocalStorage`, which cannot throw: a full or
 blocked localStorage is reported as an Event Viewer error instead of breaking the action.
 
-`registerCloseGuard(id, guard)` lets an app answer "may I close?" asynchronously (Notepad asks about
-unsaved work). An ordinary `closeWindow(id)` runs the guard; `closeWindow(id, 'shell' | 'task-manager')`
-bypasses it. `setWindowTitle` retitles a window (`notes.txt - Notepad`).
+`registerCloseGuard(id, guard)` lets an app answer "may I close?" asynchronously (Notepad and Paint
+ask about unsaved work). An ordinary `closeWindow(id)` runs the guard; `closeWindow(id, 'shell' |
+'task-manager')` bypasses it. **The contract:** the guard resolves true once the window may close —
+nothing unsaved, No, or Yes *with the work saved*, waiting through a Save As if one is needed — and
+false for Cancel, a cancelled Save As or a failed save. Resolving false for "Yes, Save As is showing"
+and closing later made Log Off read Yes as Cancel. `requestEndSession` asks each guard in turn, brings
+a window forward only when its guard opens a message box, and answers false at once while a window
+is already asking about its own close. `setWindowTitle` retitles a window (`notes.txt - Notepad`).
 
 ## Events
 

@@ -507,11 +507,12 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
     ];
 
     /**
-     * Keys on an item belong to Explorer; they used to reach the desktop and act on its icons. They
-     * act on the selection, as XP's did — not on the focused item when it is not selected (a
-     * Ctrl+click can take the focused item out of the selection), and not at all when nothing is.
+     * Keys on an item, or on the empty part of the folder, belong to Explorer; they used to reach the
+     * desktop and act on its icons. They act on the selection, as XP's did — not on the focused item
+     * when it is not selected (a Ctrl+click can take the focused item out of the selection), and not
+     * at all when nothing is. Click the background, Ctrl+A, Delete: that used to do nothing.
      */
-    const onItemKey = (e: React.KeyboardEvent, entry: Entry) => {
+    const onItemKey = (e: React.KeyboardEvent, entry?: Entry) => {
         const ctrl = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
         const handled =
@@ -521,7 +522,7 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
         e.stopPropagation();
         const targets = selectedEntries;
         // The one a single-item key means: the focused item if it is selected, else the last picked.
-        const one = sel.all.includes(entry.path) ? entry : selectedEntry;
+        const one = entry && sel.all.includes(entry.path) ? entry : selectedEntry;
         if (e.key === 'Backspace') { if (parent) navigate(parent); }
         else if (key === 'a') selectAll();
         else if (key === 'v') void paste();
@@ -725,21 +726,9 @@ export default function ExplorerApp({ payload }: ExplorerAppProps) {
                         if (e.target === e.currentTarget) setSelected(null);
                     }}
                     onKeyDown={(e) => {
-                        // Keys on the empty part of the folder: Paste, and Backspace for Up, as in XP.
-                        const ctrl = e.ctrlKey || e.metaKey;
-                        if (ctrl && e.key.toLowerCase() === 'a') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            selectAll();
-                        } else if (ctrl && e.key.toLowerCase() === 'v') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void paste();
-                        } else if (e.key === 'Backspace' && parent) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            navigate(parent);
-                        }
+                        // Keys on the empty part of the folder act as they do on an item: on the
+                        // selection. Not keys meant for something inside it, such as a column heading.
+                        if (e.target === e.currentTarget) onItemKey(e);
                     }}
                 >
                     {shown.length === 0 ? (

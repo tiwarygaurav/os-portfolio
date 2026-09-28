@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { useSystemStore } from '@/store/useSystemStore';
 import {
+    GUEST_PATH,
     HOME_PATH,
     SAMPLE_PICTURES_PATH,
     copyName,
@@ -69,6 +70,8 @@ export const folderLabel = (path: string): string => (path === '/' ? 'the root f
  * drop. It used to say "part of the portfolio" of /proc and /usr/src as well.
  */
 export function whyNotWritable(path: string): string {
+    // A visitor's folder deleted while Explorer still showed it is not "a system folder".
+    if (within(path, GUEST_PATH) && !lookup(path)) return 'it no longer exists. It was moved or deleted';
     if (within(path, HOME_PATH)) return 'it is part of the portfolio';
     if (within(path, '/proc')) return 'it lists the windows that are open, and changes only with them';
     if (within(path, SAMPLE_PICTURES_PATH)) return 'the Sample Pictures are built in, and read-only';

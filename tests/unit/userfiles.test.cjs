@@ -406,7 +406,7 @@ test('df counts what the Recycle Bin holds, and says so', () => {
     const s = session();
     vfs.mountUserFiles(s.files(), s.folders(), 5000);
     assert.equal(vfs.recycledUsage(), 5000);
-    assert.match(s.text(s.run('df')), /5K of that is in the Recycle Bin/);
+    assert.match(s.text(s.run('df')), /5,000 characters of that are in the Recycle Bin/);
 });
 
 /* ------------------------------------------------------------------ copy */
@@ -543,10 +543,13 @@ test('rm takes -rf and -f; mkdir -p over a file says "Not a directory"', () => {
     assert.match(s.text(s.run('mkdir -p a/b')), /Not a directory/);
 });
 
-test('df counts a small Recycle Bin in characters, not as 0K', () => {
+test('df counts a small Recycle Bin in characters, not as 0K, and a little use is not 0%', () => {
     const s = session();
     vfs.mountUserFiles(s.files(), s.folders(), 300);
-    assert.match(s.text(s.run('df')), /300 characters of that is in the Recycle Bin/);
+    const out = s.text(s.run('df'));
+    assert.match(out, /300 characters of that are in the Recycle Bin/);
+    assert.match(out, / <1%/);
+    assert.match(out, /Sizes are in K of characters/);
 });
 
 test('a pipeline can end in a redirect, and uniq -c counts what repeats', () => {

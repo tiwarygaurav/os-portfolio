@@ -450,3 +450,23 @@ test('Properties and Paste say what a folder is by where it is', async ({ page }
         'Nothing can be pasted into proc: it lists the windows that are open',
     );
 });
+
+test('keys on the empty part of a folder act on the selection: Ctrl+A, then Delete', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'cmd');
+    for (const n of ['a', 'b']) await shell(page, `echo ${n} > "/home/guest/My Documents/${n}.txt"`);
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+    await expect(w.locator('button[data-name="b.txt"]')).toBeVisible();
+
+    // A click on the folder's background, away from every item.
+    const pane = w.locator('div.bg-white[tabindex="-1"]').first();
+    const box = (await pane.boundingBox())!;
+    await page.mouse.click(box.x + box.width - 12, box.y + box.height - 12);
+    await page.keyboard.press('Control+A');
+    await expect(w).toContainText('2 objects selected');
+    // Delete used to do nothing from here: only Ctrl+A, Ctrl+V and Backspace were heard.
+    await page.keyboard.press('Delete');
+    await expect(page.getByRole('dialog', { name: 'Confirm Multiple File Delete' })).toContainText('these 2 items');
+});

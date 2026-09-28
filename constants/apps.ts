@@ -22,6 +22,11 @@ import {
 } from 'lucide-react';
 import type { WindowPayload } from '@/store/useSystemStore';
 
+/**
+ * The app registry: the one place an app is declared — its title, icons, size, where it appears
+ * (desktop, Start menu, Run) and the lazily loaded window body. See `components/apps/CLAUDE.md`.
+ */
+
 /** Every app window body takes the same two props. See `components/apps/CLAUDE.md`. */
 export type AppComponent = ComponentType<{ windowId?: string; payload?: WindowPayload }>;
 

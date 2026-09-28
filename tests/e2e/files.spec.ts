@@ -249,3 +249,17 @@ test('Save As makes a folder and saves into it; the shell moves it; a reload kee
     await expect(notepad(page, 'march.txt - Notepad').locator('textarea')).toHaveValue('Paid in full.');
     expect(await savedTree(page)).toEqual({ files: ['/home/guest/Receipts/march.txt'], folders: ['/home/guest/Receipts'] });
 });
+
+test('Log Off with unsaved text: Yes saves through Save As, and then the session really ends', async ({ page }) => {
+    await run(page, 'notepad');
+    await notepad(page).locator('textarea').fill('saved on the way out');
+    await page.getByText('start', { exact: true }).first().click();
+    await page.locator('.xp-startmenu-footer-btn', { hasText: 'Log Off' }).click();
+    await page.locator('[data-exit="logoff"]').click();
+    await page.getByRole('dialog', { name: 'Notepad' }).getByRole('button', { name: 'Yes' }).click();
+    await saveAs(page, 'before-logoff.txt');
+    // "Yes" used to read as Cancel: Notepad saved and closed, and the visitor stayed logged on.
+    await expect(page.locator('[data-logon-user], div.cursor-pointer:has(img[alt="User"])').first()).toBeVisible({ timeout: 10_000 });
+    const files = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles));
+    expect(files).toContain('/home/guest/My Documents/before-logoff.txt');
+});

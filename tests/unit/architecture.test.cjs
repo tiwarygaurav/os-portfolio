@@ -180,3 +180,62 @@ test('a broken rule is reported, and a module nobody imports says why', () => {
         vfs.mountSource(SOURCE);
     }
 });
+
+/* ------------------------------------------------- review fixes (413692c) */
+
+test('require(), a .js ending and a stylesheet cannot slip past the rule', async () => {
+    const r = await analyse({
+        'system/req.ts': "const D = require('@/components/os/Desktop');\nexport default D;\n",
+        'system/pkg.ts': "const React = require('react');\nexport default React;\n",
+        'system/js.ts': "import D from '@/components/os/Desktop.js';\nexport default D;\n",
+        'system/css.ts': "import '@/app/luna.css';\nexport const x = 1;\n",
+        'components/os/Desktop.tsx': 'export default function Desktop() { return null; }\n',
+    });
+    const why = Object.fromEntries(r.violations.map((v) => [v.from, v.rule]));
+    assert.match(why['system/req.ts'], /imports components\//);
+    assert.match(why['system/pkg.ts'], /uses the npm package react/);
+    assert.match(why['system/js.ts'], /imports components\//);
+    assert.match(why['system/css.ts'], /imports @\/app\/luna\.css, which is not a module the check can read/);
+});
+
+test('a type-only package import is erased and breaks nothing; ".." is a folder, not a package', async () => {
+    const r = await analyse({
+        'content/types.ts': "import type { LucideIcon } from 'lucide-react';\nimport { type ReactNode } from 'react';\nexport type I = LucideIcon | ReactNode;\n",
+        'system/sub/a.ts': "import { b } from '..';\nexport const a = b;\n",
+        'system/index.ts': 'export const b = 1;\n',
+    });
+    assert.deepEqual(r.violations, []);
+    assert.deepEqual(moduleOf(r, 'system/sub/a.ts').packages, []);
+    assert.deepEqual(moduleOf(r, 'system/sub/a.ts').imports.map((i) => i.to), ['system/index.ts']);
+    // Shown as packages the module imports, for the graph; ignored by the rule.
+    assert.deepEqual(moduleOf(r, 'content/types.ts').packages, ['lucide-react', 'react']);
+});
+
+test('one bad import is one violation, however many headless modules reach it', async () => {
+    const r = await analyse({
+        'content/profile.ts': "import '@/components/os/Desktop';\nexport const p = 1;\n",
+        'content/index.ts': "export * from './profile';\n",
+        'system/vfs.ts': "import { p } from '@/content';\nexport const v = p;\n",
+        'system/shell.ts': "import { v } from './vfs';\nexport const s = v;\n",
+        'components/os/Desktop.tsx': 'export default function Desktop() { return null; }\n',
+    });
+    assert.equal(r.violations.length, 1);
+    assert.equal(r.violations[0].to, 'components/os/Desktop.tsx');
+});
+
+test('a type-only import does not make a lazily loaded module look eager', async () => {
+    const r = await analyse({
+        'constants/apps.ts': "import type { X } from '@/components/apps/X';\nexport const load = () => import('@/components/apps/X');\nexport type Y = X;\n",
+        'components/apps/X.tsx': 'export type X = 1;\nexport default function A() { return null; }\n',
+    });
+    assert.deepEqual(moduleOf(r, 'constants/apps.ts').imports, [{ to: 'components/apps/X.tsx', typeOnly: false, lazy: true }]);
+});
+
+test('the comment a file opens with is its summary, however short', async () => {
+    const r = await analyse({
+        'components/apps/mediaplayer/playlist.ts': "/**\n * The Media Player's playlist.\n */\nexport interface Track { src: string }\n",
+        'components/os/Screens.tsx': '"use client";\n\n/** The screens around a session. */\nexport function S() { return null; }\n',
+    });
+    assert.equal(moduleOf(r, 'components/apps/mediaplayer/playlist.ts').summary, "The Media Player's playlist.");
+    assert.equal(moduleOf(r, 'components/os/Screens.tsx').summary, 'The screens around a session.');
+});

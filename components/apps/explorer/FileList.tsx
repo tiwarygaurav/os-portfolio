@@ -2,9 +2,9 @@
 
 import { useRef, useState, type RefObject } from 'react';
 import { APPS } from '@/constants/apps';
-import { prettyPath } from '@/system/shell';
+import { prettyPath, shellQuote } from '@/system/shell';
 import { fileIconFor, fileTypeName } from '@/constants/fileIcons';
-import { isDir, isFile, type VNode } from '@/system/vfs';
+import { isDir, isFile, isWritableDir, type VNode } from '@/system/vfs';
 import { fileBytes } from '@/utils/fs';
 import RenameField from '@/components/ui/RenameField';
 import XpIcon from '@/components/ui/XpIcon';
@@ -26,6 +26,41 @@ export interface Entry {
 
 /** The drag payload an Explorer drag carries: a JSON list of paths. Anything else dropped is ignored. */
 export const DRAG_TYPE = 'application/x-xp-path';
+
+/**
+ * Carried beside DRAG_TYPE when the drag holds something that is not the visitor's own, which can
+ * only be copied. A drag's paths cannot be read until the drop, but its types can, so this is how
+ * the cursor knows during the drag.
+ */
+const COPY_ONLY_TYPE = 'application/x-xp-copy-only';
+
+/** What a drag carries, for a drop onto a folder and for a text box: the paths, quoted for a shell. */
+export function startDrag(e: React.DragEvent, dragged: Entry[]): void {
+    const paths = dragged.map((d) => d.path);
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(paths));
+    if (dragged.some((d) => !d.node.writable)) e.dataTransfer.setData(COPY_ONLY_TYPE, '1');
+    // Dropped into a text box — the Command Prompt's, say — it types the paths, quoted, as XP's
+    // did: every path in My Documents has a space, and unquoted it was two words.
+    e.dataTransfer.setData('text/plain', paths.map(shellQuote).join(' '));
+    e.dataTransfer.effectAllowed = 'copyMove';
+}
+
+/**
+ * A drag over the folder at `path`. XP's cursors: move for the visitor's own things, copy when
+ * something read-only is in the drag or Ctrl is held, and the no-entry sign over a folder that
+ * takes nothing — it used to say "move" and light up, then refuse on the drop. True when the
+ * folder will take the drop, so it can be drawn as the target.
+ */
+export function dragOverFolder(e: React.DragEvent, path: string): boolean {
+    if (!e.dataTransfer.types.includes(DRAG_TYPE)) return false;
+    e.preventDefault();
+    if (!isWritableDir(path)) {
+        e.dataTransfer.dropEffect = 'none';
+        return false;
+    }
+    e.dataTransfer.dropEffect = e.ctrlKey || e.dataTransfer.types.includes(COPY_ONLY_TYPE) ? 'copy' : 'move';
+    return true;
+}
 
 /** The paths a drop carried, or [] if it was not an Explorer drag. */
 export function droppedPaths(data: DataTransfer): string[] {
@@ -54,7 +89,12 @@ export function sizeColumn(node: VNode): string {
     return bytes === null ? '' : `${Math.ceil(bytes / 1024).toLocaleString()} KB`;
 }
 
-const sizeValue = (node: VNode) => (isDir(node) ? -1 : node.src ? node.src.length : node.content.length);
+/**
+ * The size Arrange by Size sorts on: the same bytes the Size column shows (it used to sort on the
+ * characters of a data: URL, so a 3 KB picture came above a 4 KB text file). A file whose size is
+ * not known, a built-in picture, sorts after every file that has one.
+ */
+const sizeValue = (node: VNode) => (isDir(node) ? -2 : fileBytes(node) ?? -1);
 const modifiedValue = (node: VNode) => (isFile(node) ? node.modified ?? 0 : 0);
 
 /** XP's Arrange Icons By: folders first, then the chosen key, then the name. */
@@ -209,7 +249,7 @@ export default function FileList(props: FileListProps) {
     return (
         <>
             {view === 'details' && (
-                <div className={`${columns} sticky top-0 z-[1] border-b border-[#d6d2c2] bg-[#ece9d8] text-[11px]`}>
+                <div data-sticky-header className={`${columns} sticky top-0 z-[1] border-b border-[#d6d2c2] bg-[#ece9d8] text-[11px]`}>
                     {header('name', 'Name')}
                     {showFolder && <span className="border-r border-[#d6d2c2] px-1.5 py-0.5">In Folder</span>}
                     {header('size', 'Size', showFolder ? 'hidden text-right sm:block' : 'text-right')}
@@ -252,20 +292,14 @@ export default function FileList(props: FileListProps) {
                                 onKeyDown={(e) => props.onItemKey(e, entry)}
                                 onContextMenu={(e) => props.onItemMenu(e, entry)}
                                 draggable
-                                onDragStart={(e) => {
+                                onDragStart={(e) =>
                                     // Dragging a selected item drags the whole selection, as in XP.
-                                    const paths = isSelected ? selection : [entry.path];
-                                    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(paths));
-                                    // Dropped into a text box elsewhere, it is the paths, as real files give.
-                                    e.dataTransfer.setData('text/plain', paths.join('\n'));
-                                    e.dataTransfer.effectAllowed = 'copyMove';
-                                }}
+                                    startDrag(e, isSelected ? entries.filter((x) => picked.has(x.path)) : [entry])
+                                }
                                 onDragOver={(e) => {
-                                    if (!isDir(node) || !e.dataTransfer.types.includes(DRAG_TYPE)) return;
-                                    e.preventDefault();
-                                    // What the drag carries cannot be read until the drop, so the cursor follows Ctrl alone.
-                                    e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move';
-                                    setDropTarget(entry.path);
+                                    if (!isDir(node)) return;
+                                    const takes = dragOverFolder(e, entry.path);
+                                    setDropTarget((t) => (takes ? entry.path : t === entry.path ? null : t));
                                 }}
                                 onDragLeave={() => setDropTarget((t) => (t === entry.path ? null : t))}
                                 onDrop={(e) => {

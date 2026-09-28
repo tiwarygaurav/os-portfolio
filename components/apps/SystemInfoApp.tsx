@@ -15,6 +15,7 @@ import {
     recycledUsage,
     type SourceModule,
 } from '@/system/vfs';
+import { useFsRevision } from '@/utils/fs';
 import { useProcesses } from '@/utils/processes';
 import { revealInList } from '@/utils/scroll';
 
@@ -99,6 +100,9 @@ export default function SystemInfoApp({ payload }: SystemInfoAppProps) {
     const fileCount = useSystemStore((s) => Object.keys(s.userFiles).length);
     const folderCount = useSystemStore((s) => s.userFolders.length);
     const binCount = useSystemStore((s) => s.recycleBin.length);
+    // Every write re-renders, so Storage's exact counts cannot go stale: the counts of files and
+    // folders alone missed a line appended to a file that was already there.
+    useFsRevision();
 
     const [section, setSection] = useState<Section>(payload?.module ? 'modules' : 'summary');
     const [moduleSel, setModuleSel] = useState<string | null>(payload?.module ?? null);

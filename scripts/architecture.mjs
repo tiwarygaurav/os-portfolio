@@ -24,19 +24,24 @@ export function layerOf(path) {
 
 const packageName = (spec) => (spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]);
 
-/** A specifier resolved to a module we know, null for a package, undefined for anything else (CSS). */
+/**
+ * A specifier resolved to a module we know; null for a package; undefined for a file in the repo
+ * that is not a module we read (a stylesheet), which the rule then treats as unknown. `.` and `..`
+ * are folders, not packages, and a `.js` ending names the `.ts` file, as TypeScript resolves it.
+ */
 function resolve(spec, from, known) {
     let base;
     if (spec.startsWith('@/')) base = spec.slice(2);
-    else if (spec.startsWith('./') || spec.startsWith('../')) {
+    else if (spec === '.' || spec === '..' || spec.startsWith('./') || spec.startsWith('../')) {
         const parts = from.split('/').slice(0, -1);
         for (const seg of spec.split('/')) {
             if (seg === '..') parts.pop();
-            else if (seg !== '.') parts.push(seg);
+            else if (seg !== '.' && seg !== '') parts.push(seg);
         }
         base = parts.join('/');
     } else return null;
-    for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`]) {
+    const stem = base.replace(/\.[mc]?jsx?$/, '');
+    for (const candidate of [base, `${stem}.ts`, `${stem}.tsx`, `${stem}/index.ts`, `${stem}/index.tsx`]) {
         if (known.has(candidate)) return candidate;
     }
     return undefined;
@@ -85,7 +90,8 @@ function summaryOf(sf, text) {
             .map((c) => ({
                 raw: text.slice(c.pos, c.end),
                 attached: !/\n[ \t]*\r?\n/.test(text.slice(c.end, node.getStart(sf))),
-                first: text.slice(0, c.pos).trim() === '',
+                // Nothing before it but a "use client" line: the comment the file opens with.
+                first: text.slice(0, c.pos).replace(/^\s*(['"])use [a-z ]+\1;?/i, '').trim() === '',
             }));
 
     let first;
@@ -102,10 +108,12 @@ function summaryOf(sf, text) {
     const main = sf.statements.find(isDefaultExport);
     const onMain = main ? docs(main).filter((d) => d.attached).pop() : undefined;
     if (onMain) return { text: docText(onMain.raw), rule: 'default export' };
-    // An overview that opens the file, or sits on the first thing it exports. After the imports, on a
-    // private helper, it is the helper's.
+    // The comment a file opens with is the file's, however short. Otherwise an overview of several
+    // paragraphs on the first thing it exports. After the imports, on a private helper, it is the helper's.
     const exported = first && (ts.getModifiers(first) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-    const overview = first ? docs(first).find((d) => d.attached && (exported || d.first) && paragraphsOf(d.raw).length > 1) : undefined;
+    const overview = first
+        ? docs(first).find((d) => d.attached && (d.first || (exported && paragraphsOf(d.raw).length > 1)))
+        : undefined;
     return overview ? { text: docText(overview.raw), rule: 'overview' } : { text: null, rule: 'none' };
 }
 
@@ -115,6 +123,10 @@ function scan(file, known) {
     const sf = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true, kind);
     const imports = new Map();
     const packages = new Set();
+    /** Packages it needs at runtime; an `import type` from one is erased, and the rule ignores it. */
+    const runtimePackages = new Set();
+    /** Runtime imports of files in the repo that are not modules we read — a stylesheet, say. */
+    const unresolved = new Set();
     let jsx = false;
     let unresolvable = 0;
 
@@ -122,16 +134,22 @@ function scan(file, known) {
         const target = resolve(spec, file.path, known);
         if (target === null) {
             packages.add(packageName(spec));
+            if (!how.typeOnly) runtimePackages.add(packageName(spec));
             return;
         }
-        if (target === undefined) return;
-        const prev = imports.get(target);
-        // A module imported several ways is as strong as its strongest import.
+        if (target === undefined) {
+            if (!how.typeOnly) unresolved.add(spec);
+            return;
+        }
+        const prev = imports.get(target) ?? { typeOnly: true, lazy: true };
+        // A module imported several ways is as strong as its strongest runtime import. A type-only
+        // import is erased, so it says nothing about when the module loads.
         imports.set(target, {
-            typeOnly: (prev ? prev.typeOnly : true) && how.typeOnly,
-            lazy: (prev ? prev.lazy : true) && how.lazy,
+            typeOnly: prev.typeOnly && how.typeOnly,
+            lazy: how.typeOnly ? prev.lazy : prev.lazy && how.lazy,
         });
     };
+    const specifier = (arg) => (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) ? arg.text : null);
 
     const visit = (node) => {
         if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
@@ -145,8 +163,13 @@ function scan(file, known) {
             const typeOnly = node.isTypeOnly || (named.length > 0 && named.every((e) => e.isTypeOnly));
             note(node.moduleSpecifier.text, { typeOnly, lazy: false });
         } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-            const arg = node.arguments[0];
-            if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) note(arg.text, { typeOnly: false, lazy: true });
+            const spec = specifier(node.arguments[0]);
+            if (spec !== null) note(spec, { typeOnly: false, lazy: true });
+            else unresolvable++;
+        } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+            // require() bundles as surely as import does, and no lint rule here forbids it.
+            const spec = specifier(node.arguments[0]);
+            if (spec !== null) note(spec, { typeOnly: false, lazy: false });
             else unresolvable++;
         } else if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) {
             jsx = true;
@@ -166,19 +189,25 @@ function scan(file, known) {
         summaryFrom: summary.rule,
         imports: [...imports.entries()].map(([to, how]) => ({ to, typeOnly: how.typeOnly, lazy: how.lazy })),
         packages: [...packages].sort(),
+        runtimePackages: [...runtimePackages].sort(),
+        unresolved: [...unresolved].sort(),
         jsx,
         unresolvable,
     };
 }
 
-/** Why a module reached from a headless one breaks the rule, or null. */
+/**
+ * Why a module reached from a headless one breaks the rule, or null. `where` says whether the fault is
+ * where the module lives (a UI or store module, reached by an import) or in what it holds itself.
+ */
 function breaks(m) {
-    if (m.path.startsWith('components/') || m.path.startsWith('app/')) return `imports ${m.path.split('/')[0]}/`;
-    if (m.path.startsWith('store/') && m.path !== PURE_STORE_MODULE) return 'imports the store';
-    const pkg = m.packages.find((p) => !HEADLESS_PACKAGES.has(p));
-    if (pkg) return `uses the npm package ${pkg}`;
-    if (m.jsx) return 'draws JSX';
-    if (m.unresolvable) return 'has an import() whose target cannot be known';
+    if (m.path.startsWith('components/') || m.path.startsWith('app/')) return { why: `imports ${m.path.split('/')[0]}/`, where: 'place' };
+    if (m.path.startsWith('store/') && m.path !== PURE_STORE_MODULE) return { why: 'imports the store', where: 'place' };
+    const pkg = m.runtimePackages.find((p) => !HEADLESS_PACKAGES.has(p));
+    if (pkg) return { why: `uses the npm package ${pkg}`, where: 'self' };
+    if (m.jsx) return { why: 'draws JSX', where: 'self' };
+    if (m.unresolved.length) return { why: `imports ${m.unresolved[0]}, which is not a module the check can read`, where: 'self' };
+    if (m.unresolvable) return { why: 'has an import whose target cannot be known', where: 'self' };
     return null;
 }
 
@@ -197,6 +226,12 @@ export function analyse(files) {
     const violations = [];
     const checkedImports = new Set();
     const checkedModules = new Set();
+    /*
+     * One violation per fault, however many headless modules reach it: a bad import is one import
+     * (keyed by the edge), a module that draws JSX is one module. Counting every chain made one bad
+     * import in content/profile.ts "Broken 5 times".
+     */
+    const reported = new Set();
     for (const start of scanned.filter((m) => HEADLESS.includes(m.layer))) {
         const seen = new Set([start.path]);
         const queue = [[start.path]];
@@ -205,9 +240,13 @@ export function analyse(files) {
             const m = byPath.get(chain[chain.length - 1]);
             if (!m) continue;
             checkedModules.add(m.path);
-            const why = breaks(m);
-            if (why) {
-                violations.push({ from: start.path, to: m.path, rule: `${start.layer}/ must stay headless: ${chain.join(' -> ')} ${why}` });
+            const fault = breaks(m);
+            if (fault) {
+                const key = fault.where === 'place' ? `${chain[chain.length - 2]} -> ${m.path}` : m.path;
+                if (!reported.has(key)) {
+                    reported.add(key);
+                    violations.push({ from: start.path, to: m.path, rule: `${start.layer}/ must stay headless: ${chain.join(' -> ')} ${fault.why}` });
+                }
                 continue;
             }
             for (const i of m.imports) {
@@ -221,7 +260,9 @@ export function analyse(files) {
     }
 
     // eslint-disable-next-line no-unused-vars -- the rule's working, not part of the graph
-    const modules = scanned.map(({ jsx, unresolvable, summaryFrom, ...m }) => m).sort((a, b) => a.path.localeCompare(b.path));
+    const modules = scanned
+        .map(({ jsx, unresolvable, summaryFrom, runtimePackages, unresolved, ...m }) => m)
+        .sort((a, b) => a.path.localeCompare(b.path));
     /** Which rule found each summary: 'opening', 'standalone', 'overview', 'default export' or 'none'. */
     const summaryFrom = Object.fromEntries(scanned.map((m) => [m.path, m.summaryFrom]));
     return { modules, violations, checked: { modules: checkedModules.size, imports: checkedImports.size }, summaryFrom };

@@ -37,6 +37,12 @@ import {
 } from '@/constants/prefs';
 
 /**
+ * The one store: the session (boot, logon, log off, shut down), the window manager, desktop
+ * preferences, message boxes, and the visitor's files and Recycle Bin, whose changes it makes through
+ * the VFS's pure plans and pushes into the VFS. What survives a reload is `store/persistence.ts`.
+ */
+
+/**
  * Launch argument passed to an app when it is opened, e.g. `{ projectId: 'os-portfolio' }` from the
  * shell's `open ~/projects/os-portfolio` or from the Skills window. String-keyed on purpose: payloads
  * cross the shell boundary, so they must stay serialisable.
@@ -224,13 +230,19 @@ interface SystemState {
         setWindowTitle: (id: string, title: string) => void;
         /**
          * Let an app intercept an ordinary close (title-bar X, Alt+F4, File > Exit) to ask about
-         * unsaved work. The guard resolves true to allow the close. `kill` and End Task bypass it,
-         * as ending a process did in XP. Returns the unregister function.
+         * unsaved work. `kill` and End Task bypass it, as ending a process did in XP. Returns the
+         * unregister function.
+         *
+         * The contract: the guard resolves true once the window may close — nothing unsaved, No, or
+         * Yes with the work saved, waiting through a Save As if one is needed — and false for Cancel,
+         * a Save As cancelled, or a save that failed. It must not resolve false for "Yes, Save As is
+         * showing" and close the window itself later: Log Off reads false as Cancel.
          */
         registerCloseGuard: (id: string, guard: () => Promise<boolean>) => () => void;
         /**
          * Before Log Off or Turn Off: ask every window with unsaved work, one at a time, as XP did.
-         * Resolves false as soon as one says Cancel — the session must then stay.
+         * Resolves false as soon as one says Cancel — the session must then stay — and false at once
+         * while a window is already asking (its own X was pressed): that question is answered first.
          */
         requestEndSession: () => Promise<boolean>;
         emptyRecycleBin: () => void;
@@ -343,6 +355,18 @@ function sanitizeWallpaperFile(v: unknown): WallpaperFile | null {
     const { path, position } = v as Partial<WallpaperFile>;
     if (typeof path !== 'string' || !path.startsWith('/') || !isWallpaperPosition(position)) return null;
     return { path, position };
+}
+
+/** Saved icon positions that are pairs of finite numbers, for apps this build has. */
+function sanitizeDesktopIcons(v: unknown): Record<string, { x: number; y: number }> {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, { x: number; y: number }> = {};
+    for (const [id, pos] of Object.entries(v as Record<string, unknown>)) {
+        if (!Object.prototype.hasOwnProperty.call(APPS, id) || !pos || typeof pos !== 'object') continue;
+        const { x, y } = pos as { x?: unknown; y?: unknown };
+        if (typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y)) out[id] = { x, y };
+    }
+    return out;
 }
 
 /** Keep only well-formed visitor files from whatever localStorage handed back. */
@@ -516,11 +540,25 @@ export const useSystemStore = create<SystemState>()(
                 },
 
                 requestEndSession: async () => {
+                    const open = (id: string) => get().windows.some(w => w.id === id);
+                    // A window already asking about its own close is answered first: asking again
+                    // stacked a second, identical box on the first.
+                    const asking = Array.from(guardsPending).find(open);
+                    if (asking) {
+                        get().actions.restoreWindow(asking);
+                        return false;
+                    }
                     for (const [id, guard] of Array.from(closeGuards)) {
-                        if (!get().windows.some(w => w.id === id)) continue;
-                        // Bring the window forward so the visitor sees what the question is about.
-                        get().actions.restoreWindow(id);
-                        if (!(await guard())) return false;
+                        if (!open(id)) continue;
+                        guardsPending.add(id);
+                        const shown = get().dialogs.length;
+                        const answer = guard();
+                        // Only a window with something to ask comes forward, so the visitor sees
+                        // what the question is about. A guard with nothing unsaved answers without
+                        // opening a box, and a clean minimised window stays minimised.
+                        if (get().dialogs.length > shown) get().actions.restoreWindow(id);
+                        const ok = await answer.finally(() => guardsPending.delete(id));
+                        if (!ok) return false;
                     }
                     return true;
                 },
@@ -826,9 +864,15 @@ export const useSystemStore = create<SystemState>()(
                         const before: UserTree = { files: get().userFiles, folders: get().userFolders };
                         const plan = planRestore(before, item.item);
                         if (typeof plan === 'string') return plan;
-                        const refused = commitTree(set, plan, before);
-                        if (refused) return refused;
-                        set(state => ({ recycleBin: state.recycleBin.filter(r => r.id !== id) }));
+                        // One write: the files back and the entry out of the bin together. Two writes
+                        // held both copies at once for a moment, and near the storage limit the first
+                        // could be refused though the end state fits.
+                        const bin = get().recycleBin;
+                        set({ userFiles: plan.files, userFolders: [...plan.folders], recycleBin: bin.filter(r => r.id !== id) });
+                        if (persistFailed) {
+                            set({ userFiles: before.files, userFolders: [...before.folders], recycleBin: bin });
+                            return 'This browser refused to store the change, so it was not made. Site data may be blocked, or storage is full.';
+                        }
                         publish({ type: 'recycle:restored', name: item.name, fromBin: true });
                         return null;
                     }
@@ -958,12 +1002,18 @@ export const useSystemStore = create<SystemState>()(
                     }
                     const refused = commitTree(set, plan, before);
                     if (refused) return refused;
-                    // The wallpaper names a file by path; if that file moved, follow it.
+                    // The wallpaper names a file by path; if that file moved, follow it — unless the
+                    // new name made it something other than a picture (a.png renamed a.txt is text
+                    // now), when it falls back to the built-in background, as a deleted one does.
                     const wallpaper = get().wallpaperFile;
+                    let lostWallpaper = false;
                     if (wallpaper && (wallpaper.path === from || wallpaper.path.startsWith(from + '/'))) {
-                        set({ wallpaperFile: { ...wallpaper, path: to + wallpaper.path.slice(from.length) } });
+                        const moved = to + wallpaper.path.slice(from.length);
+                        lostWallpaper = !plan.files[moved]?.mime.startsWith('image/');
+                        set({ wallpaperFile: lostWallpaper ? null : { ...wallpaper, path: moved } });
                     }
                     publish({ type: 'fs:move', from, to });
+                    if (lostWallpaper) publish({ type: 'setting:changed', key: 'wallpaper', value: get().wallpaperId });
                     return null;
                 },
 
@@ -1048,18 +1098,30 @@ export const useSystemStore = create<SystemState>()(
             // localStorage is user-editable, and an older build's save has no theme or screen
             // saver at all. Validate what comes back instead of trusting it.
             merge: (persisted, current) => {
-                const saved = (persisted ?? {}) as Partial<SystemState>;
+                const saved = (persisted ?? {}) as Partial<Record<PersistedKey, unknown>>;
                 // Folders first: a file is only kept if the folder it is in survived too.
                 const folders = sanitizeFolders(saved.userFolders);
+                const volume = saved.volume;
+                /*
+                 * Only the persisted keys, each checked. Spreading everything saved let a hand-edited
+                 * `deletedAppIds: {}` throw on every load, and adopted keys this build never saves
+                 * (`windows`, `actions`); the cross-tab listener delivered such edits live, too.
+                 */
                 return {
                     ...current,
-                    ...saved,
+                    volume: typeof volume === 'number' && Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : current.volume,
+                    isMuted: typeof saved.isMuted === 'boolean' ? saved.isMuted : current.isMuted,
+                    wallpaperId: WALLPAPERS.some(w => w.id === saved.wallpaperId) ? (saved.wallpaperId as string) : current.wallpaperId,
+                    wallpaperFile: sanitizeWallpaperFile(saved.wallpaperFile),
                     themeId: isThemeId(saved.themeId) ? saved.themeId : DEFAULT_THEME,
                     screenSaver: sanitizeScreenSaver(saved.screenSaver),
                     userFiles: sanitizeUserFiles(saved.userFiles, folders),
                     userFolders: folders,
+                    desktopIcons: sanitizeDesktopIcons(saved.desktopIcons),
                     recycleBin: sanitizeRecycleBin(saved.recycleBin),
-                    wallpaperFile: sanitizeWallpaperFile(saved.wallpaperFile),
+                    deletedAppIds: Array.isArray(saved.deletedAppIds)
+                        ? saved.deletedAppIds.filter((id): id is string => typeof id === 'string' && Object.prototype.hasOwnProperty.call(APPS, id))
+                        : current.deletedAppIds,
                 };
             },
         }
@@ -1082,8 +1144,9 @@ useSystemStore.subscribe((state, prev) => {
 /*
  * Another tab of this site wrote the same storage key. Without this, this tab's next ordinary
  * action — the middleware persists after every `set()` — wrote its stale copy back over it, and a
- * file saved in the other tab was gone on reload. Rehydrating keeps both tabs on one truth. The
- * write that follows is byte-identical, so it raises no event of its own and cannot ping-pong.
+ * file saved in the other tab was gone on reload. Rehydrating keeps both tabs on one truth, and
+ * writes nothing back (zustand writes on hydrate only after a migration), so the tabs cannot
+ * ping-pong. The limit: two tabs writing in the same instant still leave the last writer's copy.
  */
 if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => {

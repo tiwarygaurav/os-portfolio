@@ -48,9 +48,14 @@ A command table plus a parser. `runCommand(input, ctx)` returns `ShellResult` â€
 `link` / `blank`), never a string of markup. `complete(input, ctx)` powers Tab.
 
 **Pipes.** `runCommand` splits on unquoted `|`; each stage's text output (what `>` would write,
-`outputLines`) is passed to the next command's `run(args, ctx, stdin)`. A filter reads a file or
+`outputLines`) is passed to the next command's `run(args, ctx, stdin, io)`. A filter reads a file or
 `stdin` through `readInput`, so adding one is still a single command-table entry. A pipeline is a
-subshell: its `cwd` and `clear` are dropped, and only its last stage may redirect.
+subshell: its `cwd` and `clear` are dropped, `exit` ends only that subshell, and only its last stage
+may redirect. `io.captured` tells a command its output goes into a pipe or a file, not onto the
+screen: what is only for the eye stays out (cat's tip and repeated link, grep's 40-line cap). A
+command that passes a file through untouched returns its exact text as `raw`, so `cat f | wc` and
+`wc f` agree and `cat f > g` copies exactly. Short options go through `options()`, which reads them as
+getopt does (`-vc`, `-rn`, `--`) and names an unknown one; `wc` counts as GNU wc does.
 
 Side effects go through `ShellContext`, supplied by the renderer:
 

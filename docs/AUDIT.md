@@ -46,6 +46,36 @@ subscribe with selectors.
 The media-licensing item (P1) is closed as **accepted by the owner** — the playlist, the XP
 startup sound and the XP logo assets ship deliberately. See `CLAUDE.md` §9; do not re-open it.
 
+## Review of everything not yet reviewed (2026-09-29)
+
+At the owner's request, every commit that had never had an independent review was reviewed before
+being pushed: eight read-only reviewers, each finding traced or executed and every candidate put
+through an attempt to refute it. Nothing was rated high. Each finding went to the session that owns
+the file. The chrome, apps and shell/files sessions work in parallel and commit their own fixes, and
+their commits record what they fixed.
+
+| Slice | Findings | Where they are fixed |
+| --- | --- | --- |
+| 413692c (module graph, Explorer, Properties) | 13 low–medium | 12 in the shell/files session's commit; one (Run's unreported load failure) in the chrome session's |
+| 95cacf4 pipes, 60189a5 drag and drop | 9 (3 medium) | All in the shell/files session's commit |
+| 5bf735c, the chrome's staged doc/focus changes, c5dde69, 6467378 | 14, overlapping the next two | The store's (guard contract, `merge`, wallpaper rename, bin restore) in the shell/files commit; the desktop's keys in the chrome session's; Paint's stale save in the apps session's |
+| 8183961 window, taskbar, menus | 11 (1 medium) | Chrome session |
+| 8183961 session, dialogs, sound | 11 (1 medium-high, 2 medium) | Chrome session, except `requestEndSession` (shell/files) |
+| 7212919 Paint | 9 (3 medium) | Apps session |
+| 7212919 Solitaire, Minesweeper | 2 low | Apps session |
+| 7212919 Calculator, Media Player, MenuBar / AppDialog / xp-controls | 10 (2 medium) | Apps session |
+
+The ones a visitor would feel first:
+- Switch User's Turn Off opened under the Welcome screen and swallowed Enter blind.
+- Hiding the desktop icons could not be undone.
+- Log Off answered "Yes, save" stayed logged on.
+- Paint discarded pasted or typed work on close without asking.
+- A click that closed an app menu also pressed what was under it.
+- `grep | wc` and `grep -c` disagreed.
+
+One traced finding did not reproduce in the browser: System Information's Storage going stale. The
+window re-renders with its parent; it now subscribes to file changes itself anyway.
+
 ---
 
 ## 1. Strengths worth preserving

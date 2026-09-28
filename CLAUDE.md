@@ -466,6 +466,45 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-09-29 - A review of everything not yet reviewed, and the fixes in the shell, Explorer and the store
+
+**Why:** the owner asked for every change to be reviewed before it was pushed. Eight read-only
+reviewers covered what had never had an independent review: 5bf735c, 413692c, the pipes (95cacf4),
+drag and drop (60189a5), the XP fidelity pass (8183961), the screen saver (6467378), picture
+wallpapers (c5dde69) and the five rebuilt apps (7212919). Each finding went to the session that owns
+the file; the ones in the chrome went to that session, the apps' to theirs. `docs/AUDIT.md` has the
+tally. These are the fixes in this session's files.
+- **The shell tells a command where its output goes.** `run(args, ctx, stdin, io)`: with
+  `io.captured`, output is going into a pipe or a file, so cat leaves out its tip and repeated link
+  and passes the file through exactly (`raw`), and grep's 40-line screen cap no longer cut what a pipe
+  received (`grep a | wc -l` said 40 while `grep -c a` said 231). Short options combine as getopt
+  reads them (`grep -vc`, `sort -rn`, `uniq -ci`) and an unknown one is named; they used to be read as
+  the search term or a file name. `wc` counts as GNU wc does (a line is a newline; `-m` characters,
+  `-c` bytes). `echo | wc -l` is 1. `find` searches every folder named and understands `[classes]`.
+  `exit` in a pipeline ends only that subshell. Tab after `ls|gr` completes instead of erasing `|gr`.
+- **Drag and drop shows XP's cursors:** copy when the drag holds something read-only, the no-entry
+  sign over a folder that takes nothing (it used to say "move" and refuse on the drop), and a path
+  dropped into a text box arrives quoted.
+- **The dependency-rule checker** follows `require()`, `.js` endings and a stylesheet import rather
+  than dropping them unseen; ignores type-only package imports and reads `..` as a folder; reports one
+  violation per fault (one bad import had read as "Broken 5 times"); and a comment a file opens with
+  is its summary however short. `postinstall` skips the graph when dev dependencies are absent.
+- **Explorer:** keys on the folder's background act on the selection (Ctrl+A, Delete); Arrange by
+  Size sorts on the bytes the Size column shows; a deleted folder is refused as gone, not as "a system
+  folder"; scrolling an item into view clears the Details headings.
+- **The store:** the close-guard contract (store/CLAUDE.md) — a guard resolves true once the work is
+  saved, waiting through a Save As — so Log Off with unsaved Notepad text, answered Yes, now saves and
+  logs off; before, it saved, closed Notepad and silently stayed logged on. Only windows that ask are
+  brought forward; a window already asking is not asked twice. `merge` takes back only persisted keys,
+  each checked. A wallpaper renamed out of being a picture falls back as a deleted one does. A restore
+  from the bin is one write, so it is not refused near the quota when the end state fits. `df` says
+  its K are characters and never shows 0% for real use.
+**A finding that did not reproduce:** a reviewer traced System Information's Storage as going stale
+on an append. In the browser the window re-renders with its parent, so it did not; the window now
+subscribes to file changes itself, and its e2e test says it checks the behaviour, not that fix.
+**Verified:** 200 unit tests, 88 e2e on a production build; the two new e2e regression tests failed
+with their fixes reverted.
+
 ### 2026-09-24 - Fixes from the review of 83545fe: the module graph is parsed, not pattern-matched
 
 The review found System Information's numbers, and the rule it claims to enforce, weaker than they

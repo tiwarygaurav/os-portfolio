@@ -7,6 +7,12 @@ import { xpAlert } from '@/utils/dialog';
 import FileDialog, { TEXT_TYPES } from '@/components/os/FileDialog';
 import { DOCUMENTS_PATH, isFile, lookup } from '@/system/vfs';
 
+/**
+ * Notepad, over real files: Open, Save and Save As through the shared file dialog, into
+ * /home/guest; the portfolio's own files open read-only. XP's "save the changes?" guards New, Open,
+ * Exit, the title-bar X and Log Off.
+ */
+
 const MENU = ['File', 'Edit', 'Format', 'View', 'Help'];
 
 const WELCOME =
@@ -61,8 +67,18 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
     const [openMenu, setOpenMenu] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    /** What to do once a Save As completes — e.g. the New or Exit that asked to save first. */
-    const afterSave = useRef<(() => void) | null>(null);
+    /**
+     * A "save the changes?" that was answered Yes and is waiting on Save As: resolved true when the
+     * file is written, false when the Save As is cancelled.
+     */
+    const pendingSave = useRef<((saved: boolean) => void) | null>(null);
+    const settleSave = useCallback((saved: boolean) => {
+        const settle = pendingSave.current;
+        pendingSave.current = null;
+        settle?.(saved);
+    }, []);
+    // Closed some other way (End Task, kill) with the question open: whoever waits hears "no".
+    useEffect(() => () => settleSave(false), [settleSave]);
     // The close guard runs outside React's render cycle, so it reads the latest values from refs.
     const live = useRef({ text, saved, path });
     live.current = { text, saved, path };
@@ -114,10 +130,14 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
 
     /**
      * XP's question, word for word: Yes saves, No discards, Cancel stays. Resolves true when it is
-     * fine to replace the current text now. If Yes needs a Save As first, `then` runs once that
-     * save succeeds, and this resolves false.
+     * fine to replace or close the text: nothing changed, No, or Yes and the file is written — after
+     * a Save As, if one was needed. False for Cancel, a Save As cancelled, or a write refused.
+     *
+     * This is the close-guard contract (store `registerCloseGuard`). It used to resolve false while
+     * Save As was still showing and run the close itself afterwards, so Log Off read "Yes" as
+     * Cancel: the file was saved, Notepad closed, and the visitor stayed logged on.
      */
-    const askToSave = useCallback(async (then: () => void): Promise<boolean> => {
+    const askToSave = useCallback(async (): Promise<boolean> => {
         const { text: current, saved: last, path: currentPath } = live.current;
         if (current === last) return true;
         const answer = await actions.openDialog({
@@ -133,10 +153,13 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
         if (answer === 'no') return true;
         if (answer === 'cancel') return false;
         const result = save();
-        if (result === 'saved') return true;
-        if (result === 'dialog') afterSave.current = then;
-        return false;
-    }, [actions, save]);
+        if (result !== 'dialog') return result === 'saved';
+        // Only one question waits at a time; an older one still waiting is answered "no".
+        settleSave(false);
+        return new Promise<boolean>((resolve) => {
+            pendingSave.current = resolve;
+        });
+    }, [actions, save, settleSave]);
 
     const load = useCallback((target: string) => {
         const result = readText(target);
@@ -156,7 +179,7 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
         if (!payload?.path || payload === lastPayload.current) return;
         lastPayload.current = payload;
         const target = payload.path;
-        void askToSave(() => load(target)).then((ok) => {
+        void askToSave().then((ok) => {
             if (ok) load(target);
         });
     }, [payload, askToSave, load]);
@@ -176,7 +199,7 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
     // The title-bar close button, Alt+F4 and File > Exit all ask about unsaved changes.
     useEffect(() => {
         if (!windowId) return;
-        return actions.registerCloseGuard(windowId, () => askToSave(() => actions.closeWindow(windowId)));
+        return actions.registerCloseGuard(windowId, askToSave);
     }, [windowId, actions, askToSave]);
 
     const newDoc = async () => {
@@ -187,12 +210,12 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
             setPath(null);
             setCaret(0);
         };
-        if (await askToSave(reset)) reset();
+        if (await askToSave()) reset();
     };
 
     const openFile = async () => {
         setOpenMenu(null);
-        if (await askToSave(() => setFileDialog('open'))) setFileDialog('open');
+        if (await askToSave()) setFileDialog('open');
     };
 
     const download = () => {
@@ -386,8 +409,8 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
                     initialName={fileDialog === 'save' ? (path ? baseName(path) : 'Untitled.txt') : ''}
                     types={TEXT_TYPES}
                     onCancel={() => {
-                        afterSave.current = null;
                         setFileDialog(null);
+                        settleSave(false);
                     }}
                     onConfirm={(target) => {
                         if (fileDialog === 'open') {
@@ -397,9 +420,8 @@ export default function NotepadApp({ windowId, payload }: NotepadAppProps) {
                         }
                         if (!writeTo(target, live.current.text)) return;
                         setFileDialog(null);
-                        const next = afterSave.current;
-                        afterSave.current = null;
-                        next?.();
+                        // Whatever asked to save first (Exit, New, Open, Log Off) carries on now.
+                        settleSave(true);
                     }}
                 />
             )}

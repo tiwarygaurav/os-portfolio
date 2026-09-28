@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { isDir, listDir, type ProcEntry } from '@/system/vfs';
 import { FILE_ICONS, fileIconFor } from '@/constants/fileIcons';
 import XpIcon from '@/components/ui/XpIcon';
-import { DRAG_TYPE, droppedPaths } from '@/components/apps/explorer/FileList';
+import { dragOverFolder, droppedPaths } from '@/components/apps/explorer/FileList';
 
 /**
  * Explorer's Folders pane: the whole tree, folders only, with XP's [+] / [-] boxes.
@@ -77,10 +77,8 @@ export default function FolderTree({ current, procs, revision, onOpen, onDropOn,
                         data-tree-path={path}
                         onClick={() => onOpen(path)}
                         onDragOver={(e) => {
-                            if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move';
-                            setDropTarget(path);
+                            const takes = dragOverFolder(e, path);
+                            setDropTarget((t) => (takes ? path : t === path ? null : t));
                         }}
                         onDragLeave={() => setDropTarget((t) => (t === path ? null : t))}
                         onDrop={(e) => {

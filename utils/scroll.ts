@@ -36,8 +36,9 @@ export function revealInList(el: HTMLElement): void {
     if (!list) return;
     const box = list.getBoundingClientRect();
     const r = el.getBoundingClientRect();
-    // A sticky header (a Details view's column headings) covers the top of the list.
-    const header = list.querySelector('thead');
+    // A sticky header covers the top of the list: a table's `thead` (System Information), or a row
+    // marked `data-sticky-header` (Explorer's Details column headings, which are not a table).
+    const header = list.querySelector<HTMLElement>('thead, [data-sticky-header]');
     const covered = header && getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().height : 0;
     const top = box.top + list.clientTop + covered;
     const left = box.left + list.clientLeft;

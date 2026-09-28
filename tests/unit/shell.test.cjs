@@ -212,3 +212,67 @@ test('after a |, Tab completes a command name', () => {
     assert.deepEqual(shell.complete('ls | gr', s.ctx), ['grep']);
     assert.deepEqual(shell.complete('ls ~/projects | hea', s.ctx), ['head']);
 });
+
+/* ------------------------------------------------- review fixes (95cacf4) */
+
+test('Tab after a | with no space completes the command, and keeps what was typed', () => {
+    const s = session();
+    assert.deepEqual(shell.complete('ls|gr', s.ctx), ['grep']);
+    assert.equal(shell.applyCompletion('ls|gr', 'grep'), 'ls|grep');
+    assert.deepEqual(shell.complete('ls ~/projects |hea', s.ctx), ['head']);
+    assert.equal(shell.applyCompletion('cat ~/about.md|he', 'head'), 'cat ~/about.md|head');
+});
+
+test('a pipe gets every grep hit; the screen shows forty and says how to get the rest', () => {
+    const s = session();
+    const count = Number(s.text(s.run('grep -c a')));
+    assert.ok(count > 40, `needs more than 40 hits to mean anything (${count})`);
+    assert.equal(s.text(s.run('grep a | wc -l')), String(count));
+    assert.match(s.text(s.run('grep a')), /more\. Pipe or redirect to get them all/);
+});
+
+test('short options combine, as getopt reads them, and an unknown one is named', () => {
+    const s = session();
+    const projects = vfs.listDir(`${vfs.HOME_PATH}/projects`).length;
+    assert.equal(s.text(s.run('ls ~/projects | grep -vc portfolio')), String(projects - 1));
+    assert.equal(s.text(s.run('ls ~/projects | grep -cv portfolio')), String(projects - 1));
+    assert.equal(s.text(s.run('echo 1 | sort -rn')), '1');
+    assert.equal(s.text(s.run('echo "b\nb" | uniq -ci')).trim(), s.text(s.run('echo "b\nb" | uniq -c')).trim());
+    assert.match(s.text(s.run('sort -x ~/about.md')), /sort: invalid option -- 'x'/);
+    assert.match(s.text(s.run('wc -lw ~/about.md')), /^\s*\d+\s+\d+$/);
+});
+
+test('wc counts as GNU wc does: a line is a newline, and cat into a pipe is the file exactly', () => {
+    const s = session();
+    const about = vfs.lookup(`${vfs.HOME_PATH}/about.md`).content;
+    assert.equal(s.text(s.run('wc -l ~/about.md')), String((about.match(/\n/g) ?? []).length));
+    assert.equal(s.text(s.run('wc -m ~/about.md')), String(Array.from(about).length));
+    assert.equal(s.text(s.run('wc -c ~/about.md')), String(Buffer.byteLength(about)));
+    // cat's screen-only extras (a link repeated, a tip) stay out of a pipe.
+    for (const f of ['~/links/github', '~/about.md']) {
+        assert.equal(s.text(s.run(`cat ${f} | wc`)), s.text(s.run(`wc ${f}`)), f);
+    }
+    // An empty line really printed goes into the pipe: echo | wc -l is 1, as in bash.
+    assert.equal(s.text(s.run('echo | wc -l')), '1');
+});
+
+test('find searches every folder named, and understands [classes]', () => {
+    const s = session();
+    const both = s.text(s.run('find ~/projects /etc -type f')).split('\n');
+    assert.ok(both.some((p) => p.startsWith('~/projects/')) && both.some((p) => p.startsWith('/etc/')));
+    assert.ok(s.text(s.run('find ~ -name [ab]*.md')).split('\n').includes('~/about.md'));
+    assert.ok(!s.text(s.run('find ~ -name [!a]*.md')).split('\n').includes('~/about.md'));
+    // A missing folder is reported, and the others are still searched.
+    const out = s.text(s.run('find /nowhere /etc -type f'));
+    assert.match(out, /'\/nowhere': No such file or directory/);
+    assert.match(out, /\/etc\//);
+});
+
+test('exit in a pipeline ends only its subshell; alone, it closes the Command Prompt', () => {
+    const s = session();
+    s.run('ls | exit');
+    s.run('exit | ls');
+    assert.deepEqual(s.state.closed, []);
+    s.run('exit');
+    assert.deepEqual(s.state.closed, ['w1']);
+});

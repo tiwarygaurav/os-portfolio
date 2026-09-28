@@ -85,3 +85,20 @@ test("My Computer's View system information opens it", async ({ page }) => {
     await win(page, 'My Computer').getByRole('button', { name: 'View system information' }).click();
     await expect(win(page, 'System Information')).toBeVisible();
 });
+
+test('Storage follows every write, not only a new file or folder', async ({ page }) => {
+    await run(page, 'msinfo32');
+    const w = win(page, 'System Information');
+    await w.getByRole('button', { name: 'Storage' }).click();
+    const used = () => w.locator('tr', { hasText: 'Used' }).innerText();
+    await run(page, 'cmd');
+    await shell(page, 'echo a > "/home/guest/My Documents/grow.txt"');
+    await expect.poll(used).toMatch(/[1-9][\d,]* characters of/);
+    const before = await used();
+    // Same file, same windows: only its content grows, and the exact count must follow it. (A review
+    // traced this as going stale; in the browser the window re-renders with its parent anyway, so
+    // this passes with or without the window's own subscription to file changes. It checks the
+    // behaviour, not that fix.)
+    await shell(page, 'echo "a longer line than the first" >> "/home/guest/My Documents/grow.txt"');
+    await expect.poll(used).not.toBe(before);
+});
