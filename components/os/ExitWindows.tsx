@@ -165,7 +165,7 @@ export default function ExitWindows({ kind, onCancel, onStandBy, onSwitchUser, o
                     <div className="xp-exit-head">
                         <span id="xp-exit-title">{title}</span>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/icons/xp/windows-flag.png" alt="" draggable={false} />
+                        <img src="/icons/windows.png" alt="" draggable={false} />
                     </div>
                     <div className="xp-exit-body">
                         {buttons.map((b) => (

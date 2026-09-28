@@ -207,7 +207,7 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
                     data-tip="Click here to begin."
                 >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/icons/xp/windows-flag.png" alt="" className="xp-start-flag" draggable={false} />
+                    <img src="/icons/windows.png" alt="" className="xp-start-flag" draggable={false} />
                     <span>start</span>
                 </button>
 
@@ -389,7 +389,7 @@ function NetworkPopover() {
                         <Row label="Round trip">{info.rtt != null ? `${info.rtt} ms` : 'unknown'}</Row>
                     </>
                 ) : (
-                    <p className="mt-1 leading-relaxed text-[#444]">
+                    <p className="xp-note mt-1 leading-relaxed">
                         Your browser does not expose connection details, so none are shown.
                     </p>
                 )}

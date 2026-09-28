@@ -4,9 +4,10 @@
 
 ```
 public/
-  icons/xp/    THE icon set: every app, place, dialog button and tray glyph (67 files, ~390 KB).
+  icons/xp/    THE icon set: every app, place, dialog button and tray glyph (66 files, ~350 KB).
                The chrome loads nothing else from icons/ except the XP logo bitmaps
-               (windows-xp-logo-*.png) and the account picture (profile-picture-chess.png).
+               (windows-xp-logo-*.png), the Windows flag (windows.png) and the account picture
+               (profile-picture-chess.png).
   icons/       legacy .ico/.png originals. icons/xp/ was exported from these; a few app bodies
                still reference them directly.
   wallpapers/  desktop backgrounds.
@@ -27,7 +28,11 @@ public/
 4. **The `icons/xp/` conventions.** Existing XP artwork is `<name>.png` at 128px plus
    `<name>-sm.png` at 32px, taken from the source `.ico`'s own 32×32 frame. Among frames of equal
    size, always take the 32-bit one: several `.ico` files lead with a 16-colour 256px frame, and
-   exporting that produced visibly dithered icons once. New artwork is hand-written `.svg`
+   exporting that produced visibly dithered icons once. Five icons exist only as 48px originals
+   with no `.ico` behind them (control-panel, info-balloon, my-documents, my-music, run): their
+   master is that 48px file and their `-sm.png` a 32px area-averaged reduction of it. Their
+   `srcSet` still says 128w, which only makes the browser prefer the master a little sooner; nothing
+   larger exists to serve. New artwork is hand-written `.svg`
    (viewBox 48×48, or 16×16 for tray glyphs), self-contained, with ids prefixed per icon so
    several can be inlined on one page. Some carry a `<style>` media query that swaps in a simpler
    drawing at 16–24px, as XP shipped separate small frames. No new `.ico`.
@@ -53,6 +58,6 @@ screen. XP homage is fine; claiming Microsoft authored this build is not.
 
 - `Bliss.jpg` and `bliss.png` are duplicates of the same wallpaper (1.2 MB together). Keep one — both are offered in Display Properties, which is the only reason to keep two.
 - The chrome no longer loads any `.ico`: the desktop, Start menu, taskbar and title bars all use
-  `icons/xp/`, ~390 KB for the whole set against ~3 MB of `.ico`. The originals stay because a
+  `icons/xp/`, ~350 KB for the whole set against ~3 MB of `.ico`. The originals stay because a
   few app bodies still point at them; move those to `icons/xp/` and the `.ico` files can go.
 - No favicon and no OG image exist. Both are required before the link is shared anywhere.

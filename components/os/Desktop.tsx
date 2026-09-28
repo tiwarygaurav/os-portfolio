@@ -7,7 +7,7 @@ import Taskbar from './Taskbar';
 import Window from './Window';
 import { AnimatePresence, motion } from 'framer-motion';
 import { playSound } from '@/utils/sound';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DesktopIcon from './DesktopIcon';
 import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
 import DialogLayer from './Dialog';
@@ -87,6 +87,18 @@ export default function Desktop() {
     const [locked, setLocked] = useState(false);
     const [saving, setSaving] = useState(false);
     const [iconsHidden, setIconsHidden] = useState(false);
+
+    /*
+     * Behind the Welcome screen (Switch User) or "Saving your settings...", the session is still
+     * there but not reachable: no Tab into a caption or taskbar button pressed unseen, no click.
+     * Stand By is left out — it swallows input itself, and inert would drop the focus the visitor
+     * wakes up to.
+     */
+    const sessionRef = useRef<HTMLDivElement>(null);
+    const covered = locked || saving;
+    useLayoutEffect(() => {
+        if (sessionRef.current) sessionRef.current.inert = covered;
+    }, [covered]);
     const [refreshing, setRefreshing] = useState(false);
     const [marquee, setMarquee] = useState<Rect | null>(null);
     // Arrange Icons By's order for this session. Positions are not saved, so the grid still reflows.
@@ -123,7 +135,8 @@ export default function Desktop() {
             if (iconLayer.current?.contains(target)) desktopFocused.current = true;
             // A press in a menu or a message box (the desktop's own among them) changes nothing:
             // right-click > Properties > OK, or Delete > No, must leave the desktop its keyboard.
-            else if (target.closest?.('[data-xp-menu], [role="dialog"]')) return;
+            // A dialog inside a window (Save As, Properties) belongs to that window, like the rest of it.
+            else if (target.closest?.('[data-xp-menu]') || (target.closest?.('[role="dialog"]') && !target.closest?.('[data-window]'))) return;
             else desktopFocused.current = false;
         };
         document.addEventListener('pointerdown', onPointerDown, true);
@@ -275,6 +288,8 @@ export default function Desktop() {
             setSelected([]);
             setFocusedIcon(null);
         }
+        // Hidden icons cannot be selected, by the band or any other way.
+        if (iconsHidden) return;
 
         const onMove = (ev: PointerEvent) => {
             const dx = ev.clientX - origin.x;
@@ -364,7 +379,7 @@ export default function Desktop() {
             // A key aimed at something inside a window belongs to that window, whatever the flag says.
             const inWindow = !!target.closest?.('[data-window]');
 
-            if (!inForm && !inWindow && desktopFocused.current) {
+            if (!inForm && !inWindow && desktopFocused.current && !iconsHidden) {
                 // Delete sends the selection to the Recycle Bin
                 if (e.key === 'Delete' && selected.length > 0) {
                     void confirmDelete(selected).then((deleted) => {
@@ -410,7 +425,7 @@ export default function Desktop() {
 
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [selected, focusedIcon, visibleIcons, actions, openIcon]);
+    }, [selected, focusedIcon, visibleIcons, iconsHidden, actions, openIcon]);
 
     useEffect(() => {
         const konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
@@ -461,7 +476,18 @@ export default function Desktop() {
                 { label: 'Name', action: () => arrange('name') },
                 { label: 'Type', action: () => arrange('type') },
                 { divider: true },
-                { label: 'Show Desktop Icons', checked: !iconsHidden, action: () => setIconsHidden((h) => !h) },
+                {
+                    label: 'Show Desktop Icons',
+                    checked: !iconsHidden,
+                    action: () => {
+                        // Nothing stays selected behind an empty desktop.
+                        if (!iconsHidden) {
+                            setSelected([]);
+                            setFocusedIcon(null);
+                        }
+                        setIconsHidden((h) => !h);
+                    },
+                },
             ],
         },
         { label: 'Refresh', action: refresh },
@@ -532,186 +558,188 @@ export default function Desktop() {
     };
 
     return (
-        <div className="relative h-full w-full overflow-hidden bg-[#1c55ee] font-sans">
-            {/* Background */}
-            <div className="absolute inset-0" style={wallpaperStyle} />
+        <>
+            <div ref={sessionRef} className="relative h-full w-full overflow-hidden bg-[#1c55ee] font-sans">
+                {/* Background */}
+                <div className="absolute inset-0" style={wallpaperStyle} />
 
-            {/* Desktop Icons */}
-            <div
-                ref={iconLayer}
-                className="absolute inset-0"
-                onPointerDown={startMarquee}
-                onContextMenu={handleDesktopContextMenu}
-            >
-                <div className="contents" style={{ visibility: iconsHidden || refreshing ? 'hidden' : undefined }}>
-                {visibleIcons.map((appId, index) => {
-                    const app = APPS[appId];
-                    if (!app) return null;
-                    return (
-                        <DesktopIcon
-                            key={appId}
-                            appId={appId}
-                            app={app}
-                            initialPosition={gridPosition(index)}
-                            isSelected={selected.includes(appId)}
-                            isFocused={focusedIcon === appId && selected.includes(appId)}
-                            onSelect={(additive) => selectIcon(appId, additive)}
-                            onOpen={() => openIcon(appId)}
-                            onContextMenu={(e) => handleIconContextMenu(e, appId)}
+                {/* Desktop Icons */}
+                <div
+                    ref={iconLayer}
+                    className="absolute inset-0"
+                    onPointerDown={startMarquee}
+                    onContextMenu={handleDesktopContextMenu}
+                >
+                    <div className="contents" style={{ visibility: iconsHidden || refreshing ? 'hidden' : undefined }}>
+                    {visibleIcons.map((appId, index) => {
+                        const app = APPS[appId];
+                        if (!app) return null;
+                        return (
+                            <DesktopIcon
+                                key={appId}
+                                appId={appId}
+                                app={app}
+                                initialPosition={gridPosition(index)}
+                                isSelected={selected.includes(appId)}
+                                isFocused={focusedIcon === appId && selected.includes(appId)}
+                                onSelect={(additive) => selectIcon(appId, additive)}
+                                onOpen={() => openIcon(appId)}
+                                onContextMenu={(e) => handleIconContextMenu(e, appId)}
+                            />
+                        );
+                    })}
+                    </div>
+                    {marquee && (
+                        <div
+                            className="xp-marquee"
+                            style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }}
                         />
-                    );
-                })}
+                    )}
                 </div>
-                {marquee && (
-                    <div
-                        className="xp-marquee"
-                        style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }}
-                    />
-                )}
+
+                <ContextMenu
+                    x={desktopMenu.x}
+                    y={desktopMenu.y}
+                    isOpen={desktopMenu.isOpen}
+                    onClose={() => setDesktopMenu((m) => ({ ...m, isOpen: false }))}
+                    items={desktopMenuItems}
+                />
+
+                <ContextMenu
+                    x={iconMenu.x}
+                    y={iconMenu.y}
+                    isOpen={iconMenu.isOpen}
+                    onClose={() => setIconMenu((m) => ({ ...m, isOpen: false }))}
+                    items={iconMenuItems()}
+                />
+
+                {/* Windows Layer */}
+                <AnimatePresence>
+                    {windows.map((win) => (
+                        <Window key={win.id} win={win} />
+                    ))}
+                </AnimatePresence>
+
+                {/* Welcome balloon, pointing at the notification area as XP's tour balloon did. */}
+                <AnimatePresence>
+                    {showBalloon && (
+                        <motion.div
+                            key="balloon"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ delay: 1.2, duration: 0.2 }}
+                            className="xp-balloon bottom-[calc(var(--xp-taskbar-h)+22px)] right-2 sm:right-4"
+                            role="status"
+                        >
+                            <div className="xp-balloon-title">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src="/icons/xp/info-balloon.png" alt="" />
+                                Welcome to {SYSTEM.name}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowBalloon(false)}
+                                className="xp-balloon-close"
+                                aria-label="Close"
+                            />
+                            {/*
+                              * Wayfinding. The links point at what a visitor actually came for — the old
+                              * balloon led with Minesweeper — but the XP balloon styling and voice stay.
+                              */}
+                            <p>
+                                {isMobile
+                                    ? 'A faithful XP-inspired desktop. Tap an icon to open it, or start here:'
+                                    : 'A faithful XP-inspired desktop. Try right-clicking the desktop, or start here:'}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1">
+                                <button type="button" className="xp-link" onClick={() => actions.openWindow('resume')}>Resume</button>
+                                <span>|</span>
+                                <button type="button" className="xp-link" onClick={() => actions.openWindow('projects')}>My Projects</button>
+                                <span>|</span>
+                                <button type="button" className="xp-link" onClick={() => actions.openWindow('contact')}>Contact Me</button>
+                                <span>|</span>
+                                <button type="button" className="xp-link" onClick={() => actions.openWindow('minesweeper')}>Minesweeper</button>
+                            </div>
+                            {/* The shell is the reward for exploring, but on a phone it is not the way in. */}
+                            {!isMobile && (
+                                <p className="mt-2 text-[#555]">
+                                    The Command Prompt is real — try typing &ldquo;ls ~&rdquo;.
+                                </p>
+                            )}
+                            <svg className="xp-balloon-stem right-10" viewBox="0 0 22 20" aria-hidden>
+                                <path d="M1 0 L19 19 L20.5 0" fill="#ffffe1" stroke="#000" />
+                                <rect x="1.6" y="-1" width="18.4" height="1.6" fill="#ffffe1" />
+                            </svg>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Run: XP's own command palette, over the app registry and the filesystem. */}
+                <RunDialogLayer isOpen={runOpen} onClose={() => setRunOpen(false)} />
+
+                {/* XP message boxes: above the windows, never over the taskbar. */}
+                <DialogLayer />
+
+                {/* Taskbar */}
+                <Taskbar onOpenRun={() => setRunOpen(true)} onExit={setExit} />
+
+                {/* XP-styled tooltips for every `data-tip` on the desktop. */}
+                <Tooltips />
             </div>
 
-            <ContextMenu
-                x={desktopMenu.x}
-                y={desktopMenu.y}
-                isOpen={desktopMenu.isOpen}
-                onClose={() => setDesktopMenu((m) => ({ ...m, isOpen: false }))}
-                items={desktopMenuItems}
-            />
-
-            <ContextMenu
-                x={iconMenu.x}
-                y={iconMenu.y}
-                isOpen={iconMenu.isOpen}
-                onClose={() => setIconMenu((m) => ({ ...m, isOpen: false }))}
-                items={iconMenuItems()}
-            />
-
-            {/* Windows Layer */}
-            <AnimatePresence>
-                {windows.map((win) => (
-                    <Window key={win.id} win={win} />
-                ))}
-            </AnimatePresence>
-
-            {/* Welcome balloon, pointing at the notification area as XP's tour balloon did. */}
-            <AnimatePresence>
-                {showBalloon && (
-                    <motion.div
-                        key="balloon"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ delay: 1.2, duration: 0.2 }}
-                        className="xp-balloon bottom-[calc(var(--xp-taskbar-h)+22px)] right-2 sm:right-4"
-                        role="status"
-                    >
-                        <div className="xp-balloon-title">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src="/icons/xp/info-balloon.png" alt="" />
-                            Welcome to {SYSTEM.name}
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowBalloon(false)}
-                            className="xp-balloon-close"
-                            aria-label="Close"
-                        />
-                        {/*
-                          * Wayfinding. The links point at what a visitor actually came for — the old
-                          * balloon led with Minesweeper — but the XP balloon styling and voice stay.
-                          */}
-                        <p>
-                            {isMobile
-                                ? 'A faithful XP-inspired desktop. Tap an icon to open it, or start here:'
-                                : 'A faithful XP-inspired desktop. Try right-clicking the desktop, or start here:'}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1">
-                            <button type="button" className="xp-link" onClick={() => actions.openWindow('resume')}>Resume</button>
-                            <span>|</span>
-                            <button type="button" className="xp-link" onClick={() => actions.openWindow('projects')}>My Projects</button>
-                            <span>|</span>
-                            <button type="button" className="xp-link" onClick={() => actions.openWindow('contact')}>Contact Me</button>
-                            <span>|</span>
-                            <button type="button" className="xp-link" onClick={() => actions.openWindow('minesweeper')}>Minesweeper</button>
-                        </div>
-                        {/* The shell is the reward for exploring, but on a phone it is not the way in. */}
-                        {!isMobile && (
-                            <p className="mt-2 text-[#555]">
-                                The Command Prompt is real — try typing &ldquo;ls ~&rdquo;.
-                            </p>
-                        )}
-                        <svg className="xp-balloon-stem right-10" viewBox="0 0 22 20" aria-hidden>
-                            <path d="M1 0 L19 19 L20.5 0" fill="#ffffe1" stroke="#000" />
-                            <rect x="1.6" y="-1" width="18.4" height="1.6" fill="#ffffe1" />
-                        </svg>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Run: XP's own command palette, over the app registry and the filesystem. */}
-            <RunDialogLayer isOpen={runOpen} onClose={() => setRunOpen(false)} />
-
-            {/* XP message boxes: above the windows, never over the taskbar. */}
-            <DialogLayer />
-
-            {/* Taskbar */}
-            <Taskbar onOpenRun={() => setRunOpen(true)} onExit={setExit} />
-
-            {/* XP-styled tooltips for every `data-tip` on the desktop. */}
-            <Tooltips />
-
-            {/* Log Off / Turn Off Computer, over a screen draining to grey. */}
-            {exit && (
-                <ExitWindows
-                    kind={exit}
-                    onCancel={() => setExit(null)}
-                    onStandBy={() => {
-                        setExit(null);
-                        setStandby(true);
-                    }}
-                    onSwitchUser={() => {
-                        setExit(null);
-                        playSound('logoff');
-                        setLocked(true);
-                    }}
-                    onLogOff={() => void endSession(() => {
-                        playSound('logoff');
-                        setSaving(true);
-                        window.setTimeout(() => actions.logout(), SAVING_MS);
-                    })}
-                    onTurnOff={(restart) => void endSession(() => {
-                        if (restart) requestRestart();
-                        playSound('shutdown');
-                        actions.shutdown();
-                    })}
-                />
-            )}
-            {standby && <StandByScreen onWake={() => setStandby(false)} />}
-            {/* Switch User: the Welcome screen over a session that keeps running underneath. */}
-            {locked && (
-                <div className="fixed inset-0 z-[10040]" data-session-cover="">
-                    <LoginScreen
-                        session={{ programs: windows.length }}
-                        onLogin={() => setLocked(false)}
-                        onTurnOff={(restart) => {
-                            setLocked(false);
-                            void endSession(() => {
-                                if (restart) requestRestart();
-                                playSound('shutdown');
-                                actions.shutdown();
-                            });
+                {/* Log Off / Turn Off Computer, over a screen draining to grey. */}
+                {exit && (
+                    <ExitWindows
+                        kind={exit}
+                        onCancel={() => setExit(null)}
+                        onStandBy={() => {
+                            setExit(null);
+                            setStandby(true);
                         }}
+                        onSwitchUser={() => {
+                            setExit(null);
+                            playSound('logoff');
+                            setLocked(true);
+                        }}
+                        onLogOff={() => void endSession(() => {
+                            playSound('logoff');
+                            setSaving(true);
+                            window.setTimeout(() => actions.logout(), SAVING_MS);
+                        })}
+                        onTurnOff={(restart) => void endSession(() => {
+                            if (restart) requestRestart();
+                            playSound('shutdown');
+                            actions.shutdown();
+                        })}
                     />
-                </div>
-            )}
-            {saving && (
-                <div className="fixed inset-0 z-[10040]" data-session-cover="">
-                    <StatusScreen message="Saving your settings..." />
-                </div>
-            )}
+                )}
+                {standby && <StandByScreen onWake={() => setStandby(false)} />}
+                {/* Switch User: the Welcome screen over a session that keeps running underneath. */}
+                {locked && (
+                    <div className="fixed inset-0 z-[10040]" data-session-cover="">
+                        <LoginScreen
+                            session={{ programs: windows.length }}
+                            onLogin={() => setLocked(false)}
+                            onTurnOff={(restart) => {
+                                setLocked(false);
+                                void endSession(() => {
+                                    if (restart) requestRestart();
+                                    playSound('shutdown');
+                                    actions.shutdown();
+                                });
+                            }}
+                        />
+                    </div>
+                )}
+                {saving && (
+                    <div className="fixed inset-0 z-[10040]" data-session-cover="">
+                        <StatusScreen message="Saving your settings..." />
+                    </div>
+                )}
 
-            {/* Idle timer + screen saver, configured in Display Properties. Above everything. */}
-            <ScreenSaver />
-        </div>
+                {/* Idle timer + screen saver, configured in Display Properties. Above everything. */}
+                <ScreenSaver />
+        </>
     );
 }

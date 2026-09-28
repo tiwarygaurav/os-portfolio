@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { SYSTEM } from '@/content';
+import { swallow, swallowRestOfGesture } from './gesture';
 
 /**
  * The full-screen states around a session: "Saving your settings..." and "... is shutting
@@ -43,36 +45,33 @@ export const shuttingDownMessage = () => `${SYSTEM.name} is shutting down...`;
 export const sessionCovered = (): boolean =>
     typeof document !== 'undefined' && document.querySelector('[data-session-cover]') !== null;
 
-/** After a waking press, the rest of that gesture must not land on whatever is underneath. */
-const GESTURE_TAIL = ['pointerup', 'mouseup', 'click', 'auxclick', 'contextmenu'] as const;
+/** Is Stand By on? The screen saver does not start in the dark, and does not count it as idle time. */
+export const standingBy = (): boolean =>
+    typeof document !== 'undefined' && document.querySelector('[data-session-cover="standby"]') !== null;
 
 /**
  * Stand By: the screen goes dark until the visitor moves the mouse or presses a key. The short
  * grace period stops the click that chose Stand By from waking it straight back up. The waking
  * input itself does nothing else: the key is swallowed, and so is the rest of a waking press — its
- * release, click, and on a right-press the context menu — which would otherwise land on the icon
- * or account tile underneath once the dark screen is gone.
+ * release, click, context menu or double-click — which would otherwise land on the icon or account
+ * tile underneath once the dark screen is gone.
+ *
+ * Portaled to <body>: the Welcome screen's Stand By would otherwise sit inside that screen's own
+ * stacking context, below the screen saver.
  */
 export function StandByScreen({ onWake }: { onWake: () => void }) {
     useEffect(() => {
         let armed = false;
-        let tailTimer = 0;
         const arm = window.setTimeout(() => {
             armed = true;
         }, 700);
-        const swallow = (e: Event) => {
-            e.preventDefault();
-            e.stopPropagation();
-        };
-        const stopSwallowing = () => GESTURE_TAIL.forEach((t) => window.removeEventListener(t, swallow, true));
         const onMove = () => {
             if (armed) onWake();
         };
         const onPress = (e: PointerEvent) => {
             swallow(e);
             if (!armed) return;
-            GESTURE_TAIL.forEach((t) => window.addEventListener(t, swallow, true));
-            tailTimer = window.setTimeout(stopSwallowing, 800);
+            swallowRestOfGesture(e.pointerId, e.pointerType === 'mouse');
             onWake();
         };
         const onKey = (e: KeyboardEvent) => {
@@ -87,18 +86,17 @@ export function StandByScreen({ onWake }: { onWake: () => void }) {
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerdown', onPress, true);
             window.removeEventListener('keydown', onKey, true);
-            // The tail outlives the dark screen by design; it removes itself once the gesture is over.
-            if (!tailTimer) stopSwallowing();
         };
     }, [onWake]);
 
-    return (
+    return createPortal(
         <div
             className="xp-standby"
-            data-session-cover=""
+            data-session-cover="standby"
             aria-label="Stand by. Move the mouse or press a key to resume."
             role="status"
-        />
+        />,
+        document.body,
     );
 }
 

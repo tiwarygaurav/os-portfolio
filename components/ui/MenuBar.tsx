@@ -313,6 +313,8 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
             // An owned dialog is modal: with focus left on the page (a click on the title bar), a key
             // must still not open the menus behind it.
             if (root?.querySelector('[data-app-dialog]')) return;
+            // Nor while the session is behind the Welcome screen: an inert window takes no keys.
+            if (root?.closest('[inert]')) return;
             if (e.key === 'Alt') setAltHeld(true);
             if (e.defaultPrevented || openRef.current !== null) return;
             if (e.key === 'F10' && !e.shiftKey && !e.ctrlKey && !e.altKey && menusRef.current.length) {

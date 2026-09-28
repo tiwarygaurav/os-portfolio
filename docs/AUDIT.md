@@ -61,6 +61,7 @@ their commits record what they fixed.
 | 5bf735c, the chrome's staged doc/focus changes, c5dde69, 6467378 | 14, overlapping the next two | The store's (guard contract, `merge`, wallpaper rename, bin restore) in the shell/files commit; the desktop's keys in the chrome session's; Paint's stale save in the apps session's |
 | 8183961 window, taskbar, menus | 11 (1 medium) | Chrome session |
 | 8183961 session, dialogs, sound | 11 (1 medium-high, 2 medium) | Chrome session, except `requestEndSession` (shell/files) |
+| 7b146df, the chrome fixes, re-checked | 3 partly fixed, 5 new (low–medium), 2 nits, and tests that could not fail | The chrome session's follow-up; each new test was checked to fail with its fix reverted. See CLAUDE.md §8 |
 | 7212919 Paint | 9 (3 medium) | All 9 in the apps session's commit |
 | 7212919 Solitaire, Minesweeper | 2 low | Both in the apps session's commit |
 | 7212919 Calculator, Media Player, MenuBar / AppDialog / xp-controls | 10 (2 medium) and a nit | All in the apps session's commit. Two did not reproduce as described: the Scope ghost (the fade is now timed anyway) and 9999999999999999 becoming 1.e+16, which is a double's limit that Help states — see CLAUDE.md §8 |

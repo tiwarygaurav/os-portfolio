@@ -87,3 +87,12 @@ test('crossing into the phone breakpoint re-maximises a floating window', async 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(async () => Math.round((await win(page, 'My Projects').boundingBox())!.width)).toBe(390);
 });
+
+test('a task button offers no Restore on a phone, where every window stays full-screen', async ({ page }) => {
+    await bootAndLogin(page);
+    await page.locator('[data-desktop-icon="about"]').tap();
+    await settledBox(win(page, 'About Me'));
+    await page.locator('.xp-task-btn', { hasText: 'About Me' }).click({ button: 'right' });
+    // It used to un-maximise the window into a floating box a phone has no way to manage.
+    await expect(page.getByRole('menuitem', { name: 'Restore' })).toHaveAttribute('aria-disabled', 'true');
+});

@@ -71,12 +71,18 @@ export function unlockAudio(): void {
         if (!startupAudio) {
             const audio = new Audio('/sounds/startup.mp3');
             audio.muted = true;
+            startupAudio = audio;
+            // Both settle only once the file has loaded, which on a slow connection can be after
+            // playSound('startup') has already taken the element and started it for real — so stop
+            // or release it only while it is still the unclaimed primer.
             audio.play().then(() => {
+                if (startupAudio !== audio) return;
                 audio.pause();
                 audio.currentTime = 0;
-                audio.muted = false;
-            }).catch(() => { /* refused: playSound falls back to a fresh element */ });
-            startupAudio = audio;
+            }).catch(() => {
+                // Refused: playSound falls back to a fresh element.
+                if (startupAudio === audio) startupAudio = null;
+            });
         }
     } catch {
         /* Audio is decoration; never let it break the logon. */

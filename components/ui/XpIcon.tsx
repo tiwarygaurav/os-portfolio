@@ -11,7 +11,8 @@ type XpIconProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'width' | '
  *
  * The `/icons/xp/` set ships each raster icon twice: `<name>.png` at 128px for anything 24px and
  * up, and `<name>-sm.png` at 32px — taken from the artwork's hand-tuned 32×32 frame, not
- * downsampled — for title bars, the taskbar and menus. `srcSet` lets the browser choose by the
+ * downsampled — for title bars, the taskbar and menus. (Five icons exist only as 48px originals;
+ * see public/CLAUDE.md.) `srcSet` lets the browser choose by the
  * pixels it actually needs, so a 16px icon on a 2x screen uses the tuned frame and a 48px desktop
  * icon uses the master. Vector icons (`.svg`) are crisp at every size already, and anything
  * outside the set renders as given.

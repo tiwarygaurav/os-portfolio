@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import { taskbarHeight } from '@/utils/viewport';
@@ -70,9 +70,25 @@ const actionable = (item: MenuItem) => !item.divider && !item.disabled;
  * underneath.
  */
 export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'top-left' }: ContextMenuProps) {
-    const menuRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
     const [pos, setPos] = useState({ left: x, top: y });
     const [mounted, setMounted] = useState(false);
+
+    /*
+     * Each opening is a new menu, as in XP. Reopened during its exit fade under the same key, the
+     * old panel came back as it was left: its submenu still open where the last menu had placed it,
+     * which could be off the screen. The old one fades out beside the new one, so its ref is only
+     * ever set, never cleared: its unmount must not clear the new menu's.
+     */
+    const [wasOpen, setWasOpen] = useState(isOpen);
+    const [opening, setOpening] = useState(0);
+    if (isOpen !== wasOpen) {
+        setWasOpen(isOpen);
+        if (isOpen) setOpening((n) => n + 1);
+    }
+    const setMenuEl = useCallback((el: HTMLDivElement | null) => {
+        if (el) menuRef.current = el;
+    }, []);
 
     useEffect(() => setMounted(true), []);
 
@@ -111,8 +127,8 @@ export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'to
         <AnimatePresence>
             {isOpen && (
                 <motion.div
-                    key="menu"
-                    ref={menuRef}
+                    key={opening}
+                    ref={setMenuEl}
                     // XP's default menu animation was a plain fade. A closing menu is already gone
                     // to the pointer, as XP's was: a right-click during the fade opens a new menu
                     // instead of landing on the old one.
@@ -215,7 +231,8 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
     });
 
     return (
-        <div className="xp-menu" role="menu">
+        // A closing menu is gone to assistive technology too, not just to the pointer and the keys.
+        <div className="xp-menu" role="menu" aria-hidden={!isPresent || undefined}>
             {items.map((item, index) =>
                 item.divider ? (
                     <div key={index} className="xp-menu-sep" role="separator" />

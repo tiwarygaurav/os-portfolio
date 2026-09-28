@@ -359,7 +359,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | --- | --- |
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
-| Legacy `.ico` | The chrome loads only `public/icons/xp/` (~390 KB for the set), plus the XP logo bitmaps and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
+| Legacy `.ico` | The chrome loads only `public/icons/xp/` (~350 KB for the set), plus the XP logo bitmaps, the Windows flag and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` is set to `https://gauravtiwary.com` in the Vercel project's production environment, so the Open Graph card points there; nothing is hardcoded. Previews and local builds have no site URL. |
 | Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
@@ -466,6 +466,51 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-29 - The chrome fixes re-checked (7b146df): an inert session, gesture-bound Stand By
+
+The files session re-checked 7b146df. Three fixes were partial, five defects were new, and several
+tests could not fail with their fix reverted.
+- **The session behind a cover is inert.** While the Welcome screen (Switch User) or "Saving your
+  settings..." is up, the desktop's session root carries `inert`: Tab used to reach caption and
+  taskbar buttons behind the Welcome screen, where Enter pressed them unseen. The covers, the exit
+  dialogs and the screen saver render outside that root. MenuBar's Alt+letter and F10 listen on
+  `window` and accept keys aimed at nothing, so a window inside an inert tree now ignores them.
+  Stand By is left out: it swallows input itself, and `inert` would drop the focus the visitor
+  wakes up to.
+- **Stand By** swallowed the rest of its waking gesture for a fixed 800 ms. A second press inside
+  that window lost its release, so a drag or rubber band never ended. A press held longer leaked
+  its release, so a right-press opened the menu underneath. A double-press opened the icon.
+  `components/os/gesture.ts` now holds the screen saver's gesture-bound swallow, which also eats
+  the double-click, and both covers use it. The saver no longer starts under Stand By or counts
+  the time asleep as idle (`standingBy()`). Stand By is portaled to `<body>`, so the Welcome
+  screen's Stand By sits above the saver too.
+- **Hidden desktop icons** could still be selected with Ctrl+A or the rubber band, then deleted or
+  opened. Hiding them clears the selection, and the keys and the band leave them alone.
+- **A dialog inside a window** (Save As, Properties) was treated like a desktop message box and
+  left the desktop the keyboard. Delete after a click on its blank face offered to recycle the icon
+  selected on the desktop.
+- **The startup sound:** on a slow load, the primer's `pause()` could land after the real playback
+  had started, and silence it. A refused primer was also reused. The primer now stops only while
+  unclaimed, and a refusal releases it.
+- **Found by the stronger tests:** since a right-click during a menu's exit fade now opens a menu,
+  AnimatePresence reused the fading element, with its submenu still open and measured where the
+  last menu had stood (off the screen). Each opening now gets its own key, and a closing menu is
+  `aria-hidden`.
+- **Also:** the five icons with only 48 px originals have real 32 px frames (see public/CLAUDE.md).
+  `windows-flag.png`, a copy of `windows.png`, is gone, and the chrome loads the original. The
+  calendar's day letters are black over a rule; white on the Olive and Silver edge colour was
+  about 2.2:1.
+**Tests.** The old Stand By test woke with a left click, which could not reach the icon before the
+fix either. The deleted-icon test used Delete, which clears the selection anyway. Each of these
+now fails with its fix reverted (checked on a build with the fixes put back): an icon dropped on
+the bin is not reopened by Enter; hidden icons; a window's own dialog; Show Desktop after a close;
+a pointer in a submenu takes the keyboard; a submenu with no room on either side; a cancelled
+rubber band; right-press, double-press and drag after Stand By; the inert Welcome screen; the
+saver under Stand By (`tests/e2e/before-logon.spec.ts`, on Playwright's clock); the startup sound
+on a slow file; Restore on a phone. The key that wakes Stand By has a test that guards it, but
+it passed before too. Not covered: Safari's audio unlock, since Playwright's WebKit does not
+enforce Safari's gesture rule.
 
 ### 2026-09-29 - Fixes from the review of the five apps (7212919)
 
@@ -595,7 +640,9 @@ pointer during its exit fade, so a right-click just after choosing an item lande
 and opened nothing; it lets go as the fade starts. And from the files session's review: when the
 `/usr/src` chunk failed to load (offline), Enter on a `/usr/...` path in Run did nothing and left an
 unhandled rejection; Run now says the module graph did not load. `tests/e2e/session.spec.ts` and
-`chrome.spec.ts` cover Log Off, Turn Off, Switch User, Stand By and each regression above.
+`chrome.spec.ts` cover Log Off, Turn Off and Switch User. This entry said they covered each
+regression above; several could not fail with their fix reverted. The re-check entry above says
+which, and what replaced them.
 
 ### 2026-09-24 - Fixes from the review of 83545fe: the module graph is parsed, not pattern-matched
 

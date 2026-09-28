@@ -1918,9 +1918,12 @@ input[type='range'].xp-vslider { writing-mode: vertical-lr; direction: rtl; widt
   border: 1px solid #7f7c6d;
   box-shadow: inset 1px 1px #fff, 2px 2px 3px rgba(0, 0, 0, 0.35);
 }
-/* The month grid of the clock popup, as in XP's Date and Time Properties. */
+/* Explanatory text in a panel or dialog: quieter than a label, still well above 4.5:1 on the face. */
+.xp-note { color: #444; }
+/* The month grid of the clock popup, as in XP's Date and Time Properties: the day letters are black
+   over a rule, not white on a band (white on the Olive and Silver edge colours was about 2.2:1). */
 .xp-calendar { border: 1px solid var(--luna-input-edge); background: #fff; text-align: center; }
-.xp-calendar-head { background: var(--luna-input-edge); color: #fff; }
+.xp-calendar-head { color: #000; border-bottom: 1px solid var(--luna-input-edge); }
 .xp-calendar-today { background: var(--luna-highlight); color: var(--luna-highlight-text); }
 
 /* Resizing and rubber-banding are pointer gestures, not scrolls: a touch must not turn into a pan. */

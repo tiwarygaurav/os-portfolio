@@ -5,6 +5,8 @@ import { useReducedMotion } from 'framer-motion';
 import { useSystemStore } from '@/store/useSystemStore';
 import { PROFILE } from '@/content';
 import type { ScreenSaverId } from '@/constants/prefs';
+import { swallow, swallowRestOfGesture } from './gesture';
+import { standingBy } from './SessionScreens';
 
 /**
  * The screen saver: an idle timer and four canvas animations with XP's names.
@@ -24,8 +26,6 @@ const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touc
 /** Input this soon after starting does not dismiss it (it is still swallowed), so the release of the
  *  Preview click, or a key already on its way, cannot close the saver the instant it opens. */
 const GRACE_MS = 500;
-/** After a touch wake is released, the tap's click arrives as a separate event; wait this long for it. */
-const TAP_CLICK_MS = 450;
 /**
  * Focus inside an embedded document counts as activity for at most this long. Input in there is
  * invisible to this page, so without a limit a tab left on the résumé PDF never started the saver.
@@ -62,7 +62,9 @@ export default function ScreenSaver() {
         ACTIVITY_EVENTS.forEach((t) => window.addEventListener(t, touch, { capture: true, passive: true }));
         const timer = window.setInterval(() => {
             const state = useSystemStore.getState();
-            if (state.screenSaverActive) {
+            // Stand By has turned the screen off: nothing to save, and the time asleep is not idle
+            // time — waking must not uncover a saver that started in the dark.
+            if (state.screenSaverActive || standingBy()) {
                 last = Date.now();
                 return;
             }
@@ -114,44 +116,6 @@ function Saver({ kind, onDismiss }: { kind: Exclude<ScreenSaverId, 'none'>; onDi
         const started = Date.now();
         let origin: { x: number; y: number } | null = null;
         let woken = false;
-        const swallow = (e: Event) => {
-            e.preventDefault();
-            e.stopPropagation();
-        };
-        /**
-         * Eat the rest of the gesture that woke the saver — its release, and the click, context menu
-         * or auxclick that release produces — so none of it lands on whatever is underneath.
-         *
-         * Tied to the gesture, not a clock. A fixed 450 ms window let a press held longer through
-         * (Windows opens the context menu on release), and swallowed the release of the *next*
-         * gesture, so a drag or resize begun straight after waking never ended.
-         */
-        const swallowRestOfGesture = (pointerId: number | null, isMouse: boolean) => {
-            const rest = ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'click', 'contextmenu', 'auxclick'];
-            let backstop = 0;
-            const stop = () => {
-                rest.forEach((t) => window.removeEventListener(t, eat, { capture: true }));
-                window.clearTimeout(backstop);
-            };
-            const eat = (e: Event) => {
-                // Another pointer's release is another gesture. (Click and contextmenu are pointer
-                // events too, but their pointerId is not reliable, so only the raw ones are compared.)
-                const raw = e.type === 'pointerup' || e.type === 'pointercancel';
-                if (raw && pointerId !== null && (e as PointerEvent).pointerId !== pointerId) return;
-                swallow(e);
-                if (raw || e.type === 'touchend') {
-                    // A mouse's click and context menu follow its release in the same task; a tap's
-                    // click comes a moment later. Either way, nothing after that is this gesture.
-                    window.clearTimeout(backstop);
-                    backstop = window.setTimeout(stop, isMouse ? 0 : TAP_CLICK_MS);
-                } else if (e.type === 'click' && !isMouse) {
-                    stop();
-                }
-            };
-            rest.forEach((t) => window.addEventListener(t, eat, { capture: true }));
-            // In case the release never comes (the pointer left the window while held).
-            backstop = window.setTimeout(stop, 10_000);
-        };
         const dismiss = (e: Event) => {
             const isPress = e.type === 'keydown' || e.type === 'pointerdown' || e.type === 'touchstart';
             // The key or click that wakes the screen must never act on the desktop underneath —
