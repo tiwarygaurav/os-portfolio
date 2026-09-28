@@ -182,17 +182,39 @@ export default function Window({ win }: WindowProps) {
             x.set(r.x);
             y.set(r.y);
         };
+        const stop = () => {
+            setIsResizing(false);
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onCancel);
+        };
         const onUp = (ev: PointerEvent) => {
             const r = rectAt(ev);
             actions.resizeWindow(win.id, { width: r.w, height: r.h });
             if (r.x !== start.x || r.y !== start.y) actions.moveWindow(win.id, { x: r.x, y: r.y });
-            setIsResizing(false);
-            document.removeEventListener('pointermove', onMove);
-            document.removeEventListener('pointerup', onUp);
+            /*
+             * Render the store's clamped answer, as a drag does. The sync effect only runs when the
+             * stored position changes; a clamp that hands back the old position left the window
+             * drawn where the resize put it — behind the taskbar, out of reach.
+             */
+            const moved = useSystemStore.getState().windows.find((w) => w.id === win.id);
+            if (moved && !moved.isMaximized) {
+                x.set(moved.position.x);
+                y.set(moved.position.y);
+            }
+            stop();
+        };
+        // A cancelled pointer (a touch turned into a pan) puts the window back as it was.
+        const onCancel = () => {
+            setSize({ width: start.w, height: start.h });
+            x.set(start.x);
+            y.set(start.y);
+            stop();
         };
 
         document.addEventListener('pointermove', onMove);
         document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onCancel);
     };
 
     const openSystemMenu = (at: { x: number; y: number }) => {
@@ -215,7 +237,8 @@ export default function Window({ win }: WindowProps) {
             action: toggleMaximize,
         },
         { divider: true },
-        { label: 'Close', icon: <i className="xp-sysglyph is-close" />, bold: true, accel: 'Alt+F4', action: close },
+        // No "Alt+F4" beside it: in a browser on Windows that key closes the browser, not this window.
+        { label: 'Close', icon: <i className="xp-sysglyph is-close" />, bold: true, action: close },
     ];
 
     const icon = appConfig?.iconAsset;

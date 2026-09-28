@@ -18,9 +18,10 @@ test('keys pressed over an already-active window never act on the desktop select
     // Select a desktop icon while Explorer stays the active window.
     await page.locator('[data-desktop-icon="contact"]').click();
 
-    // Click a non-input part of the window, then press the desktop's keys.
-    const box = (await explorer.boundingBox())!;
-    await page.mouse.click(box.x + box.width - 30, box.y + box.height - 40);
+    // Click the title bar — nothing there takes focus, so only the desktop's own tracking of where
+    // the last press landed can tell the key is not for it — then press the desktop's keys.
+    const title = (await explorer.locator('.xp-titlebar-text').boundingBox())!;
+    await page.mouse.click(title.x + 20, title.y + title.height / 2);
     const before = await windows(page).count();
     await page.keyboard.press('Delete');
     await page.keyboard.press('Enter');

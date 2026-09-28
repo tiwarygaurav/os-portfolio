@@ -81,6 +81,7 @@
   --luna-highlight-text: #fff;
   --luna-face: #ece9d8;
   --luna-face-text: #000;
+  --luna-input-edge: #7f9db9;
   --luna-link: #0c32ad;
   --luna-link-hover: #2b72ff;
   --luna-groupbox-text: #0046d5;
@@ -158,6 +159,7 @@
   --luna-highlight-text: #fff;
   --luna-face: #ece9d8;
   --luna-face-text: #000;
+  --luna-input-edge: #a5b677;
   --luna-link: #3d4f10;
   --luna-link-hover: #6f8a24;
   --luna-groupbox-text: #5a7219;
@@ -234,6 +236,7 @@
   --luna-highlight-text: #fff;
   --luna-face: #e0dfe3;
   --luna-face-text: #000;
+  --luna-input-edge: #a5a9bb;
   --luna-link: #2b2c4a;
   --luna-link-hover: #5d5f86;
   --luna-groupbox-text: #3d3f6b;
@@ -998,7 +1001,7 @@
 .xp-input {
   box-sizing: border-box;
   padding: 2px 3px;
-  border: 1px solid #7f9db9;
+  border: 1px solid var(--luna-input-edge);
   border-radius: 0;
   background: #fff;
   color: #000;
@@ -1012,7 +1015,7 @@ select.xp-select {
   box-sizing: border-box;
   height: 21px;
   padding: 0 22px 0 3px;
-  border: 1px solid #7f9db9;
+  border: 1px solid var(--luna-input-edge);
   border-radius: 0;
   appearance: none;
   -webkit-appearance: none;
@@ -1484,7 +1487,7 @@ fieldset.xp-groupbox > legend {
   min-width: 0;
   height: 20px;
   padding: 0 4px 0 2px;
-  border: 1px solid #7f9db9;
+  border: 1px solid var(--luna-input-edge);
   background: #fff;
   color: #000;
   white-space: nowrap;
@@ -1603,7 +1606,8 @@ input[type='range'].xp-vslider { writing-mode: vertical-lr; direction: rtl; widt
 .xp-exit-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10010;
+  /* Above the Welcome / Saving covers (10040): Turn Off is reachable from the Welcome screen. */
+  z-index: 10050;
   -webkit-backdrop-filter: grayscale(1);
   backdrop-filter: grayscale(1);
   animation: xp-desaturate 2.2s linear forwards;
@@ -1615,7 +1619,7 @@ input[type='range'].xp-vslider { writing-mode: vertical-lr; direction: rtl; widt
 .xp-exit-layer {
   position: fixed;
   inset: 0;
-  z-index: 10011;
+  z-index: 10051;
   display: grid;
   place-items: center;
   padding: 16px;
@@ -1694,7 +1698,8 @@ input[type='range'].xp-vslider { writing-mode: vertical-lr; direction: rtl; widt
 .xp-exit-tip b { display: block; margin-bottom: 2px; }
 
 /* Stand By: the screen goes dark until the mouse moves or a key is pressed. */
-.xp-standby { position: fixed; inset: 0; z-index: 10030; background: #000; cursor: none; }
+/* Above everything, the screen saver (20000) included: a dark screen has nothing on top of it. */
+.xp-standby { position: fixed; inset: 0; z-index: 20010; background: #000; cursor: none; }
 
 /* ==========================================================================
    The Welcome screen, and the screens that share its layout
@@ -1907,3 +1912,16 @@ input[type='range'].xp-vslider { writing-mode: vertical-lr; direction: rtl; widt
   .xp-quicklaunch + .xp-taskbar-sep { display: none; }
   .xp-start-button { margin-right: 2px; }
 }
+
+/* A notification-area popup: the beige face in a thin dark frame. */
+.xp-tray-panel {
+  border: 1px solid #7f7c6d;
+  box-shadow: inset 1px 1px #fff, 2px 2px 3px rgba(0, 0, 0, 0.35);
+}
+/* The month grid of the clock popup, as in XP's Date and Time Properties. */
+.xp-calendar { border: 1px solid var(--luna-input-edge); background: #fff; text-align: center; }
+.xp-calendar-head { background: var(--luna-input-edge); color: #fff; }
+.xp-calendar-today { background: var(--luna-highlight); color: var(--luna-highlight-text); }
+
+/* Resizing and rubber-banding are pointer gestures, not scrolls: a touch must not turn into a pan. */
+.xp-resize { touch-action: none; }

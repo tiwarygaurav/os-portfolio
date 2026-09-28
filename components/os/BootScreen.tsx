@@ -33,7 +33,7 @@ export default function BootScreen({ onComplete }: BootScreenProps) {
                 <div className="flex items-center gap-3 sm:gap-4">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                        src="/icons/windows.png"
+                        src="/icons/xp/windows-flag.png"
                         alt=""
                         className="h-auto w-[52px] sm:w-[78px]"
                         style={{ filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.08))' }}

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { PROFILE } from '@/content';
-import { playSound } from '@/utils/sound';
+import { playSound, unlockAudio } from '@/utils/sound';
 import ExitWindows from './ExitWindows';
 import { StandByScreen } from './SessionScreens';
 
@@ -46,6 +46,8 @@ export default function LoginScreen({ onLogin, session, onTurnOff }: LoginScreen
 
     const logIn = () => {
         if (phase !== 'idle') return;
+        // Inside the click: the sound comes ~2 s later, past what Safari carries a gesture through.
+        unlockAudio();
         setPhase('loading');
         if (session) {
             // Returning to a running session: XP went straight back, with the logon chime.

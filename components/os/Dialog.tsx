@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSystemStore, type DialogRequest } from '@/store/useSystemStore';
 import { playSound } from '@/utils/sound';
+import { sessionCovered } from './SessionScreens';
 
 /**
  * XP message boxes.
@@ -138,6 +139,14 @@ function DialogBox({ request, index, flash }: { request: DialogRequest; index: n
              * that key means there (opening the icon a Delete confirmation was about, for one).
              */
             if (useSystemStore.getState().dialogs.at(-1)?.id !== request.id) return;
+            /*
+             * ...and only while it holds the keyboard. Focus somewhere else — the Run box, an exit
+             * dialog — means the key is theirs: typing `calc` + Enter in Run used to answer this box
+             * instead. Behind the Welcome screen or Stand By the box is not there to answer at all.
+             */
+            if (sessionCovered()) return;
+            const focused = document.activeElement;
+            if (focused && focused !== document.body && !ref.current?.contains(focused)) return;
 
             if (e.key === 'Escape') {
                 e.preventDefault();

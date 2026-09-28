@@ -196,7 +196,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit }: St
 
                 <div className="xp-startmenu-right w-full sm:w-1/2">
                     <button className="xp-startmenu-item is-place" {...itemProps(() => open('explorer', { path: '/home/guest/My Documents' }))}>
-                        <XpIcon src="/icons/documents.png" size={24} />
+                        <XpIcon src="/icons/xp/my-documents.png" size={24} />
                         My Documents
                     </button>
                     <button className="xp-startmenu-item is-place" {...itemProps(() => open('explorer', { path: '/home/guest/My Pictures' }))}>
@@ -204,7 +204,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit }: St
                         My Pictures
                     </button>
                     <button className="xp-startmenu-item is-place" {...itemProps(() => open('music'))}>
-                        <XpIcon src="/icons/music.png" size={24} />
+                        <XpIcon src="/icons/xp/my-music.png" size={24} />
                         My Music
                     </button>
                     <button className="xp-startmenu-item is-place" {...itemProps(() => open('mycomputer'))}>
@@ -215,7 +215,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit }: St
                     <div className="xp-startmenu-sep" />
 
                     <button className="xp-startmenu-item" {...itemProps(() => open('settings'))}>
-                        <XpIcon src="/icons/control-panel.png" size={24} />
+                        <XpIcon src="/icons/xp/control-panel.png" size={24} />
                         Control Panel
                     </button>
                     <button
@@ -237,7 +237,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit }: St
                       * desktop -- it resolves app names, filesystem paths and URLs.
                       */}
                     <button className="xp-startmenu-item" {...itemProps(() => { onOpenRun(); onClose(); })}>
-                        <XpIcon src="/icons/run.png" size={24} />
+                        <XpIcon src="/icons/xp/run.png" size={24} />
                         Run...
                     </button>
                 </div>

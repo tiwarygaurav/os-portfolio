@@ -51,6 +51,37 @@ const AudioCtor: (new () => AudioContext) | null =
 
 let ctx: Ctx | null = null;
 let reverb: ConvolverNode | null = null;
+/** The startup recording, unlocked inside a click by `unlockAudio` (see there). */
+let startupAudio: HTMLAudioElement | null = null;
+
+/**
+ * Call from inside a click, before a sound that plays later.
+ *
+ * WebKit lets audio start only within a user gesture, and carries that permission through timers
+ * for about a second. The startup sound plays about two seconds after the click on the account (the
+ * Welcome screen's "Loading your personal settings..." and "welcome" come first), so it was refused
+ * in Safari. Starting the audio context and priming the recording here — playing it silently and
+ * stopping it at once — unlocks both for the rest of the page's life.
+ */
+export function unlockAudio(): void {
+    if (!AudioCtor) return;
+    try {
+        if (!ctx) ctx = new AudioCtor();
+        if (ctx.state === 'suspended') void ctx.resume();
+        if (!startupAudio) {
+            const audio = new Audio('/sounds/startup.mp3');
+            audio.muted = true;
+            audio.play().then(() => {
+                audio.pause();
+                audio.currentTime = 0;
+                audio.muted = false;
+            }).catch(() => { /* refused: playSound falls back to a fresh element */ });
+            startupAudio = audio;
+        }
+    } catch {
+        /* Audio is decoration; never let it break the logon. */
+    }
+}
 
 const effectiveVolume = () => {
     try {
@@ -163,7 +194,10 @@ export const playSound = (requested: SoundName): void => {
 
     if (name === 'startup') {
         // The XP startup sample. Kept deliberately — it is the signature of the session starting.
-        const audio = new Audio('/sounds/startup.mp3');
+        const audio = startupAudio ?? new Audio('/sounds/startup.mp3');
+        startupAudio = null;
+        audio.muted = false;
+        audio.currentTime = 0;
         audio.volume = vol;
         // Autoplay can still be refused; swallow it rather than throwing an unhandled rejection.
         audio.play().catch(() => { });

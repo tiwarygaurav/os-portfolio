@@ -21,6 +21,8 @@ import { requestRestart } from './power';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
 import { SYSTEM } from '@/content';
 import { useIsMobile } from '@/utils/viewport';
+import { shortcutName } from '@/utils/shortcut';
+import { sessionCovered } from './SessionScreens';
 import type { AppConfig } from '@/constants/apps';
 
 /**
@@ -87,6 +89,8 @@ export default function Desktop() {
     const [iconsHidden, setIconsHidden] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [marquee, setMarquee] = useState<Rect | null>(null);
+    // Arrange Icons By's order for this session. Positions are not saved, so the grid still reflows.
+    const [iconOrder, setIconOrder] = useState<string[] | null>(null);
     // Keys act on the desktop only while it has focus: after a click on it, until a window takes over.
     const desktopFocused = useRef(false);
     const iconLayer = useRef<HTMLDivElement>(null);
@@ -115,7 +119,12 @@ export default function Desktop() {
      */
     useEffect(() => {
         const onPointerDown = (e: PointerEvent) => {
-            desktopFocused.current = !!iconLayer.current?.contains(e.target as Node);
+            const target = e.target as Element;
+            if (iconLayer.current?.contains(target)) desktopFocused.current = true;
+            // A press in a menu or a message box (the desktop's own among them) changes nothing:
+            // right-click > Properties > OK, or Delete > No, must leave the desktop its keyboard.
+            else if (target.closest?.('[data-xp-menu], [role="dialog"]')) return;
+            else desktopFocused.current = false;
         };
         document.addEventListener('pointerdown', onPointerDown, true);
         return () => document.removeEventListener('pointerdown', onPointerDown, true);
@@ -144,7 +153,21 @@ export default function Desktop() {
         if (isMobile) actions.syncViewportBreakpoint(true);
     }, [isMobile, actions]);
 
-    const visibleIcons = useMemo(() => DESKTOP_ICONS.filter((id) => !deletedAppIds.includes(id)), [deletedAppIds]);
+    const visibleIcons = useMemo(() => {
+        const ids = DESKTOP_ICONS.filter((id) => !deletedAppIds.includes(id));
+        if (!iconOrder) return ids;
+        const rank = (id: string) => {
+            const i = iconOrder.indexOf(id);
+            return i < 0 ? iconOrder.length : i;
+        };
+        return [...ids].sort((a, b) => rank(a) - rank(b));
+    }, [deletedAppIds, iconOrder]);
+
+    // An icon that has gone (to the Recycle Bin by drag, Delete or a menu) is no longer selected.
+    useEffect(() => {
+        setSelected((cur) => (cur.some((id) => deletedAppIds.includes(id)) ? cur.filter((id) => !deletedAppIds.includes(id)) : cur));
+        setFocusedIcon((cur) => (cur && deletedAppIds.includes(cur) ? null : cur));
+    }, [deletedAppIds]);
     const rowsPerColumn = Math.max(1, Math.floor((viewportHeight - GRID_RESERVED_HEIGHT) / CELL_HEIGHT));
     const gridPosition = (index: number) => ({
         x: 10 + Math.floor(index / rowsPerColumn) * CELL_WIDTH,
@@ -179,15 +202,18 @@ export default function Desktop() {
         desktopFocused.current = true;
     };
 
-    /** XP's Arrange Icons By: lay the icons out down the grid in the chosen order. */
+    /**
+     * XP's Arrange Icons By: the icons go back onto the grid, in the chosen order, by the name the
+     * visitor sees ("Notepad", not "Untitled - Notepad"). It sets an order and clears dragged
+     * positions rather than saving one for every icon, so the grid still reflows with the window.
+     */
     const arrange = (by: 'name' | 'type') => {
-        const key = (id: string) => (by === 'type' ? `${APPS[id]?.category}:${APPS[id]?.title}` : APPS[id]?.title ?? id);
+        const name = (id: string) => shortcutName(APPS[id]?.title ?? id);
+        const key = (id: string) => (by === 'type' ? `${APPS[id]?.category}:${name(id)}` : name(id));
         const system = SYSTEM_FIRST.filter((id) => visibleIcons.includes(id));
         const rest = visibleIcons.filter((id) => !system.includes(id)).sort((a, b) => key(a).localeCompare(key(b)));
-        [...system, ...rest].forEach((id, i) => {
-            const p = gridPosition(i);
-            actions.setDesktopIconPosition(id, p.x, p.y);
-        });
+        setIconOrder([...system, ...rest]);
+        actions.resetDesktopIcons();
     };
 
     /** Refresh redraws the desktop — the icons blink, as they did — rather than rebooting the page. */
@@ -240,6 +266,7 @@ export default function Desktop() {
     const startMarquee = (e: React.PointerEvent) => {
         if (e.button !== 0 || e.target !== e.currentTarget) return;
         desktopFocused.current = true;
+        const touch = e.pointerType === 'touch';
         const origin = { x: e.clientX, y: e.clientY };
         const additive = e.ctrlKey || e.metaKey;
         const base = additive ? selected : [];
@@ -252,6 +279,7 @@ export default function Desktop() {
         const onMove = (ev: PointerEvent) => {
             const dx = ev.clientX - origin.x;
             const dy = ev.clientY - origin.y;
+            if (touch) return;
             if (!active && Math.hypot(dx, dy) < MARQUEE_THRESHOLD) return;
             active = true;
             const rect = {
@@ -271,9 +299,11 @@ export default function Desktop() {
             setMarquee(null);
             document.removeEventListener('pointermove', onMove);
             document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onUp);
         };
         document.addEventListener('pointermove', onMove);
         document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
     };
 
     // Keyboard shortcuts
@@ -309,6 +339,8 @@ export default function Desktop() {
              * prevent (deleting an icon and having Enter also launch the app it just described).
              */
             if (useSystemStore.getState().dialogs.length > 0) return;
+            // Behind the Welcome screen or Stand By the desktop is not there to act on.
+            if (sessionCovered()) return;
 
             const target = e.target as HTMLElement;
             const inForm = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
@@ -322,7 +354,7 @@ export default function Desktop() {
             }
 
             // Escape closes context menus and deselects
-            if (e.key === 'Escape' && !inForm) {
+            if (e.key === 'Escape' && !inForm && !target.closest?.('[data-window]')) {
                 setDesktopMenu({ isOpen: false, x: 0, y: 0 });
                 setIconMenu({ isOpen: false, x: 0, y: 0, appId: null });
                 setSelected([]);
@@ -387,6 +419,8 @@ export default function Desktop() {
         const onKey = (e: KeyboardEvent) => {
             // A message box is modal; the desktop underneath must not advance on its keystrokes.
             if (useSystemStore.getState().dialogs.length > 0) return;
+            // Behind the Welcome screen or Stand By the desktop is not there to act on.
+            if (sessionCovered()) return;
 
             // Ignore keystrokes aimed at an input — typing "…b, a" in the terminal used to fire this.
             const target = e.target as HTMLElement;
@@ -506,10 +540,10 @@ export default function Desktop() {
             <div
                 ref={iconLayer}
                 className="absolute inset-0"
-                style={{ visibility: iconsHidden || refreshing ? 'hidden' : undefined }}
                 onPointerDown={startMarquee}
                 onContextMenu={handleDesktopContextMenu}
             >
+                <div className="contents" style={{ visibility: iconsHidden || refreshing ? 'hidden' : undefined }}>
                 {visibleIcons.map((appId, index) => {
                     const app = APPS[appId];
                     if (!app) return null;
@@ -527,6 +561,7 @@ export default function Desktop() {
                         />
                     );
                 })}
+                </div>
                 {marquee && (
                     <div
                         className="xp-marquee"
@@ -572,7 +607,7 @@ export default function Desktop() {
                     >
                         <div className="xp-balloon-title">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src="/icons/info-balloon.png" alt="" />
+                            <img src="/icons/xp/info-balloon.png" alt="" />
                             Welcome to {SYSTEM.name}
                         </div>
                         <button
@@ -654,7 +689,7 @@ export default function Desktop() {
             {standby && <StandByScreen onWake={() => setStandby(false)} />}
             {/* Switch User: the Welcome screen over a session that keeps running underneath. */}
             {locked && (
-                <div className="fixed inset-0 z-[10040]">
+                <div className="fixed inset-0 z-[10040]" data-session-cover="">
                     <LoginScreen
                         session={{ programs: windows.length }}
                         onLogin={() => setLocked(false)}
@@ -670,7 +705,7 @@ export default function Desktop() {
                 </div>
             )}
             {saving && (
-                <div className="fixed inset-0 z-[10040]">
+                <div className="fixed inset-0 z-[10040]" data-session-cover="">
                     <StatusScreen message="Saving your settings..." />
                 </div>
             )}

@@ -8,6 +8,7 @@ import ContextMenu, { type MenuItem } from '@/components/ui/ContextMenu';
 import XpIcon from '@/components/ui/XpIcon';
 import { shortcutName } from '@/utils/shortcut';
 import { playCaptionZoom, taskButtonBox, titleBarBox } from './captionZoom';
+import { useIsMobile } from '@/utils/viewport';
 
 interface TaskbarProps {
     /** Opens the Run dialog, which the desktop owns. */
@@ -44,6 +45,8 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
     const startButtonRef = useRef<HTMLButtonElement>(null);
     // Windows that Show Desktop minimised, so a second click can bring exactly those back.
     const [desktopShown, setDesktopShown] = useState<string[] | null>(null);
+    // On a phone every window stays maximised, so nothing may un-maximise one (see Window.tsx).
+    const isMobile = useIsMobile();
 
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date()), 1000);
@@ -75,11 +78,13 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
     const closeStart = useCallback(() => setStartOpen(false), []);
 
     const showDesktop = () => {
-        if (desktopShown) {
-            for (const id of desktopShown) actions.restoreWindow(id);
-            const top = desktopShown[desktopShown.length - 1];
-            if (top) actions.focusWindow(top);
-            setDesktopShown(null);
+        // Bring back only windows that are still open: one closed since would come back as a dead
+        // pid, leaving nothing active and Alt+F4 with nothing to close.
+        const stillOpen = desktopShown?.filter((id) => windows.some((w) => w.id === id)) ?? [];
+        if (desktopShown) setDesktopShown(null);
+        if (stillOpen.length > 0) {
+            for (const id of stillOpen) actions.restoreWindow(id);
+            actions.focusWindow(stillOpen[stillOpen.length - 1]);
             return;
         }
         const visible = [...windows].filter((w) => !w.isMinimized).sort((a, b) => a.zIndex - b.zIndex);
@@ -111,10 +116,10 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
             {
                 label: 'Restore',
                 icon: <i className="xp-sysglyph is-restore" />,
-                disabled: !w.isMinimized && !w.isMaximized,
+                disabled: !w.isMinimized && (!w.isMaximized || isMobile),
                 action: () => {
                     if (w.isMinimized) actions.restoreWindow(id);
-                    else actions.unmaximizeWindow(id);
+                    else if (!isMobile) actions.unmaximizeWindow(id);
                     actions.focusWindow(id);
                 },
             },
@@ -135,7 +140,7 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
                 },
             },
             { divider: true },
-            { label: 'Close', icon: <i className="xp-sysglyph is-close" />, bold: true, accel: 'Alt+F4', action: () => actions.closeWindow(id) },
+            { label: 'Close', icon: <i className="xp-sysglyph is-close" />, bold: true, action: () => actions.closeWindow(id) },
         ];
     };
 
@@ -202,7 +207,7 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
                     data-tip="Click here to begin."
                 >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/icons/windows.png" alt="" className="xp-start-flag" draggable={false} />
+                    <img src="/icons/xp/windows-flag.png" alt="" className="xp-start-flag" draggable={false} />
                     <span>start</span>
                 </button>
 
@@ -328,8 +333,7 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
 function TrayPanel({ title, className = '', children }: { title?: string; className?: string; children: React.ReactNode }) {
     return (
         <div
-            className={`xp-face absolute bottom-[calc(100%+4px)] right-1 border border-[#7f7c6d] ${className}`}
-            style={{ boxShadow: 'inset 1px 1px #fff, 2px 2px 3px rgba(0,0,0,0.35)' }}
+            className={`xp-face xp-tray-panel absolute bottom-[calc(100%+4px)] right-1 ${className}`}
         >
             {title && <div className="px-2 pt-1.5 text-center">{title}</div>}
             {children}
@@ -425,12 +429,12 @@ function CalendarPopover({ date }: { date: Date }) {
                     <span>{monthName}</span>
                     <span>{year}</span>
                 </div>
-                <div className="grid grid-cols-7 border border-[#7f9db9] bg-white text-center">
+                <div className="xp-calendar grid grid-cols-7">
                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                        <div key={i} className="bg-[#7f9db9] py-px text-white">{d}</div>
+                        <div key={i} className="xp-calendar-head py-px">{d}</div>
                     ))}
                     {cells.map((c, i) => (
-                        <div key={i} className={`py-px ${c === today ? 'bg-[#316ac5] text-white' : ''}`}>
+                        <div key={i} className={`py-px ${c === today ? 'xp-calendar-today' : ''}`}>
                             {c ?? ''}
                         </div>
                     ))}

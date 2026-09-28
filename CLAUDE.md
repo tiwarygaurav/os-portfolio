@@ -359,7 +359,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | --- | --- |
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
-| Legacy `.ico` | The chrome now loads only `public/icons/xp/` (~430 KB for the set). A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
+| Legacy `.ico` | The chrome loads only `public/icons/xp/` (~390 KB for the set), plus the XP logo bitmaps and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
 | Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
@@ -504,6 +504,32 @@ on an append. In the browser the window re-renders with its parent, so it did no
 subscribes to file changes itself, and its e2e test says it checks the behaviour, not that fix.
 **Verified:** 200 unit tests, 88 e2e on a production build; the two new e2e regression tests failed
 with their fixes reverted.
+
+### 2026-09-29 - Fixes from the review of the XP chrome (8183961, 5bf735c)
+
+Twenty-four findings in the chrome; the store's end-of-session contract (`requestEndSession`) went
+to the files session. The ones that mattered: from the Switch User screen, Turn off computer opened
+its dialog *underneath* the Welcome screen — invisible, yet holding the keyboard, so Enter turned
+the machine off blind. The exit dialogs now sit above every session cover, and while the Welcome
+screen, "Saving your settings..." or Stand By covers the session (`data-session-cover`,
+`sessionCovered()`), the desktop and message-box key handlers stand down. Resizing a window by its
+top or left edge could leave it drawn behind the taskbar while the store held a clamped position:
+the resize now renders the store's answer, as a drag does, and a cancelled pointer puts the window
+back. A message box answered keys wherever focus was, so Run's `calc` + Enter answered it; it now
+acts only when it holds focus. Unchecking Show Desktop Icons hid the only menu that could bring them
+back. Stand By's waking press or key went on to act underneath. Arrange Icons By sorted Notepad as
+"Untitled - Notepad" and saved every icon's position, so the grid stopped reflowing — it now sets an
+order for the session. The desktop lost its keyboard after answering its own message box. Also:
+menus' keyboard and hover no longer fight, a disabled item's submenu stays shut, a flipped submenu
+stays on screen; the task button's Restore no longer un-maximises on a phone; Show Desktop's second
+click skips closed windows; the taskbar popups follow the colour scheme (`--luna-input-edge`);
+menus no longer advertise Alt+F4, which closes the browser on Windows; the startup sound is unlocked
+inside the logon click, where Safari needs it. Found while testing these: a menu still took the
+pointer during its exit fade, so a right-click just after choosing an item landed on the dying menu
+and opened nothing; it lets go as the fade starts. And from the files session's review: when the
+`/usr/src` chunk failed to load (offline), Enter on a `/usr/...` path in Run did nothing and left an
+unhandled rejection; Run now says the module graph did not load. `tests/e2e/session.spec.ts` and
+`chrome.spec.ts` cover Log Off, Turn Off, Switch User, Stand By and each regression above.
 
 ### 2026-09-24 - Fixes from the review of 83545fe: the module graph is parsed, not pattern-matched
 

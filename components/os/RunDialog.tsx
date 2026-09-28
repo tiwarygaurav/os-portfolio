@@ -46,12 +46,13 @@ export default function RunDialog({ onClose }: RunDialogProps) {
     /*
      * /usr/src is mounted by a module the page does not load up front (it is this build's whole
      * module graph). Fetch it when Run opens, so a path under it is suggested and opens like any
-     * other; a path typed before it arrives waits for it in runPath.
+     * other; a path typed before it arrives waits for it in runPath. If the chunk cannot load
+     * (offline), the suggestions simply lack /usr/src and runPath says why it cannot open one.
      */
     const [sourceMounted, setSourceMounted] = useState(false);
     useEffect(() => {
         let open = true;
-        void import('@/system/source').then(() => open && setSourceMounted(true));
+        void import('@/system/source').then(() => open && setSourceMounted(true), () => {});
         return () => {
             open = false;
         };
@@ -98,10 +99,17 @@ export default function RunDialog({ onClose }: RunDialogProps) {
     /** Open a filesystem path: its owning app if it has one, otherwise the Explorer at it. */
     async function runPath(raw: string) {
         const abs = resolvePath(HOME_PATH, raw);
-        if (abs === '/usr' || abs.startsWith('/usr/')) await import('@/system/source');
+        let graphLoaded = true;
+        if (abs === '/usr' || abs.startsWith('/usr/')) {
+            await import('@/system/source').catch(() => {
+                graphLoaded = false;
+            });
+        }
         const node = lookup(abs, procs);
         if (!node) {
-            setError(`Cannot find "${raw}". Check the spelling, then try again.`);
+            setError(graphLoaded
+                ? `Cannot find "${raw}". Check the spelling, then try again.`
+                : `Cannot open "${raw}": this build's module graph did not load. Check the connection, then try again.`);
             return;
         }
         if (isFile(node) && node.href) {
@@ -155,7 +163,7 @@ export default function RunDialog({ onClose }: RunDialogProps) {
     return (
         <div role="dialog" aria-modal="true" aria-label="Run" className="xp-window-frame w-[347px] max-w-[94vw]">
             <div className="xp-titlebar">
-                <XpIcon src="/icons/run.png" size={16} className="xp-titlebar-icon" />
+                <XpIcon src="/icons/xp/run.png" size={16} className="xp-titlebar-icon" />
                 <span className="xp-titlebar-text">Run</span>
                 <div className="xp-titlebar-controls">
                     <button type="button" onClick={onClose} className="xp-caption-btn is-close" aria-label="Close" data-tip="Close" />
@@ -164,7 +172,7 @@ export default function RunDialog({ onClose }: RunDialogProps) {
 
             <div className="xp-face px-3 pb-3 pt-4">
                 <div className="flex gap-3">
-                    <XpIcon src="/icons/run.png" size={32} className="shrink-0" />
+                    <XpIcon src="/icons/xp/run.png" size={32} className="shrink-0" />
                     <p className="leading-[1.45]">
                         Type the name of a program, folder or path in this system, and it will open it for you.
                     </p>

@@ -113,10 +113,12 @@ export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'to
                 <motion.div
                     key="menu"
                     ref={menuRef}
-                    // XP's default menu animation was a plain fade.
+                    // XP's default menu animation was a plain fade. A closing menu is already gone
+                    // to the pointer, as XP's was: a right-click during the fade opens a new menu
+                    // instead of landing on the old one.
                     initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
+                    animate={{ opacity: 1, pointerEvents: 'auto' }}
+                    exit={{ opacity: 0, pointerEvents: 'none' }}
                     transition={{ duration: 0.1, ease: 'easeOut' }}
                     className="fixed z-[10000]"
                     style={{ left: pos.left, top: pos.top }}
@@ -155,6 +157,11 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
 
     useEffect(() => () => window.clearTimeout(timer.current), []);
 
+    const hasKeyboard = !!onBack;
+    useEffect(() => {
+        if (hasKeyboard) setActive((a) => (a < 0 ? items.findIndex(actionable) : a));
+    }, [hasKeyboard, items]);
+
     const activate = (index: number) => {
         const item = items[index];
         if (!item || !actionable(item)) return;
@@ -183,6 +190,7 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
             if (!handled.includes(e.key)) return;
             e.preventDefault();
             e.stopPropagation();
+            window.clearTimeout(timer.current);
             if (e.key === 'ArrowDown') setActive((a) => step(a, 1));
             else if (e.key === 'ArrowUp') setActive((a) => step(a < 0 ? 0 : a, -1));
             else if (e.key === 'ArrowRight') {
@@ -195,7 +203,7 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
             } else if (e.key === 'Escape') {
                 if (onBack) onBack();
                 else onClose();
-            } else if (active >= 0) {
+            } else if (active >= 0 && actionable(items[active])) {
                 if (items[active]?.items) {
                     setOpenSub(active);
                     setKeyboardInSub(true);
@@ -247,6 +255,10 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
                                 items={item.items}
                                 onClose={onClose}
                                 takesKeyboard={keyboardInSub}
+                                onTakeKeyboard={() => {
+                                    window.clearTimeout(timer.current);
+                                    setKeyboardInSub(true);
+                                }}
                                 onBack={() => {
                                     setOpenSub(-1);
                                     setKeyboardInSub(false);
@@ -260,7 +272,7 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
     );
 }
 
-function Submenu({ items, onClose, onBack, takesKeyboard }: { items: MenuItem[]; onClose: () => void; onBack: () => void; takesKeyboard: boolean }) {
+function Submenu({ items, onClose, onBack, takesKeyboard, onTakeKeyboard }: { items: MenuItem[]; onClose: () => void; onBack: () => void; takesKeyboard: boolean; onTakeKeyboard: () => void }) {
     const ref = useRef<HTMLDivElement>(null);
     const [side, setSide] = useState<{ left?: string; right?: string; top: number }>({ left: '100%', top: -3 });
 
@@ -271,8 +283,16 @@ function Submenu({ items, onClose, onBack, takesKeyboard }: { items: MenuItem[];
         const r = el.getBoundingClientRect();
         const next: typeof side = { left: '100%', top: -3 };
         if (r.right > window.innerWidth - EDGE_GAP) {
-            next.left = undefined;
-            next.right = '100%';
+            const parent = el.parentElement?.getBoundingClientRect();
+            const flippedLeft = parent ? parent.left - r.width : 0;
+            if (parent && flippedLeft >= EDGE_GAP) {
+                next.left = undefined;
+                next.right = '100%';
+            } else if (parent) {
+                // Neither side fits (a phone): overlap the parent, pinned inside the screen.
+                const x = Math.max(EDGE_GAP, window.innerWidth - EDGE_GAP - r.width);
+                next.left = `${x - parent.left}px`;
+            }
         }
         const overflow = r.bottom - (window.innerHeight - taskbarHeight() - EDGE_GAP);
         if (overflow > 0) next.top = -3 - overflow;
@@ -282,7 +302,7 @@ function Submenu({ items, onClose, onBack, takesKeyboard }: { items: MenuItem[];
     }, []);
 
     return (
-        <div ref={ref} className="absolute z-10" style={{ left: side.left, right: side.right, top: side.top }}>
+        <div ref={ref} className="absolute z-10" style={{ left: side.left, right: side.right, top: side.top }} onPointerEnter={onTakeKeyboard}>
             <MenuPanel items={items} onClose={onClose} onBack={takesKeyboard ? onBack : undefined} />
         </div>
     );

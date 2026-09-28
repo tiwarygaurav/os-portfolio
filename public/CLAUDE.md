@@ -4,7 +4,9 @@
 
 ```
 public/
-  icons/xp/    THE icon set: every app, place, dialog button and tray glyph (55 files, ~430 KB).
+  icons/xp/    THE icon set: every app, place, dialog button and tray glyph (67 files, ~390 KB).
+               The chrome loads nothing else from icons/ except the XP logo bitmaps
+               (windows-xp-logo-*.png) and the account picture (profile-picture-chess.png).
   icons/       legacy .ico/.png originals. icons/xp/ was exported from these; a few app bodies
                still reference them directly.
   wallpapers/  desktop backgrounds.
@@ -51,6 +53,6 @@ screen. XP homage is fine; claiming Microsoft authored this build is not.
 
 - `Bliss.jpg` and `bliss.png` are duplicates of the same wallpaper (1.2 MB together). Keep one — both are offered in Display Properties, which is the only reason to keep two.
 - The chrome no longer loads any `.ico`: the desktop, Start menu, taskbar and title bars all use
-  `icons/xp/`, ~430 KB for the whole set against ~3 MB of `.ico`. The originals stay because a
+  `icons/xp/`, ~390 KB for the whole set against ~3 MB of `.ico`. The originals stay because a
   few app bodies still point at them; move those to `icons/xp/` and the `.ico` files can go.
 - No favicon and no OG image exist. Both are required before the link is shared anywhere.
