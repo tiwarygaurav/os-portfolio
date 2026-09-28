@@ -10,7 +10,7 @@
 
 **Repo:** `os-portfolio` — https://github.com/tiwarygaurav/os-portfolio
 **Owner:** Kumar Gaurav (`tiwarygaurav`) — software engineer; backend, geospatial data, applied ML.
-**Deployed:** **no.** `https://os-portfolio.vercel.app` serves an unrelated person's site, and the owner's Vercel account has no project for this repository (checked 2026-09-02). The former "Live" link was removed from `content/projects.ts`; add one only when a deployment exists.
+**Deployed:** on Vercel, project `os-portfolio` in the owner's personal account `gaurav-4410` (Hobby) — **not** the CaratSense team the Vercel connector reaches. Production answers at `https://os-portfolio-amber-gamma.vercel.app`; `gauravtiwary.com` is attached (www redirects to it, 308) and serves once its DNS at Northwest Registered Agent points to Vercel (A `@` 216.198.79.1 and 64.29.17.1, CNAME `www` → the project's `vercel-dns-017.com` target; `vercel domains verify gauravtiwary.com` prints the exact values). Git is **not** connected yet (Vercel needs a GitHub login connection on that account), so a push does not deploy: deploy with `vercel deploy --prod` from a clean checkout of `origin/main`, never from the shared tree. `https://os-portfolio.vercel.app` is someone else's site. Add a "Live" link in `content/projects.ts` only once gauravtiwary.com answers.
 
 ### What it is today
 
@@ -360,7 +360,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | Media licensing | The playlist and XP assets ship by the owner's decision — see §9. Repo is ~53 MB as a result. Not a bug; do not "fix" it. |
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome loads only `public/icons/xp/` (~390 KB for the set), plus the XP logo bitmaps and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
-| Deployment URL | `NEXT_PUBLIC_SITE_URL` must be set at build time for the Open Graph card to resolve. Nothing is hardcoded, because there is no deployment yet. |
+| Deployment URL | `NEXT_PUBLIC_SITE_URL` is set to `https://gauravtiwary.com` in the Vercel project's production environment, so the Open Graph card points there; nothing is hardcoded. Previews and local builds have no site URL. |
 | Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
 ---
@@ -404,7 +404,8 @@ tree unrunnable.
 2. **CaratSense AI LLP** — no responsibilities, stack or location supplied. The UI shows "details
    pending" until they are.
 3. **Git history rewrite** — proposed in §9, awaiting approval before execution.
-4. **Bliss wallpaper** — needs an owned replacement before this is deployed publicly.
+4. **Bliss wallpaper** — needs an owned replacement before this is deployed publicly. The owner
+   deployed it publicly on 2026-09-29 with Bliss in place; the question stands.
 5. **Phone number** — `PROFILE.phone` is rendered publicly in the resume. Keep or remove?
 
 ---
@@ -465,6 +466,22 @@ selected. That is already the cheap win; nothing else is needed unless the files
 ## 8. Decision log
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
+
+### 2026-09-29 - Deployed on Vercel, in the owner's personal account, at gauravtiwary.com
+
+**Decision, the owner's:** deploy to the domain he bought (registrar: Northwest Registered Agent), in
+his personal Vercel account `gaurav-4410` — not the CaratSense team that the Vercel connector in these
+sessions reaches, which holds client work. **What was done:** project `os-portfolio`, deployed from a
+clean `git worktree` of `origin/main` (7b146df) with the Vercel CLI; `NEXT_PUBLIC_SITE_URL` =
+`https://gauravtiwary.com` for production; `gauravtiwary.com` and `www.gauravtiwary.com` attached,
+www redirecting 308 to the apex. A browser smoke test of the live deployment booted, logged on and ran
+a pipeline over `/usr/src` with no page errors or failed requests.
+**A trap, recorded:** `vercel project add` creates a project with no framework, and Vercel then
+published `public/` as a static site — the resume and sounds served, the page was a 404. `vercel.json`
+now says `"framework": "nextjs"`, so every build, from the CLI or from Git, is a Next.js build.
+**Not yet:** DNS at the registrar (the owner's step), and Git auto-deploy, which needs a GitHub login
+connection on the Vercel account; until then a push does not deploy. The media (§9) and the Bliss
+wallpaper (open question 4) are now public, as the owner chose.
 
 ### 2026-09-29 - A review of everything not yet reviewed, and the fixes in the shell, Explorer and the store
 
