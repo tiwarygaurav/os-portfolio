@@ -417,3 +417,155 @@ test('the airbrush sprays for as long as the button is held', async () => {
     for (let y = 0; y < 30; y++) for (let x = 0; x < 40; x++) if (e.colorAt(x, y) === 0) ink++;
     assert.ok(ink > 6, `ink=${ink}`);
 });
+
+// ---- fixes from the review of 7212919 ---------------------------------------------------------------
+
+test('ellipses reach all four sides of their box, even-sized ones included', () => {
+    for (let w = 1; w <= 41; w++) {
+        for (const h of [1, 2, 3, 4, 7, 10, 11, 24, 25]) {
+            const s = R.ellipseSpans({ x0: 5, y0: 3, x1: 5 + w - 1, y1: 3 + h - 1 });
+            assert.equal(s.left.length, h, `${w}x${h} rows`);
+            assert.equal(Math.min(...s.left), 5, `${w}x${h} reaches the left side`);
+            assert.equal(Math.max(...s.right), 5 + w - 1, `${w}x${h} reaches the right side`);
+        }
+    }
+    // A circle is the same shape turned a quarter: rows and columns are sampled alike.
+    for (let n = 1; n <= 40; n++) {
+        const s = R.ellipseSpans({ x0: 0, y0: 0, x1: n - 1, y1: n - 1 });
+        const inside = (x, y) => s.left[y] <= x && x <= s.right[y];
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) assert.equal(inside(x, y), inside(y, x), `a ${n}x${n} circle is not round at ${x},${y}`);
+    }
+    // The case the review found: a 10x10 circle drew 8 pixels wide.
+    const b = R.createBitmap(20, 20, 0xffffff);
+    R.drawShape(b, 'ellipse', { x0: 0, y0: 0, x1: 9, y1: 9 }, 1, 'outline', R.pixelOf(0), 0);
+    assert.equal(R.getRGB(b, 0, 4), 0, 'the left edge is drawn');
+    assert.equal(R.getRGB(b, 9, 4), 0, 'the right edge is drawn');
+    assert.equal(R.getRGB(b, 4, 0), 0, 'the top edge is drawn');
+    assert.equal(R.getRGB(b, 4, 9), 0, 'the bottom edge is drawn');
+});
+
+test('thick ellipse outlines are closed too, however flat, so Fill never leaks', () => {
+    const sizes = [[48, 5], [10, 60], [40, 6], [6, 40], [30, 7], [60, 9], [9, 60], [70, 14], [14, 70], [25, 25]];
+    for (const width of [2, 3, 4, 5]) {
+        for (const [w, h] of sizes) {
+            const b = R.createBitmap(w + 4, h + 4, 0xffffff);
+            R.drawShape(b, 'ellipse', { x0: 2, y0: 2, x1: 2 + w - 1, y1: 2 + h - 1 }, width, 'outline', R.pixelOf(0), 0);
+            const hole = [];
+            for (let y = 0; y < b.height; y++) for (let x = 0; x < b.width; x++) if (R.getRGB(b, x, y) === 0xffffff && x > 2 && y > 2) hole.push([x, y]);
+            // Pick a white pixel inside the ring (at the centre row), if the ring left any.
+            const cy = 2 + Math.floor((h - 1) / 2);
+            const cx = 2 + Math.floor((w - 1) / 2);
+            if (R.getRGB(b, cx, cy) !== 0xffffff) continue; // so thick the middle is outline
+            R.floodFill(b, cx, cy, R.pixelOf(0xff0000));
+            assert.equal(R.getRGB(b, 0, 0), 0xffffff, `width ${width}, ${w}x${h}: Fill leaked out of the ring`);
+            assert.equal(R.getRGB(b, b.width - 1, b.height - 1), 0xffffff, `width ${width}, ${w}x${h}: Fill leaked out of the ring`);
+        }
+    }
+});
+
+test('Stretch/Skew is refused past 2000 pixels, and says what size it would have been', () => {
+    for (const [w, h, sx, sy, kx, ky] of [[7, 5, 100, 100, 30, 0], [9, 4, 150, 50, 0, -40], [6, 6, 300, 200, 20, 20], [5, 8, 100, 100, -89, 0]]) {
+        const out = R.stretchSkew(R.createBitmap(w, h, 0), sx, sy, kx, ky, 0);
+        assert.deepEqual(R.stretchSkewSize(w, h, sx, sy, kx, ky), { width: out.width, height: out.height }, 'the size check agrees with the transform');
+    }
+    const e = new PaintEngine(750, 450);
+    const tooBig = e.stretchSkew(100, 100, 89, 0);
+    assert.ok(tooBig && tooBig.width > 2000, 'an 89 degree skew of 750x450 is refused');
+    assert.equal(e.getState().width, 750, 'and the picture is untouched');
+    assert.equal(e.getState().canUndo, false);
+    assert.equal(e.stretchSkew(200, 200, 0, 0), null, '1500x900 is allowed');
+    assert.equal(e.getState().width, 1500);
+    // A selection is measured, not the picture.
+    const s = new PaintEngine(1500, 900);
+    s.setTool('select');
+    drag(s, [0, 0], [600, 100]);
+    assert.ok(s.stretchSkew(500, 100, 0, 0), '600 px of selection at 500% is 3000 px');
+    assert.equal(s.stretchSkew(300, 100, 0, 0), null, 'at 300% it is 1800');
+});
+
+test('Rectangle Select reaches the last column and row', () => {
+    const e = new PaintEngine(40, 30);
+    e.setTool('select');
+    drag(e, [10, 10], [45, 35]);
+    assert.deepEqual(e.getState().selection, { x: 10, y: 10, w: 30, h: 20, floating: false });
+    e.commitSelection();
+    drag(e, [0, 0], [39, 29]);
+    assert.deepEqual(e.getState().selection, { x: 0, y: 0, w: 39, h: 29, floating: false }, 'the pointer pixel itself is still excluded');
+});
+
+test('pending work counts as unsaved: a paste, a moved selection, typed text, an open polygon or curve', () => {
+    const bitmap = R.createBitmap(4, 4, 0xff0000);
+    const cases = {
+        'a pasted selection': (e) => e.paste(bitmap, 2, 2),
+        'a moved selection': (e) => {
+            e.setTool('select');
+            drag(e, [0, 0], [10, 10]);
+            drag(e, [5, 5], [15, 15]);
+        },
+        'typed text': (e) => {
+            e.setTool('text');
+            drag(e, [2, 2], [30, 20]);
+            e.setTextValue('hello');
+        },
+        'an unfinished polygon': (e) => {
+            e.setTool('polygon');
+            drag(e, [2, 2], [20, 2]);
+        },
+        'an unfinished curve': (e) => {
+            e.setTool('curve');
+            drag(e, [2, 2], [20, 20]);
+        },
+    };
+    for (const [name, act] of Object.entries(cases)) {
+        const e = new PaintEngine(40, 30);
+        assert.equal(e.unsaved, false, `${name}: a new picture has nothing to lose`);
+        act(e);
+        assert.equal(e.getState().modified, false, `${name}: not yet in the history`);
+        assert.equal(e.unsaved, true, `${name}: but closing now would lose it`);
+    }
+    const blank = new PaintEngine(40, 30);
+    blank.setTool('text');
+    drag(blank, [2, 2], [30, 20]);
+    blank.setTextValue('   ');
+    assert.equal(blank.unsaved, false, 'blank text is nothing to save');
+    const saved = new PaintEngine(40, 30);
+    drag(saved, [1, 1], [5, 5]);
+    saved.markSaved();
+    assert.equal(saved.unsaved, false, 'saved, with nothing pending');
+});
+
+test("Copy To leaves Paint's clipboard alone; Copy fills it", () => {
+    const e = new PaintEngine(40, 30);
+    e.setTool('select');
+    drag(e, [0, 0], [4, 4]);
+    const copied = e.copySelection();
+    drag(e, [10, 10], [20, 20]);
+    const written = e.selectionBitmap();
+    assert.equal(written.width, 10);
+    assert.equal(e.clipboard, copied, 'the clipboard still holds what Copy put there');
+});
+
+test('the BMP encoder writes the header, bottom-up BGR rows and padding, byte for byte', async () => {
+    const b = R.createBitmap(2, 2, 0);
+    R.setPx(b, 0, 0, R.pixelOf(0x112233));
+    R.setPx(b, 1, 0, R.pixelOf(0x445566));
+    R.setPx(b, 0, 1, R.pixelOf(0x778899));
+    R.setPx(b, 1, 1, R.pixelOf(0xaabbcc));
+    const bytes = new Uint8Array(await encodeBmp(b).arrayBuffer());
+    const v = new DataView(bytes.buffer);
+    assert.equal(String.fromCharCode(bytes[0], bytes[1]), 'BM');
+    assert.equal(v.getUint32(2, true), 54 + 16, 'file size');
+    assert.equal(v.getUint32(10, true), 54, 'pixel data offset');
+    assert.equal(v.getUint32(14, true), 40, 'BITMAPINFOHEADER');
+    assert.equal(v.getInt32(18, true), 2, 'width');
+    assert.equal(v.getInt32(22, true), 2, 'height, positive: rows run bottom-up');
+    assert.equal(v.getUint16(26, true), 1, 'planes');
+    assert.equal(v.getUint16(28, true), 24, 'bits per pixel');
+    assert.equal(v.getUint32(30, true), 0, 'no compression');
+    assert.equal(v.getUint32(34, true), 16, 'image size');
+    // Bottom row first, each pixel blue-green-red, each row padded to four bytes.
+    assert.deepEqual([...bytes.subarray(54)], [
+        0x99, 0x88, 0x77, 0xcc, 0xbb, 0xaa, 0, 0,
+        0x33, 0x22, 0x11, 0x66, 0x55, 0x44, 0, 0,
+    ]);
+});

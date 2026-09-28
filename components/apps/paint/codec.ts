@@ -1,4 +1,4 @@
-import { wrapBitmap, type Bitmap } from './raster';
+import { MAX_SIDE, wrapBitmap, type Bitmap } from './raster';
 
 /**
  * Getting pictures into and out of Paint: decode an image file or clipboard blob into a
@@ -9,8 +9,8 @@ import { wrapBitmap, type Bitmap } from './raster';
  * Paint saved by default, so leaving it out would have been a conspicuous gap.
  */
 
-/** The largest side Paint accepts. Bigger images are scaled down on the way in, and the visitor is told. */
-export const MAX_SIDE = 2000;
+// Bigger images are scaled down to MAX_SIDE on the way in, and the visitor is told.
+export { MAX_SIDE };
 
 export type SaveFormat = 'png' | 'jpeg' | 'bmp';
 

@@ -467,6 +467,55 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-09-29 - Fixes from the review of the five apps (7212919)
+
+Twenty-one findings across Paint, the Calculator, the Media Player, Solitaire, Minesweeper and the
+shared menu bar and dialog, plus a nit. All are fixed here; two did not reproduce as described.
+- **Paint.** Pending work counted as nothing. `modified` changed only when something entered the
+  history, so a pasted or moved selection, typed text, or a half-drawn curve or polygon was dropped by
+  close, New, Open and Log Off without a question, and Set As Background after moving a selection used
+  the saved file. The engine's `unsaved` covers them. The close guard follows the store's contract
+  (store/CLAUDE.md): Yes waits through Save As and resolves true once written — which also removed the
+  "after save" callback that a refused save left armed for the next, unrelated Save As. Stretch/Skew
+  is refused past `MAX_SIDE` (an 89° skew of 750 px asked for 26,473) and says what size it would have
+  been. Even-sized circles were 2 px narrow: rows were sampled at pixel centres and columns half a
+  pixel in. Ellipses now meet all four sides of their box, and a thick outline also carries the
+  4-connected edge, so Fill cannot slip through a flat ellipse's corners. Rectangle Select reaches the
+  last column and row. A click on a resize handle no longer resizes. Copy To leaves Paint's clipboard
+  alone. The Fonts toolbar leaves the keyboard in the text box.
+- **Menus and dialogs** (`components/ui`). The press that closes a menu is swallowed to its click.
+  Only its pointerdown was, so closing Calculator's View menu over the 7 typed 7, and closing
+  Minesweeper's Game menu over the face started a new game. A press inside an open menu hands the
+  keyboard back to the menu after the app's root has taken it, so Escape closes the menu instead of
+  clearing the calculation. Alt+letter and F10 do not open a menu behind an owned dialog. AppDialog
+  and Solitaire's deck picker focus without scrolling the window. Dropdowns use the live taskbar height.
+- **Calculator.** A correct final 1 or 9 was rounded away (1000000000000000 + 1 showed
+  1000000000000000). The 16th digit now snaps only when the double is within two ulps of the 15-digit
+  number, and a safe integer never snaps. Roots in Hex, Oct and Bin and the Statistics Box are exact to
+  the last bit: a root is corrected against the integer, and statistics keep each value as entered.
+  Trigonometry reduces degrees and grads to one turn before looking for a quarter turn (sin 1.7e17° is
+  sin 80°, not 1), and in radians takes what the display shows as π/2 to be π/2 (cos of π ÷ 2 was
+  -3.8e-16). The Statistics Box scrolls its own list and nothing else.
+- **Media Player.** A track that cannot load says so; only `NotAllowedError` means the browser blocked
+  playback. A single click on the playlist selects and a double-click or Enter plays, as in WMP 9, so a
+  click while music plays no longer changes the song. Scope keeps fading through half a second of
+  silence before its loop stops.
+- **Solitaire** keeps its options and card back for the session, across closing the window, as
+  Minesweeper already did. **Minesweeper's** first-click e2e assertion named a tile the engine never
+  draws, so it could not fail.
+
+**Two that did not reproduce as described.** The Scope ghost never froze in Chromium. Silence is
+judged from smoothed frequency data, which kept the loop running until the ghost had faded anyway.
+The fade is now timed rather than left to the smoothing, and a unit test holds it. A typed
+9999999999999999 becoming 1.e+16 is a double's own limit: above 2^53 not every integer exists, which
+Help already states. The dropped final digit reported with it is fixed.
+
+**Consequences:** `raster.ts` holds `MAX_SIDE` (the codec re-exports it) and `stretchSkewSize`.
+`tests/unit/tsconfig.engines.json` also compiles the visualisations, which gained a unit test. Every
+module of the five apps has its own summary in System Information.
+**Verified:** 213 unit tests and 112 e2e on a production build. Every new test failed with its fix
+reverted, and none of the tests already there was weakened.
+
 ### 2026-09-29 - Deployed on Vercel, in the owner's personal account, at gauravtiwary.com
 
 **Decision, the owner's:** deploy to the domain he bought (registrar: Northwest Registered Agent), in

@@ -4,6 +4,11 @@ import type { PaintEngine, PaintState } from './engine';
 import { cssOf } from './palette';
 import { RAISED, SUNKEN } from './Toolbox';
 
+/**
+ * Paint's colour box along the bottom of the window: the current-colours well and the 28
+ * swatches, as XP laid them out.
+ */
+
 const WELL_DITHER = 'repeating-conic-gradient(#ffffff 0% 25%, #ece9d8 0% 50%) 0 0 / 2px 2px';
 
 /**

@@ -2,14 +2,16 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { taskbarHeight } from '@/utils/viewport';
 
 /**
  * An XP application menu bar: File, Edit, View…
  *
  * Behaves the way XP's did, because that is most of what makes one feel right:
  *  - Menus open on mouse-down; with one open, hovering another title switches to it.
- *  - The click that dismisses a menu is swallowed when it lands in the same window, so closing
- *    the File menu over Paint's canvas does not also draw on it.
+ *  - The press that dismisses a menu is swallowed, click and all, when it lands in the same
+ *    window, so closing the File menu over Paint's canvas does not also draw on it, and closing
+ *    Calculator's View menu over the 7 does not also type 7.
  *  - Arrow keys, Enter, Escape and access keys work inside an open menu; Alt+letter and F10 open
  *    one while the window is active. Access-key underlines appear only in keyboard use — XP's
  *    default was to hide them until Alt was pressed.
@@ -63,7 +65,6 @@ interface MenuBarProps {
     onHint?: (hint: string | null) => void;
 }
 
-const TASKBAR_HEIGHT = 36;
 const MENU_Z = 9990;
 
 const isSubmenu = (e: MenuEntry): e is MenuSubmenu => !!e && 'items' in e;
@@ -80,6 +81,30 @@ function step(items: MenuEntry[], from: number, dir: 1 | -1): number {
     return -1;
 }
 const firstLive = (items: MenuEntry[]) => step(items, -1, 1);
+
+/**
+ * Swallow what is left of a press whose pointerdown was already swallowed. A cancelled pointerdown
+ * still produces mousedown, mouseup and click, so without this the press that closed a menu went
+ * on to press whatever was under it: Calculator's 7, Minesweeper's face. Everything up to that
+ * press's click goes; the listeners leave with it, or at the next press if no click comes (the
+ * pointer was dragged off), so no later click is ever eaten.
+ */
+function swallowRestOfPress(): void {
+    const types = ['pointerup', 'mousedown', 'mouseup', 'click', 'auxclick', 'contextmenu'] as const;
+    const swallow = (ev: Event) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (ev.type === 'click' || ev.type === 'auxclick' || ev.type === 'contextmenu') done();
+    };
+    const nextPress = () => done();
+    const done = () => {
+        for (const t of types) window.removeEventListener(t, swallow, true);
+        window.removeEventListener('pointerdown', nextPress, true);
+    };
+    for (const t of types) window.addEventListener(t, swallow, true);
+    // Registered after this press's own pointerdown has been dispatched, so only the next one ends it.
+    setTimeout(() => window.addEventListener('pointerdown', nextPress, true), 0);
+}
 
 /** The window a menu bar belongs to: its frame where the window manager marks one, else its parent. */
 const windowOf = (bar: HTMLElement | null): HTMLElement | null =>
@@ -103,11 +128,14 @@ function Popup({
     getAnchor,
     side,
     register,
+    onPress,
     children,
 }: {
     getAnchor: () => HTMLElement | null | undefined;
     side: 'below' | 'right';
     register: (el: HTMLElement | null) => void;
+    /** A press inside the menu, after the window's own handlers have seen it. */
+    onPress: () => void;
     children: ReactNode;
 }) {
     const ref = useRef<HTMLDivElement | null>(null);
@@ -121,7 +149,7 @@ function Popup({
         const w = el.offsetWidth;
         const h = el.offsetHeight;
         const maxX = window.innerWidth - 2;
-        const maxY = window.innerHeight - TASKBAR_HEIGHT;
+        const maxY = window.innerHeight - taskbarHeight();
         let left: number;
         let top: number;
         if (side === 'below') {
@@ -147,6 +175,10 @@ function Popup({
             role="menu"
             // Keep focus on the menu bar, so the keyboard keeps driving the menu after a click.
             onMouseDown={(e) => e.preventDefault()}
+            // React carries a press here through the portal to the app's root, whose capture handler
+            // may take focus for the window; this runs after it and gives the keyboard back to the
+            // menu, so arrows still move in it and Escape closes it rather than reaching the app.
+            onPointerDown={onPress}
             onContextMenu={(e) => e.preventDefault()}
             className="xp-menu fixed"
             style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden', zIndex: MENU_Z }}
@@ -205,6 +237,8 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
         restoreFocus.current = null;
     };
 
+    const refocusBar = () => barRef.current?.focus({ preventScroll: true });
+
     const activate = (entry: MenuAction) => {
         close(true);
         entry.onSelect();
@@ -248,6 +282,7 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
             if (windowOf(barRef.current)?.contains(target)) {
                 e.preventDefault();
                 e.stopPropagation();
+                swallowRestOfPress();
             }
             close(false);
         };
@@ -275,6 +310,9 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
             const target = e.target as Node | null;
             const root = windowOf(barRef.current);
             if (target && target !== document.body && root && !root.contains(target)) return;
+            // An owned dialog is modal: with focus left on the page (a click on the title bar), a key
+            // must still not open the menus behind it.
+            if (root?.querySelector('[data-app-dialog]')) return;
             if (e.key === 'Alt') setAltHeld(true);
             if (e.defaultPrevented || openRef.current !== null) return;
             if (e.key === 'F10' && !e.shiftKey && !e.ctrlKey && !e.altKey && menusRef.current.length) {
@@ -436,7 +474,7 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
                         {action?.shortcut && <span className="xp-menu-accel">{action.shortcut}</span>}
                     </button>
                     {sub && lit && !disabled && (
-                        <Popup side="right" getAnchor={() => itemRefs.current.get(key)} register={register}>
+                        <Popup side="right" getAnchor={() => itemRefs.current.get(key)} register={register} onPress={refocusBar}>
                             {renderItems(entry.items, depth + 1, `${key}.`)}
                         </Popup>
                     )}
@@ -480,7 +518,7 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
                         <AccessLabel label={m.label} accessKey={m.accessKey} show={keys || altHeld} />
                     </button>
                     {open === i && (
-                        <Popup side="below" getAnchor={() => titleRefs.current[i]} register={register}>
+                        <Popup side="below" getAnchor={() => titleRefs.current[i]} register={register} onPress={refocusBar}>
                             {renderItems(m.items, 0, `${i}:`)}
                         </Popup>
                     )}

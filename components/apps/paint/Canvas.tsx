@@ -7,6 +7,13 @@ import { cssOf } from './palette';
 import { MAX_SIDE } from './codec';
 import { SUNKEN } from './Toolbox';
 
+/**
+ * Paint's picture area: the picture and the preview layer the engine draws into, stacked and
+ * zoomed; the grid at 400% and above; the eraser and magnifier cursors; the text box; and the
+ * handles that resize the picture. Pointer input becomes picture coordinates here and goes to the
+ * engine — nothing in this file writes a pixel of the picture itself.
+ */
+
 type Mods = { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean };
 const modsOf = (e: Mods) => ({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
 
@@ -57,6 +64,7 @@ function TextBox({ engine, state }: { engine: PaintEngine; state: PaintState }) 
         <textarea
             ref={ref}
             data-paint-own-pointer
+            data-paint-text
             aria-label="Text"
             value={t.value}
             spellCheck={false}
@@ -199,13 +207,15 @@ export function CanvasArea({
         e.stopPropagation();
         const el = e.currentTarget;
         el.setPointerCapture(e.pointerId);
+        // By how far the handle has moved, not where the pointer is: the handle sits a few pixels
+        // outside the picture, so measuring the pointer made a click with no drag resize it.
+        const startX = e.clientX;
+        const startY = e.clientY;
         const measure = (ev: { clientX: number; clientY: number }) => {
-            const r = wrapRef.current?.getBoundingClientRect();
-            if (!r) return { w: state.width, h: state.height };
             const clamp = (v: number) => Math.max(1, Math.min(MAX_SIDE, Math.round(v)));
             return {
-                w: edge === 'bottom' ? state.width : clamp((ev.clientX - r.left) / z),
-                h: edge === 'right' ? state.height : clamp((ev.clientY - r.top) / z),
+                w: edge === 'bottom' ? state.width : clamp(state.width + (ev.clientX - startX) / z),
+                h: edge === 'right' ? state.height : clamp(state.height + (ev.clientY - startY) / z),
             };
         };
         const move = (ev: PointerEvent) => {
@@ -220,7 +230,7 @@ export function CanvasArea({
             const s = measure(ev);
             setResize(null);
             onResizePreview(null);
-            engine.resize(s.w, s.h);
+            if (s.w !== state.width || s.h !== state.height) engine.resize(s.w, s.h);
         };
         const cancel = () => {
             el.removeEventListener('pointermove', move);

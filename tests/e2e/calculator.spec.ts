@@ -48,3 +48,37 @@ test('Hex and Bin show the same value in another radix', async ({ page }) => {
     await calc(page).getByRole('radio', { name: 'Bin' }).check();
     await expect(display(page)).toHaveText('11111111');
 });
+
+// ---- menus, from the review of 7212919 -----------------------------------------------------------
+
+test('the click that closes a menu does not also press the key under it', async ({ page }) => {
+    await calc(page).getByRole('menuitem', { name: 'View' }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toBeVisible();
+    await calc(page).getByRole('button', { name: '7', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toHaveCount(0);
+    await expect(display(page)).toHaveText('0');
+    // The next click is an ordinary one.
+    await calc(page).getByRole('button', { name: '7', exact: true }).click();
+    await expect(display(page)).toHaveText('7');
+});
+
+test('a press inside an open menu keeps the keyboard in it: Escape closes the menu, not the sum', async ({ page }) => {
+    await page.keyboard.type('5');
+    await calc(page).getByRole('menuitem', { name: 'View' }).click();
+    const menu = page.getByRole('menu');
+    await menu.getByRole('separator').first().click();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(display(page)).toHaveText('5');
+});
+
+test('Alt+letter does not open a menu behind an open dialog', async ({ page }) => {
+    await calc(page).getByRole('menuitem', { name: 'Help' }).click();
+    await page.getByRole('menuitem', { name: 'Help Topics' }).click();
+    await expect(calc(page).getByRole('dialog')).toBeVisible();
+    // Leave focus on the page, as a click on the title bar does.
+    await calc(page).locator('.xp-titlebar-text').first().click();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('Alt+v');
+    await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toHaveCount(0);
+});

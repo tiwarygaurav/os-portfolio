@@ -2,6 +2,7 @@
  * The Media Player's playlist. The tracks and their order are part of the desktop's identity and
  * stay exactly as they were (see CLAUDE.md §9); the artist names are the ones in the file names.
  */
+
 export interface Track {
     title: string;
     artist: string;

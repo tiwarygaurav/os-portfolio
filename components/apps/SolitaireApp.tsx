@@ -16,6 +16,7 @@ import { useReducedMotion } from 'framer-motion';
 import { PROFILE, SYSTEM } from '@/content';
 import { useSystemStore } from '@/store/useSystemStore';
 import { xpAlert, xpConfirm } from '@/utils/dialog';
+import { focusInList } from '@/utils/scroll';
 import MenuBar, { type MenuDef } from '@/components/ui/MenuBar';
 import AppDialog from '@/components/ui/AppDialog';
 import { GroupBox, XPButton, XPCheckbox, XPRadio } from '@/components/ui/xp-controls';
@@ -80,8 +81,15 @@ interface Prefs {
     cumulative: boolean;
 }
 
-/** XP's defaults. Session only: nothing here is persisted. */
+/** XP's defaults. */
 const DEFAULT_PREFS: Prefs = { draw: 3, scoring: 'standard', timed: true, statusBar: true, outline: false, cumulative: false };
+
+/**
+ * What sol.exe kept in win.ini between runs — the options and the card back — kept here for the life
+ * of the page, as Minesweeper keeps its own. Module scope, so closing and reopening the window keeps
+ * them; a reload starts afresh. Nothing is written to storage.
+ */
+const session: { prefs: Prefs; backId: number } = { prefs: DEFAULT_PREFS, backId: 0 };
 
 const rulesOf = (p: Prefs): Rules => ({ draw: p.draw, scoring: p.scoring });
 
@@ -130,9 +138,9 @@ export default function SolitaireApp({ windowId }: SolitaireAppProps) {
     const closeWindow = useSystemStore((s) => s.actions.closeWindow);
     const reduceMotion = !!useReducedMotion();
 
-    const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
-    const [backId, setBackId] = useState(0);
-    const [game, setGame] = useState<Game>(() => newGame(rulesOf(DEFAULT_PREFS), freshDeck()));
+    const [prefs, setPrefs] = useState<Prefs>(() => session.prefs);
+    const [backId, setBackId] = useState(() => session.backId);
+    const [game, setGame] = useState<Game>(() => newGame(rulesOf(session.prefs), freshDeck()));
     const [dealId, setDealId] = useState(0);
     const [view, setView] = useState({ w: 0, h: 0 });
     const [drag, setDrag] = useState<{ ids: number[]; dx: number; dy: number } | null>(null);
@@ -478,6 +486,7 @@ export default function SolitaireApp({ windowId }: SolitaireAppProps) {
     const applyOptions = (next: Prefs) => {
         const redeal = next.draw !== prefs.draw || next.scoring !== prefs.scoring;
         prefsRef.current = next;
+        session.prefs = next;
         setPrefs(next);
         // As in XP, a different draw or scoring rule starts a new game under it.
         if (redeal) deal(rulesOf(next));
@@ -645,6 +654,7 @@ export default function SolitaireApp({ windowId }: SolitaireAppProps) {
                     current={backId}
                     onCancel={closeDialog}
                     onChoose={(id) => {
+                        session.backId = id;
                         setBackId(id);
                         closeDialog();
                     }}
@@ -738,7 +748,7 @@ function DeckDialog({ current, onCancel, onChoose }: { current: number; onCancel
     const select = (i: number) => {
         const next = (i + BACKS.length) % BACKS.length;
         setPending(next);
-        buttons.current[next]?.focus();
+        focusInList(buttons.current[next]);
     };
     const perRow = () => {
         const top = buttons.current[0]?.offsetTop;

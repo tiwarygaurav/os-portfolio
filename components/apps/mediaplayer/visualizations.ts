@@ -212,8 +212,9 @@ function fireVisualizer(): Visualizer {
 /* ----------------------------------------------------------------- Scope */
 
 function scopeVisualizer(): Visualizer {
+    let rest = 0;
     return {
-        draw(ctx, w, h, frame) {
+        draw(ctx, w, h, frame, dt) {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
             ctx.fillRect(0, 0, w, h);
             ctx.strokeStyle = '#c8ff4a';
@@ -230,7 +231,10 @@ function scopeVisualizer(): Visualizer {
             }
             ctx.stroke();
             ctx.shadowBlur = 0;
-            return !silent(frame);
+            // Each frame keeps 65% of the last, so stopping at the first silent one froze a ghost of
+            // the final waveform. Half a second of silence fades it past seeing (0.65^30 ≈ 0).
+            rest = silent(frame) ? rest + dt : 0;
+            return rest < 500;
         },
     };
 }

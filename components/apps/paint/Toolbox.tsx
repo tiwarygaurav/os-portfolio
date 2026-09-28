@@ -6,6 +6,12 @@ import { ToolIcon } from './ToolIcons';
 import { AIRBRUSH_SIZES, BRUSHES, ERASER_SIZES, LINE_WIDTHS, MAGNIFICATIONS, TOOLS, type ToolId } from './tools';
 import type { FillStyle } from './raster';
 
+/**
+ * Paint's tool box: the sixteen tools in XP's order and, under them, the option box for the
+ * chosen one — line widths, brush shapes, eraser and airbrush sizes, fill styles, magnification,
+ * and the opaque / transparent choice for selections and text.
+ */
+
 /** Classic 3-D bevels, drawn with inset shadows so they cost no layout. */
 export const RAISED: CSSProperties = { boxShadow: 'inset 1px 1px 0 #fff, inset -1px -1px 0 #404040, inset -2px -2px 0 #808080' };
 export const SUNKEN: CSSProperties = { boxShadow: 'inset 1px 1px 0 #808080, inset -1px -1px 0 #fff' };

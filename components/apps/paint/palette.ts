@@ -1,5 +1,10 @@
 import type { RGB } from './raster';
 
+/**
+ * Paint's colours: the default 28-swatch colour box, the 48 basic colours of Edit Colors, and
+ * conversion between RGB and Windows' 0-240 hue / saturation / luminosity scale. Pure.
+ */
+
 /** Paint's default colour box: two rows of fourteen, dark over light. */
 export const DEFAULT_PALETTE: RGB[] = [
     0x000000, 0x808080, 0x800000, 0x808000, 0x008000, 0x008080, 0x000080,

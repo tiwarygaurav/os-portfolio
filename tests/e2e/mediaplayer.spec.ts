@@ -74,3 +74,29 @@ test("WMP's own Ctrl+P pauses", async ({ page }) => {
     await page.keyboard.press('Control+p');
     await expect(player(page).getByRole('status')).toHaveText('Paused');
 });
+
+// ---- from the review of 7212919 ------------------------------------------------------------------
+
+test('a single click on another song selects it; only a double-click plays it', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'wmplayer');
+    await player(page).getByRole('option', { name: /Lose Yourself/ }).dblclick();
+    await expect(player(page).getByRole('status')).toHaveText('Playing: Lose Yourself');
+    const mockingbird = player(page).getByRole('option', { name: /Mockingbird/ });
+    await mockingbird.click();
+    await expect(mockingbird).toHaveAttribute('aria-selected', 'true');
+    await page.waitForTimeout(400);
+    await expect(player(page).getByRole('status')).toHaveText('Playing: Lose Yourself');
+    await mockingbird.dblclick();
+    await expect(player(page).getByRole('status')).toHaveText('Playing: Mockingbird');
+});
+
+test('a track that cannot load says so, not that the browser blocked it', async ({ page }) => {
+    await page.route('**/sounds/Eminem%20-%20Kim.mp3', (route) => route.fulfill({ status: 404, body: '' }));
+    await bootAndLogin(page);
+    await run(page, 'wmplayer');
+    await player(page).getByRole('option', { name: /^\d+\s*Kim/ }).dblclick();
+    await expect(player(page).getByRole('status')).toHaveText('This track could not be loaded.');
+    await page.waitForTimeout(500);
+    await expect(player(page).getByRole('status')).toHaveText('This track could not be loaded.');
+});

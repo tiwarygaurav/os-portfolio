@@ -111,3 +111,75 @@ test('closing with unsaved changes asks first, in XP words', async ({ page }) =>
     await ask.getByRole('button', { name: 'No' }).click();
     await expect(w).toHaveCount(0);
 });
+
+// ---- from the review of 7212919 ------------------------------------------------------------------
+
+test('typed text is unsaved work: closing asks, before the text is part of the picture', async ({ page }) => {
+    const w = paint(page);
+    await tool(w, 'Text');
+    await drag(page, [20, 20], [160, 60]);
+    await page.keyboard.type('hello');
+    await w.locator('.xp-titlebar').getByRole('button', { name: 'Close' }).click();
+    const ask = page.getByRole('dialog').filter({ hasText: 'Save changes to untitled?' });
+    await expect(ask).toBeVisible();
+    await ask.getByRole('button', { name: 'Cancel' }).click();
+    await expect(w).toBeVisible();
+});
+
+test('Log Off with an untitled picture: Yes saves through Save As, and then the session really ends', async ({ page }) => {
+    await drag(page, [10, 10], [60, 40]);
+    await page.getByText('start', { exact: true }).first().click();
+    await page.locator('.xp-startmenu-footer-btn', { hasText: 'Log Off' }).click();
+    await page.locator('[data-exit="logoff"]').click();
+    await page.getByRole('dialog', { name: 'Paint' }).getByRole('button', { name: 'Yes' }).click();
+    const saveAs = page.getByRole('dialog', { name: 'Save As' });
+    await saveAs.locator('#fd-name').fill('before-logoff');
+    await saveAs.getByRole('button', { name: 'Save', exact: true }).click();
+    // Paint used to answer "not now" while Save As was showing, which Log Off reads as Cancel.
+    await expect(page.locator('[data-logon-user], div.cursor-pointer:has(img[alt="User"])').first()).toBeVisible({ timeout: 10_000 });
+    const files = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gaurav-xp-os')!).state.userFiles));
+    expect(files).toContain('/home/guest/My Pictures/before-logoff.png');
+});
+
+test('a click on a resize handle, with no drag, leaves the picture its size', async ({ page }) => {
+    const size = () => canvas(page).evaluate((c: HTMLCanvasElement) => `${c.width}x${c.height}`);
+    const before = await size();
+    for (const name of ['Resize', 'Resize width', 'Resize height']) {
+        const handle = paint(page).getByRole('separator', { name, exact: true });
+        const box = (await handle.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.up();
+    }
+    expect(await size()).toBe(before);
+});
+
+test('the Fonts toolbar leaves the keyboard in the text box', async ({ page }) => {
+    const w = paint(page);
+    await tool(w, 'Text');
+    await drag(page, [20, 20], [220, 80]);
+    const text = w.getByRole('textbox', { name: 'Text' });
+    await page.keyboard.type('ab');
+    await w.getByRole('toolbar', { name: 'Fonts' }).getByRole('button', { name: 'Bold' }).click();
+    await page.keyboard.type('cd');
+    await w.getByRole('toolbar', { name: 'Fonts' }).getByRole('combobox', { name: 'Font size' }).selectOption('18');
+    await page.keyboard.type('ef');
+    await expect(text).toHaveValue('abcdef');
+});
+
+test('Image > Attributes in a window parked low does not push its title bar up', async ({ page }) => {
+    const w = paint(page);
+    // The window's own title bar, not the dialog's that will open inside it.
+    const title = w.locator('.xp-titlebar').first();
+    // Park the window so most of it hangs below the screen.
+    const t = (await title.boundingBox())!;
+    await page.mouse.move(t.x + 60, t.y + t.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + 60, 560, { steps: 6 });
+    await page.mouse.up();
+    const parked = (await title.boundingBox())!.y;
+    await w.getByRole('menuitem', { name: 'Image' }).click();
+    await page.getByRole('menuitem', { name: /^Attributes/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Attributes' })).toBeVisible();
+    expect((await title.boundingBox())!.y).toBe(parked);
+});

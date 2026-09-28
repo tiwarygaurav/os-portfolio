@@ -39,7 +39,8 @@ test('the first click never hits a mine and opens an area', async ({ page }) => 
     await expect(field(page)).toHaveAttribute('data-status', 'playing');
     // The clicked square and its neighbours are clear, so at least those nine are open.
     await expect.poll(() => game(page).locator('[data-cell]:not([data-tile="covered"])').count()).toBeGreaterThanOrEqual(9);
-    await expect(cell(page, 4, 4)).not.toHaveAttribute('data-tile', 'mine-hit');
+    // The square itself is open ground: 'open-0', since its neighbours are clear too.
+    await expect(cell(page, 4, 4)).toHaveAttribute('data-tile', 'open-0');
 });
 
 test('right-click flags a square and the mine counter counts down', async ({ page }) => {

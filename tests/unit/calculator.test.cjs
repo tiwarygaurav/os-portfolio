@@ -408,3 +408,63 @@ test('view switch keeps the number and drops the pending calculation', () => {
     s = E.setView(run(sci(), 'inv', 'hyp', 'sta'), 'standard');
     assert.equal(s.inv || s.hyp || s.statsOpen, false);
 });
+
+// ---- fixes from the review of 7212919 ---------------------------------------------------------------
+
+test('a correct 16th digit is kept; only binary noise snaps to 15', () => {
+    // Exact doubles whose last digit is 1 or 9 were rounded away.
+    assert.equal(show(run(typed(std(), '1000000000000000'), 'add', '1', 'equals')), '1000000000000001.');
+    assert.equal(show(run(typed(std(), '1111111111111111'), 'add', '0', 'equals')), '1111111111111111.');
+    assert.equal(show(run(typed(std(), '4503599627370495'), 'mul', '2', 'add', '1', 'equals')), '9007199254740991.');
+    // Not only integers: these are several ulps from any 15-digit number, so the last digit is real.
+    assert.equal(show(run(typed(std(), '0.1000000000000001'), 'add', '0', 'equals')), '0.1000000000000001');
+    assert.equal(show(run(typed(std(), '1.000000000000009'), 'add', '0', 'equals')), '1.000000000000009');
+    // Noise still snaps.
+    assert.equal(show(run(typed(std(), '0.7'), 'add', 'point', '1', 'equals')), '0.8');
+    assert.equal(show(run(sci(), '3', '0', 'sin')), '0.5');
+    assert.equal(show(run(sci(), '4', '5', 'tan')), '1.');
+    assert.equal(show(run(std(), '1', 'div', '3', 'equals')), '0.3333333333333333');
+    assert.equal(show(run(std(), '2', 'div', '3', 'equals')), '0.6666666666666666');
+});
+
+test('Hex roots are exact to the last bit, as powers are', () => {
+    const hex = (text) => run(run(sci(), 'hex'), ...text.split(''));
+    // B504F333 squared overshoots; B504F332 is the floor of the square root, as Inv+x^2 gives.
+    assert.equal(show(run(hex('7FFFFFFE9EA1DC28'), 'inv', 'pow', '2', 'equals')), 'B504F332');
+    assert.equal(show(run(hex('7FFFFFFE9EA1DC28'), 'inv', 'square')), 'B504F332');
+    assert.equal(show(run(hex('1B'), 'inv', 'pow', '3', 'equals')), '3');
+    assert.equal(show(run(hex('40'), 'inv', 'pow', '3', 'equals')), '4');
+    assert.equal(show(run(hex('3F'), 'inv', 'pow', '3', 'equals')), '3', 'rounded toward zero');
+    // An odd root of a negative number is real; an even one is not.
+    assert.equal(show(run(hex('1B'), 'negate', 'inv', 'pow', '3', 'equals')), 'FFFFFFFFFFFFFFFD');
+    assert.equal(show(run(hex('4'), 'negate', 'inv', 'pow', '2', 'equals')), 'Invalid input for function.');
+});
+
+test('the Statistics Box keeps a Qword exactly, and sums it exactly', () => {
+    let s = run(sci(), 'hex', 'sta', ...'7FFFFFFFFFFFFFFF'.split(''), 'dat');
+    assert.equal(E.formatStat(s, s.stats[0]), '7FFFFFFFFFFFFFFF');
+    assert.equal(show(E.statLoad(run(s, 'clear'), 0)), '7FFFFFFFFFFFFFFF');
+    s = run(s, '1', 'dat');
+    assert.equal(show(run(s, 'sum')), '8000000000000000', 'wraps as Qword addition does');
+    s = run(sci(), 'hex', 'sta', 'F', 'dat', '1', 'dat');
+    assert.equal(show(run(s, 'ave')), '8');
+    assert.equal(show(run(s, 'inv', 'sum')), 'E2', '15*15 + 1');
+    // Values entered in Dec still work, and show in the current system.
+    s = run(sci(), 'sta', '2', '5', '5', 'dat', 'hex');
+    assert.equal(show(run(s, 'sum')), 'FF');
+});
+
+test('quarter turns: pi / 2 in radians, and huge angles judged by where they point', () => {
+    const halfPi = run(sci(), 'rad', 'pi', 'div', '2', 'equals');
+    assert.equal(show(run(halfPi, 'cos')), '0.');
+    assert.equal(show(run(halfPi, 'sin')), '1.');
+    assert.equal(show(run(halfPi, 'tan')), 'Invalid input for function.');
+    assert.equal(show(run(sci(), 'rad', 'pi', 'sin')), '0.');
+    // A small angle that is not a quarter turn is computed.
+    assert.equal(show(run(sci(), 'rad', '1', 'sin')), '0.8414709848078965');
+    // 1.7e17 degrees is 80 degrees on from a whole number of turns: sin 80, not 1.
+    const huge = run(sci(), '1', 'point', '7', 'exp', '1', '7', 'sin');
+    assert.equal(show(huge), show(run(sci(), '8', '0', 'sin')));
+    // And a huge angle that is a quarter turn still is one: 1e16 + 170 degrees is 90 on from whole turns.
+    assert.equal(show(run(sci(), '1', 'exp', '1', '6', 'add', '1', '7', '0', 'equals', 'sin')), '1.');
+});

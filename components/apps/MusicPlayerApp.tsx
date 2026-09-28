@@ -163,6 +163,11 @@ export default function MusicPlayerApp({ windowId }: { windowId?: string }) {
 
     const [currentTrack, setCurrentTrack] = useState(0);
     /**
+     * The playlist row a single click picked. WMP selected on a click and played on a double-click,
+     * so a click while music plays must not change the song; it follows the playing track as it moves.
+     */
+    const [selected, setSelected] = useState(0);
+    /**
      * WMP's own transport states, as its status line named them. Set only from the audio
      * element's events (and Stop), so the words cannot claim a state the element is not in.
      */
@@ -242,7 +247,11 @@ export default function MusicPlayerApp({ windowId }: { windowId?: string }) {
             // not a refusal — intent stands.
             if (err instanceof DOMException && err.name === 'AbortError') return;
             wantsPlay.current = false;
-            setPlaybackError('Playback was blocked by the browser.');
+            // Only NotAllowedError is the browser refusing. A track that cannot load rejects play()
+            // too (NotSupportedError), after the element's own error event has said so.
+            const blocked = err instanceof DOMException && err.name === 'NotAllowedError';
+            if (blocked) setPlaybackError('Playback was blocked by the browser.');
+            else if (!audio.error) setPlaybackError('This track could not be played.');
         });
     };
 
@@ -304,6 +313,7 @@ export default function MusicPlayerApp({ windowId }: { windowId?: string }) {
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return;
+        setSelected(currentTrack);
         setProgress(0);
         setDuration(0);
         setPlaybackError(null);
@@ -546,21 +556,35 @@ export default function MusicPlayerApp({ windowId }: { windowId?: string }) {
             {/* Playlist */}
             <ul role="listbox" aria-label="Playlist" className="min-h-0 overflow-y-auto py-0.5" style={{ flex: '1 1 120px' }}>
                 {PLAYLIST.map((t, i) => {
-                    const on = i === currentTrack;
+                    const on = i === selected;
+                    const current = i === currentTrack;
+                    const play = () => {
+                        wantsPlay.current = true;
+                        if (current && audioRef.current) startPlayback(audioRef.current);
+                        else setCurrentTrack(i);
+                    };
                     return (
                         <li key={t.file} role="none">
                             <button
                                 type="button"
                                 role="option"
                                 aria-selected={on}
-                                onClick={() => setCurrentTrack(i)}
-                                onDoubleClick={() => {
-                                    wantsPlay.current = true;
-                                    if (i === currentTrack && audioRef.current) startPlayback(audioRef.current);
-                                    else setCurrentTrack(i);
+                                aria-current={current || undefined}
+                                onClick={() => {
+                                    setSelected(i);
+                                    // With nothing playing there is no song to interrupt: the row
+                                    // becomes the one Play starts.
+                                    if (!isPlaying) setCurrentTrack(i);
+                                }}
+                                onDoubleClick={play}
+                                onKeyDown={(e) => {
+                                    if (e.key !== 'Enter') return;
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    play();
                                 }}
                                 className="flex w-full items-center gap-2 px-2 py-[2px] text-left hover:bg-[#1b3566]"
-                                style={on ? { background: '#1f4f9c', color: '#fff' } : undefined}
+                                style={{ ...(on ? { background: '#1f4f9c', color: '#fff' } : null), ...(current ? { fontWeight: 'bold' } : null) }}
                             >
                                 <span className="w-4 shrink-0 text-right" style={{ color: on ? '#cfe4ff' : SKIN.dim }}>
                                     {i + 1}

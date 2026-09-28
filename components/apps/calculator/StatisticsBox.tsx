@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { XPButton } from '@/components/ui/xp-controls';
+import { revealInList } from '@/utils/scroll';
 
 /**
  * XP's Statistics Box, opened by Sta: the values entered with Dat, their count, and RET, LOAD,
@@ -32,10 +33,12 @@ export default function StatisticsBox({ values, selected, onSelect, onReturn, on
     const id = useId();
     const listRef = useRef<HTMLDivElement>(null);
 
-    // Keep the selected value in view as the arrow keys move through a list longer than the box.
+    // Keep the selected value in view as the arrow keys move through a list longer than the box —
+    // scrolling the list alone: scrollIntoView would also shift a Calculator parked low on the screen.
     useEffect(() => {
         if (selected === null) return;
-        listRef.current?.querySelector<HTMLElement>(`[data-index="${selected}"]`)?.scrollIntoView({ block: 'nearest' });
+        const row = listRef.current?.querySelector<HTMLElement>(`[data-index="${selected}"]`);
+        if (row) revealInList(row);
     }, [selected]);
 
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

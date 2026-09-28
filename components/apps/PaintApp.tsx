@@ -125,8 +125,18 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
     const [lastSaved, setLastSaved] = useState<SavedInfo | null>(null);
     const fileName = docPath ? stripExtension(baseName(docPath)) : (localName ?? 'untitled');
 
-    /** Run once a Save As completes — the New, Open or close that asked to save first. */
-    const afterSave = useRef<(() => void) | null>(null);
+    /**
+     * Settles the save a New, Open, close or Set As Background is waiting on, when that save needed
+     * the Save As dialog: true once the picture is written, false if the dialog was cancelled.
+     */
+    const pendingSave = useRef<((saved: boolean) => void) | null>(null);
+    const settleSave = (saved: boolean) => {
+        const settle = pendingSave.current;
+        pendingSave.current = null;
+        settle?.(saved);
+    };
+    // A window closed some other way (kill, End Task) leaves nothing waiting forever.
+    useEffect(() => () => settleSave(false), []);
     // The close guard runs outside React's render cycle, so it reads the latest values from here.
     const live = useRef({ docPath, fileName });
     live.current = { docPath, fileName };
@@ -231,21 +241,38 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
         }
     };
 
-    /** Save in place; an untitled or read-only picture goes to Save As instead. True if saved now. */
-    const save = (): boolean => {
-        const path = live.current.docPath;
-        if (isWritable(path)) return writePicture(path, engine.snapshot(), 'picture');
+    /** File > Save As. Nothing waits on it: only `saveAndWait` makes a Save As something to wait for. */
+    const saveAs = () => {
+        settleSave(false);
         setFileDialog({ mode: 'save', purpose: 'picture' });
-        return false;
     };
 
     /**
-     * XP's question: Yes saves, No discards, Cancel stays. Resolves true when the picture may be
-     * replaced now. When Yes needs a Save As first, `then` runs once that save succeeds, and this
-     * resolves false.
+     * Save in place, or through Save As for an untitled or read-only picture, and resolve once that
+     * is over: true when the picture was written, false when Save As was cancelled or the write was
+     * refused (a full browser, a name that is not PNG or JPEG — which has already said why).
      */
-    const askToSave = async (then: () => void): Promise<boolean> => {
-        if (!engine.getState().modified) return true;
+    const saveAndWait = (): Promise<boolean> => {
+        const path = live.current.docPath;
+        if (isWritable(path)) return Promise.resolve(writePicture(path, engine.snapshot(), 'picture'));
+        saveAs();
+        return new Promise((resolve) => {
+            pendingSave.current = resolve;
+        });
+    };
+
+    /** File > Save and Ctrl+S: nothing waits for the result. */
+    const save = () => void saveAndWait();
+
+    /**
+     * XP's question: Yes saves, No discards, Cancel stays. Resolves true once the picture may be
+     * closed or replaced — nothing to lose, No, or Yes with the save done, waiting through Save As
+     * if it needs one — and false for Cancel, a cancelled Save As or a refused save. It never
+     * resolves false and acts later: Log Off reads false as Cancel. The message box must be the
+     * first thing it waits on, because Log Off brings forward only a window whose guard opens one.
+     */
+    const askToSave = async (): Promise<boolean> => {
+        if (!engine.unsaved) return true;
         const answer = await openDialog({
             title: 'Paint',
             body: [`Save changes to ${live.current.fileName}?`],
@@ -258,39 +285,33 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
         });
         if (answer === 'no') return true;
         if (answer === 'cancel') return false;
-        if (save()) return true;
-        afterSave.current = then;
-        return false;
+        return saveAndWait();
     };
     const askRef = useRef(askToSave);
     askRef.current = askToSave;
 
-    // The title-bar close button, Alt+F4 and File > Exit all ask about unsaved changes.
+    // The title-bar close button, Alt+F4, File > Exit and Log Off all ask about unsaved changes.
     useEffect(() => {
         if (!windowId) return;
-        return actions.registerCloseGuard(windowId, () => askRef.current(() => actions.closeWindow(windowId)));
+        return actions.registerCloseGuard(windowId, () => askRef.current());
     }, [windowId, actions]);
 
     /* ------------------------------------------------------------ files */
 
     const fileNew = async () => {
-        const reset = () => {
-            engine.newImage(initialSize.width, initialSize.height);
-            setDocPath(null);
-            setLocalName(null);
-            setLastSaved(null);
-        };
-        if (await askToSave(reset)) reset();
+        if (!(await askToSave())) return;
+        engine.newImage(initialSize.width, initialSize.height);
+        setDocPath(null);
+        setLocalName(null);
+        setLastSaved(null);
     };
 
     const fileOpen = async () => {
-        const open = () => setFileDialog({ mode: 'open', purpose: 'picture' });
-        if (await askToSave(open)) open();
+        if (await askToSave()) setFileDialog({ mode: 'open', purpose: 'picture' });
     };
 
     const openFromComputer = async () => {
-        const pick = () => openInput.current?.click();
-        if (await askToSave(pick)) pick();
+        if (await askToSave()) openInput.current?.click();
     };
 
     const exit = () => {
@@ -309,7 +330,7 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
             const problem = actions.setWallpaperFile(path, position);
             if (problem) void xpAlert('Paint', [problem], 'warning');
         };
-        if (live.current.docPath && !engine.getState().modified) {
+        if (live.current.docPath && !engine.unsaved) {
             apply();
             return;
         }
@@ -322,9 +343,7 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
                 { id: 'no', label: 'No', cancel: true },
             ],
         });
-        if (answer !== 'yes') return;
-        if (save()) apply();
-        else afterSave.current = apply;
+        if (answer === 'yes' && (await saveAndWait())) apply();
     };
 
     /**
@@ -428,8 +447,9 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
         if (!payload?.path || payload === lastPayload.current) return;
         lastPayload.current = payload;
         const target = payload.path;
-        const open = () => void openFromDesktop(target);
-        void askRef.current(open).then((ok) => ok && open());
+        void askRef.current().then((ok) => {
+            if (ok) void openFromDesktop(target);
+        });
         // `openFromDesktop` closes over stable setters and the engine.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [payload]);
@@ -549,11 +569,11 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
             items: [
                 { label: 'New', onSelect: () => void fileNew(), hint: 'Creates a new picture.' },
                 { label: 'Open...', shortcut: 'Ctrl+O', onSelect: () => void fileOpen(), hint: 'Opens a picture from My Pictures or elsewhere on this desktop.' },
-                { label: 'Save', shortcut: 'Ctrl+S', onSelect: () => void save(), hint: 'Saves the picture.' },
+                { label: 'Save', shortcut: 'Ctrl+S', onSelect: save, hint: 'Saves the picture.' },
                 {
                     label: 'Save As...',
                     accessKey: 'a',
-                    onSelect: () => setFileDialog({ mode: 'save', purpose: 'picture' }),
+                    onSelect: saveAs,
                     hint: 'Saves the picture with a new name.',
                 },
                 null,
@@ -683,12 +703,14 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
     return (
         <div
             ref={rootRef}
+            data-paint-root
             tabIndex={-1}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             onPointerDownCapture={(e) => {
                 const t = e.target as HTMLElement;
-                if (!t.closest('input, textarea, select, [role="menubar"]')) focusRoot();
+                // The Fonts toolbar works on the text box, which keeps the keyboard.
+                if (!t.closest('input, textarea, select, [role="menubar"], [data-paint-keep-focus]')) focusRoot();
             }}
             className="xp-face relative flex h-full select-none flex-col outline-none"
         >
@@ -759,7 +781,13 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
                     onCancel={() => setDialog(null)}
                     onOk={(sx, sy, kx, ky) => {
                         setDialog(null);
-                        engine.stretchSkew(sx, sy, kx, ky);
+                        const tooBig = engine.stretchSkew(sx, sy, kx, ky);
+                        if (tooBig) {
+                            void xpAlert('Paint', [
+                                `Stretched and skewed, the ${engine.hasSelection ? 'selection' : 'picture'} would be ${tooBig.width.toLocaleString()} x ${tooBig.height.toLocaleString()} pixels.`,
+                                `Paint on this desktop works with pictures up to ${MAX_SIDE.toLocaleString()} pixels on a side. Try a smaller percentage or angle.`,
+                            ], 'warning');
+                        }
                     }}
                 />
             )}
@@ -807,7 +835,7 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
                     types={PICTURE_TYPES}
                     onCancel={() => {
                         setFileDialog(null);
-                        afterSave.current = null;
+                        settleSave(false);
                         focusRoot();
                     }}
                     onConfirm={(path) => {
@@ -818,14 +846,13 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
                             else void readFromDesktop(path).then((b) => b && pasteBitmap(b));
                             return;
                         }
-                        const bitmap = request.purpose === 'picture' ? engine.snapshot() : engine.copySelection();
+                        // Copy To writes a file; it leaves Paint's clipboard as it was.
+                        const bitmap = request.purpose === 'picture' ? engine.snapshot() : engine.selectionBitmap();
                         // A refused write leaves the dialog open, so another name can be tried.
                         if (!bitmap || !writePicture(path, bitmap, request.purpose)) return;
                         setFileDialog(null);
                         focusRoot();
-                        const then = afterSave.current;
-                        afterSave.current = null;
-                        if (request.purpose === 'picture') then?.();
+                        if (request.purpose === 'picture') settleSave(true);
                     }}
                 />
             )}
@@ -850,15 +877,45 @@ function StatusBar({ engine, hint, resizing }: { engine: PaintEngine; hint: stri
     );
 }
 
-/** XP's floating "Fonts" toolbar for the Text tool. */
+/**
+ * XP's floating "Fonts" toolbar for the Text tool. It works on the text box without taking its
+ * keyboard: B / I / U never take focus, and choosing a font or size hands focus straight back, so
+ * the next keys type text rather than being lost or searching the font list.
+ */
 function TextToolbar({ engine, font, onClose }: { engine: PaintEngine; font: FontSettings; onClose: () => void }) {
+    const ref = useRef<HTMLDivElement>(null);
+    /** Whether the lists are being worked from the keyboard, which may arrow through several. */
+    const keyed = useRef(false);
+    const backToText = () => {
+        const box = ref.current?.closest('[data-paint-root]')?.querySelector<HTMLTextAreaElement>('textarea[data-paint-text]');
+        box?.focus({ preventScroll: true });
+    };
+    const listKeys = (e: KeyboardEvent<HTMLSelectElement>) => {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            backToText();
+        } else keyed.current = true;
+    };
+    /** A choice made with the mouse is finished, so the keyboard goes back to the text. */
+    const picked = () => {
+        if (!keyed.current) backToText();
+    };
+    const listMouse = () => {
+        keyed.current = false;
+    };
     const toggle = (key: 'bold' | 'italic' | 'underline', label: string, glyph: string, style: string) => (
         <button
             type="button"
             aria-label={label}
             aria-pressed={font[key]}
             title={label}
-            onClick={() => engine.setFont({ [key]: !font[key] })}
+            // A press on a button would move focus to it; the text box keeps it instead.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+                engine.setFont({ [key]: !font[key] });
+                backToText();
+            }}
             className={`h-[22px] w-[22px] text-[13px] ${style}`}
             style={font[key] ? { boxShadow: 'inset 1px 1px 0 #808080, inset -1px -1px 0 #fff', background: '#fff' } : RAISED}
         >
@@ -867,13 +924,15 @@ function TextToolbar({ engine, font, onClose }: { engine: PaintEngine; font: Fon
     );
     return (
         <div
+            ref={ref}
             role="toolbar"
             aria-label="Fonts"
+            data-paint-keep-focus
             className="absolute right-3 top-2 z-20 border border-[#0a246a] bg-[#ece9d8] shadow-[2px_2px_4px_rgba(0,0,0,0.35)]"
         >
             <div className="luna-title flex h-[18px] items-center justify-between px-1 text-[11px] font-bold text-white">
                 <span>Fonts</span>
-                <button type="button" onClick={onClose} aria-label="Close" title="Close" className="leading-none">
+                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={onClose} aria-label="Close" title="Close" className="leading-none">
                     &times;
                 </button>
             </div>
@@ -881,7 +940,12 @@ function TextToolbar({ engine, font, onClose }: { engine: PaintEngine; font: Fon
                 <select
                     aria-label="Font"
                     value={font.family}
-                    onChange={(e) => engine.setFont({ family: e.target.value })}
+                    onChange={(e) => {
+                        engine.setFont({ family: e.target.value });
+                        picked();
+                    }}
+                    onKeyDown={listKeys}
+                    onMouseDown={listMouse}
                     className={`${XP_SELECT_CLASS} w-[128px]`}
                 >
                     {FONT_FAMILIES.map((f) => (
@@ -893,7 +957,12 @@ function TextToolbar({ engine, font, onClose }: { engine: PaintEngine; font: Fon
                 <select
                     aria-label="Font size"
                     value={font.size}
-                    onChange={(e) => engine.setFont({ size: Number(e.target.value) })}
+                    onChange={(e) => {
+                        engine.setFont({ size: Number(e.target.value) });
+                        picked();
+                    }}
+                    onKeyDown={listKeys}
+                    onMouseDown={listMouse}
                     className={`${XP_SELECT_CLASS} w-[48px]`}
                 >
                     {FONT_SIZES.map((n) => (

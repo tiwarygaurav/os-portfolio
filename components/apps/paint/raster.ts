@@ -382,9 +382,10 @@ export function rectSpans(box: Box): Spans | null {
 }
 
 /**
- * The ellipse inscribed in `box`. Each row's span is the chord of the ellipse at that row's
- * centre line, so a one-pixel-tall or one-pixel-wide box still yields a line, and the result is
- * symmetric about both axes.
+ * The ellipse inscribed in `box`: the pixels whose centres fall inside it. Each row's span is the
+ * chord of the ellipse at that row's centre line, so a one-pixel-tall or one-pixel-wide box still
+ * yields a line, the result is symmetric about both axes, and it touches all four sides of the
+ * box — the widest rows reach both edges, whether the box is an even or an odd number of pixels.
  */
 export function ellipseSpans(box: Box): Spans | null {
     if (emptyBox(box)) return null;
@@ -401,7 +402,9 @@ export function ellipseSpans(box: Box): Spans | null {
             s.right[i] = Math.round(cx);
             continue;
         }
-        const half = rx * Math.sqrt(t) - 0.5;
+        // Rows are sampled at their centres, so columns must be too: a pixel is in when its centre
+        // is within the chord. (Taking half a pixel off here once made even-sized circles 2 px narrow.)
+        const half = rx * Math.sqrt(t);
         s.left[i] = Math.ceil(cx - half - 1e-9);
         s.right[i] = Math.floor(cx + half + 1e-9);
         // A chord narrower than a pixel still covers the pixel(s) at the centre — two of them
@@ -410,6 +413,13 @@ export function ellipseSpans(box: Box): Spans | null {
             s.left[i] = Math.floor(cx);
             s.right[i] = Math.ceil(cx);
         }
+    }
+    // The row or two astride the centre line span the box: a flat ellipse's widest chord falls
+    // between rows, where no pixel centre samples it, and Paint's ellipse always met the sides.
+    const n = s.left.length;
+    for (const i of [Math.floor((n - 1) / 2), Math.ceil((n - 1) / 2)]) {
+        s.left[i] = box.x0;
+        s.right[i] = box.x1;
     }
     return s;
 }
@@ -527,8 +537,11 @@ export function drawShape(
     }
     const inner = shapeSpans(kind, box, width);
     if (style === 'outline-fill' && inner) fillSpans(b, inner, fill, dirty);
-    if (width <= 1) outlineSpans(b, outer, stroke, dirty);
-    else fillRing(b, outer, inner, stroke, dirty);
+    if (width > 1) fillRing(b, outer, inner, stroke, dirty);
+    // Always the 4-connected edge as well. A thick ring is "outer minus inner" row by row, and
+    // where a flat ellipse's edge jumps several pixels between rows, the pieces of the ring meet
+    // only corner to corner — a gap Fill With Color leaks through.
+    outlineSpans(b, outer, stroke, dirty);
 }
 
 /* ------------------------------------------------------------------ polygons */
@@ -750,6 +763,22 @@ export function scale(b: Bitmap, w: number, h: number): Bitmap {
     return out;
 }
 
+/** The largest side Paint works with. Opened pictures are scaled to fit; nothing may grow past it. */
+export const MAX_SIDE = 2000;
+
+const stretched = (side: number, percent: number) => Math.max(1, Math.round((side * percent) / 100));
+/** The width (or height) a skew by `degrees` adds to a picture `across` pixels the other way. */
+const skewExtra = (degrees: number, across: number) => Math.round(Math.abs(Math.tan((degrees * Math.PI) / 180)) * (across - 1));
+
+/** The size `stretchSkew` would produce, without producing it — so a caller can refuse first. */
+export function stretchSkewSize(width: number, height: number, stretchX: number, stretchY: number, skewX: number, skewY: number): { width: number; height: number } {
+    let w = stretched(width, stretchX);
+    let h = stretched(height, stretchY);
+    if (skewX) w += skewExtra(skewX, h);
+    if (skewY) h += skewExtra(skewY, w);
+    return { width: w, height: h };
+}
+
 /**
  * Image > Stretch/Skew. Stretch by percentages, then shear by angles: a horizontal skew slides
  * each row sideways in proportion to its height, a vertical skew slides each column. The picture
@@ -757,13 +786,13 @@ export function scale(b: Bitmap, w: number, h: number): Bitmap {
  */
 export function stretchSkew(b: Bitmap, stretchX: number, stretchY: number, skewX: number, skewY: number, bg: number): Bitmap {
     let img = b;
-    const w = Math.max(1, Math.round((b.width * stretchX) / 100));
-    const h = Math.max(1, Math.round((b.height * stretchY) / 100));
+    const w = stretched(b.width, stretchX);
+    const h = stretched(b.height, stretchY);
     if (w !== b.width || h !== b.height) img = scale(b, w, h);
 
     if (skewX) {
         const t = Math.tan((skewX * Math.PI) / 180);
-        const extra = Math.round(Math.abs(t) * (img.height - 1));
+        const extra = skewExtra(skewX, img.height);
         const out = createBitmap(img.width + extra, img.height);
         out.px.fill(bg);
         for (let y = 0; y < img.height; y++) {
@@ -775,7 +804,7 @@ export function stretchSkew(b: Bitmap, stretchX: number, stretchY: number, skewX
     }
     if (skewY) {
         const t = Math.tan((skewY * Math.PI) / 180);
-        const extra = Math.round(Math.abs(t) * (img.width - 1));
+        const extra = skewExtra(skewY, img.width);
         const out = createBitmap(img.width, img.height + extra);
         out.px.fill(bg);
         for (let x = 0; x < img.width; x++) {

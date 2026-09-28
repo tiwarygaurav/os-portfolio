@@ -14,6 +14,7 @@
 
 import {
     Dirty,
+    MAX_SIDE,
     blit,
     bezierPoints,
     boxOf,
@@ -45,6 +46,7 @@ import {
     spray,
     squarePen,
     stretchSkew,
+    stretchSkewSize,
     strokeLine,
     strokeLineReplace,
     strokePolyline,
@@ -524,6 +526,15 @@ export class PaintEngine {
         return [Math.max(0, Math.min(this.doc.width - 1, x)), Math.max(0, Math.min(this.doc.height - 1, y))];
     }
 
+    /**
+     * A marquee's far corner is exclusive — it names the pixel just past the selection — so it may
+     * sit one past the last column or row. Clamping it to the last pixel instead made the last
+     * column and row impossible to select.
+     */
+    private clampCorner(x: number, y: number): [number, number] {
+        return [Math.max(0, Math.min(this.doc.width, x)), Math.max(0, Math.min(this.doc.height, y))];
+    }
+
     /** Finish everything in progress: the one call every menu command makes first. */
     commitAll() {
         if (this.gesture) this.cancelGesture();
@@ -702,7 +713,7 @@ export class PaintEngine {
                 this.polygonMove(x, y, mods);
                 break;
             case 'marquee':
-                [g.x1, g.y1] = this.clampToPicture(x, y);
+                [g.x1, g.y1] = this.clampCorner(x, y);
                 this.showMarquee(g);
                 break;
             case 'lasso':
@@ -1231,17 +1242,20 @@ export class PaintEngine {
         this.emitSelection();
     }
 
-    /** The selected pixels, as the clipboard should receive them; null with no selection. */
-    copySelection(): Bitmap | null {
+    /** The selected pixels (transparent outside a free-form selection); null with no selection. */
+    selectionBitmap(): Bitmap | null {
         const s = this.sel;
         if (!s) return null;
-        let b: Bitmap;
-        if (s.content) b = cloneBitmap(s.content);
-        else {
-            b = crop(this.doc, s);
-            if (s.mask) for (let i = 0; i < s.mask.length; i++) if (!s.mask[i]) b.px[i] = 0;
-        }
-        this.clipboard = b;
+        if (s.content) return cloneBitmap(s.content);
+        const b = crop(this.doc, s);
+        if (s.mask) for (let i = 0; i < s.mask.length; i++) if (!s.mask[i]) b.px[i] = 0;
+        return b;
+    }
+
+    /** Edit > Copy: the selected pixels, kept as Paint's clipboard too. Copy To does not use this. */
+    copySelection(): Bitmap | null {
+        const b = this.selectionBitmap();
+        if (b) this.clipboard = b;
         return b;
     }
 
@@ -1366,12 +1380,21 @@ export class PaintEngine {
         );
     }
 
-    stretchSkew(stretchX: number, stretchY: number, skewX: number, skewY: number) {
+    /**
+     * Image > Stretch/Skew, on the selection if there is one, else the picture. Refused when the
+     * result would pass `MAX_SIDE` — 500% or a steep skew can ask for tens of thousands of pixels,
+     * more than a canvas holds — and the size it would have been is returned; null when applied.
+     */
+    stretchSkew(stretchX: number, stretchY: number, skewX: number, skewY: number): { width: number; height: number } | null {
+        const [w, h] = this.sel ? [this.sel.w, this.sel.h] : [this.doc.width, this.doc.height];
+        const size = stretchSkewSize(w, h, stretchX, stretchY, skewX, skewY);
+        if (size.width > MAX_SIDE || size.height > MAX_SIDE) return size;
         this.transform(
             // Inside a selection, uncovered corners are transparent rather than a colour.
             (c) => stretchSkew(c, stretchX, stretchY, skewX, skewY, 0),
             () => this.swapDoc(stretchSkew(this.doc, stretchX, stretchY, skewX, skewY, pixelOf(this.state.bg))),
         );
+        return null;
     }
 
     invertColors() {
@@ -1459,6 +1482,22 @@ export class PaintEngine {
 
     markSaved() {
         this.set({ modified: false });
+    }
+
+    /**
+     * Whether closing or replacing the picture now would lose anything: a change since the last
+     * New, Open or Save, or work still in progress that the next command would drop into the
+     * picture — a pasted, moved or transformed selection, typed text, an unfinished curve or
+     * polygon. `modified` alone misses those, because they reach the history only when committed.
+     */
+    get unsaved(): boolean {
+        return (
+            this.state.modified ||
+            !!this.sel?.content ||
+            !!(this.text && !this.text.sizing && this.text.value.trim()) ||
+            !!this.curve ||
+            !!this.polygon
+        );
     }
 
     /** The finished picture, with anything floating dropped into place first. */

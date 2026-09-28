@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { focusInList } from '@/utils/scroll';
 import { XPButton } from './xp-controls';
 
 /**
@@ -72,7 +73,9 @@ export default function AppDialog({
             root.querySelector<HTMLElement>('input:not([type="radio"]):not([type="checkbox"]):not([disabled]), select:not([disabled])') ??
             root.querySelector<HTMLElement>('button[data-ok]') ??
             root;
-        target.focus();
+        // Without scrolling the window: a plain focus() moves a window parked low on the screen up
+        // inside its frame, and its title bar out of reach. Only the dialog's own body scrolls.
+        focusInList(target);
         if (target instanceof HTMLInputElement && target.type !== 'number') target.select();
         return () => {
             const now = document.activeElement;
@@ -110,7 +113,7 @@ export default function AppDialog({
             e.preventDefault();
             const i = stops.indexOf(document.activeElement as HTMLElement);
             const next = e.shiftKey ? (i <= 0 ? stops.length - 1 : i - 1) : i === stops.length - 1 ? 0 : i + 1;
-            stops[next].focus();
+            focusInList(stops[next]);
         }
     };
 
@@ -129,6 +132,7 @@ export default function AppDialog({
                 ref={ref}
                 role="dialog"
                 aria-modal="true"
+                data-app-dialog
                 aria-label={title}
                 tabIndex={-1}
                 onKeyDown={onKeyDown}

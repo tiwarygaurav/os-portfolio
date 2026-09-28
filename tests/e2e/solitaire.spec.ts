@@ -62,3 +62,20 @@ test('Options: Draw One deals a new game that turns one card at a time', async (
     await (await top(page, 'stock')).click();
     await expect(pile(page, 'waste')).toHaveCount(1);
 });
+
+test('Options and the card back last the session, across closing the window', async ({ page }) => {
+    await table(page).getByRole('menuitem', { name: 'Game' }).click();
+    await page.getByRole('menuitem', { name: /^Options/ }).click();
+    const options = page.getByRole('dialog', { name: 'Options' });
+    await options.getByLabel('Draw one').check();
+    await options.getByLabel('Vegas').check();
+    await options.getByRole('button', { name: 'OK' }).click();
+    await table(page).locator('.xp-titlebar').getByRole('button', { name: 'Close' }).click();
+    await expect(table(page)).toHaveCount(0);
+
+    await run(page, 'sol');
+    await table(page).getByRole('menuitem', { name: 'Game' }).click();
+    await page.getByRole('menuitem', { name: /^Options/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Options' }).getByLabel('Draw one')).toBeChecked();
+    await expect(page.getByRole('dialog', { name: 'Options' }).getByLabel('Vegas')).toBeChecked();
+});

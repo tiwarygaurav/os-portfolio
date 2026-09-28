@@ -8,6 +8,12 @@ import { MAX_SIDE, SAVE_FORMATS, type SaveFormat } from './codec';
 import { TOOLS, ZOOM_LEVELS } from './tools';
 import type { RGB } from './raster';
 
+/**
+ * Paint's own dialogs, each an `AppDialog` over the window: Attributes, Flip and Rotate, Stretch
+ * and Skew, Zoom Custom, Save to Computer, Help Topics, and Edit Colors with its 48 basic colours
+ * and XP's 0-240 Hue / Sat / Lum. They collect an answer; PaintApp applies it to the engine.
+ */
+
 /** The resolution Paint reports and converts units with. Browsers assume 96 dpi as well. */
 const DPI = 96;
 

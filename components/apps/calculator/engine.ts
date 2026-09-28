@@ -84,8 +84,11 @@ export interface CalcState {
     /** What a repeated = applies again. */
     lastOp: { op: BinaryOp; operand: Num } | null;
     memory: Num;
-    /** The Statistics Box. Values are kept as doubles and shown in the current number system. */
-    stats: number[];
+    /**
+     * The Statistics Box. Each value is kept as it was entered — a double from Dec, a BigInt from
+     * Hex, Oct or Bin — and shown in the current number system, so a Qword survives exactly.
+     */
+    stats: Num[];
     statsOpen: boolean;
     error: string | null;
 }
@@ -159,21 +162,30 @@ const zeroOf = (s: Pick<CalcState, 'radix'>): Num => (isIntMode(s) ? BIG0 : 0);
 /**
  * Round a decimal result to the 16 significant digits a double can carry, and turn -0 into 0.
  *
- * A double holds 15.95 decimal digits, so the 16th is partly noise: 0.7 + 0.1 is
- * 0.7999999999999999 and sin 30 is 0.4999999999999999 at 16 digits. When the 16th digit is within
- * one unit of a 15-digit number, that is binary rounding rather than information, and the result
- * snaps to the 15-digit number (0.8, 0.5) — which is what XP's 32-digit arithmetic showed. A result
- * further away keeps all 16 digits (1/3 is 0.3333333333333333).
+ * A double holds 15.95 decimal digits, so the 16th is sometimes noise: 0.7 + 0.1 is
+ * 0.7999999999999999 and sin 30 is 0.4999999999999999 at 16 digits. When the double is within two
+ * units in its last place (ulps) of a 15-digit number, the 16th digit is binary rounding rather than
+ * information, and the result snaps to the 15-digit number (0.8, 0.5) — which is what XP's 32-digit
+ * arithmetic showed. Anything further keeps all 16 digits: 1/3 is 0.3333333333333333, and
+ * 1000000000000001 — an exact double, eight ulps from 1e15 — stays exactly that. (Deciding by the
+ * size of the 16th digit instead used to drop a correct final 1 or 9.)
  */
 export function tidy(x: number): number {
     if (Number.isNaN(x)) fail(ERR.invalidInput);
     if (!Number.isFinite(x)) fail(ERR.overflow);
     if (x === 0) return 0;
+    // Every integer up to 2^53 is exact, so its last digit is never noise — even where the gap
+    // between doubles is a whole 1 and "two ulps" would reach the next integer.
+    if (Number.isSafeInteger(x)) return x;
     const r16 = Number(x.toPrecision(DEC_DIGITS));
     const r15 = Number(x.toPrecision(DEC_DIGITS - 1));
     if (r15 === r16) return r16;
-    const unit = Math.pow(10, Number(r16.toExponential().split('e')[1]) - (DEC_DIGITS - 1));
-    return Math.abs(r16 - r15) <= unit * 1.5 ? r15 : r16;
+    return Math.abs(x - r15) <= 2 * ulp(r15) ? r15 : r16;
+}
+
+/** One unit in the last place of a double near `x`: the gap between it and the next one. */
+function ulp(x: number): number {
+    return Math.pow(2, Math.floor(Math.log2(Math.abs(x))) - 52);
 }
 
 const truncBig = (x: number): bigint => BigInt(Math.trunc(x));
@@ -308,6 +320,37 @@ function intPower(word: WordSize, a: bigint, b: bigint): bigint {
     return result;
 }
 
+/** `base` to a small non-negative power, exactly. */
+function bigPow(base: bigint, e: number): bigint {
+    let r = BIG1;
+    for (let i = 0; i < e; i++) r *= base;
+    return r;
+}
+
+/**
+ * Inv+x^y in Hex, Oct and Bin: the b-th root of a, rounded toward zero, exact to the last bit. The
+ * double estimate is corrected against the integer itself — a Qword has more bits than a double,
+ * so B504F333² overshoots 7FFFFFFE9EA1DC28 while B504F332² does not.
+ */
+function intRoot(word: WordSize, a: bigint, b: bigint): bigint {
+    if (b === BIG0) fail(ERR.invalidInput);
+    // A negative root is 1 over a positive one, which rounds toward zero; doubles are exact enough.
+    if (b < BIG0) return BigInt.asIntN(word, truncBig(root(Number(a), Number(b))));
+    const odd = (b & BIG1) === BIG1;
+    if (a < BIG0 && !odd) fail(ERR.invalidInput);
+    const mag = a < BIG0 ? -a : a;
+    // Past the 64th root, nothing a Qword holds has a root of 2 or more.
+    const n = Number(b);
+    let r: bigint;
+    if (n >= 64) r = mag >= BIG1 ? BIG1 : BIG0;
+    else {
+        r = BigInt(Math.floor(Math.pow(Number(mag), 1 / n)));
+        while (r > BIG0 && bigPow(r, n) > mag) r -= BIG1;
+        while (bigPow(r + BIG1, n) <= mag) r += BIG1;
+    }
+    return BigInt.asIntN(word, a < BIG0 ? -r : r);
+}
+
 function applyInt(word: WordSize, a: bigint, op: BinaryOp, b: bigint): bigint {
     const wrap = (v: bigint) => BigInt.asIntN(word, v);
     const bits = BigInt(word);
@@ -327,7 +370,7 @@ function applyInt(word: WordSize, a: bigint, op: BinaryOp, b: bigint): bigint {
         case 'pow':
             return intPower(word, a, b);
         case 'root':
-            return wrap(truncBig(root(Number(a), Number(b))));
+            return intRoot(word, a, b);
         case 'and':
             return wrap(a & b);
         case 'or':
@@ -403,13 +446,30 @@ function trig(s: CalcState, fn: 'sin' | 'cos' | 'tan', x: number): number {
     }
     /*
      * Exactly on a quarter turn the answer is exact, as it was with XP's 32 digits: sin 180 is 0,
-     * not 1.2e-16, and tan 90 has no value. In radians that means an exact multiple of the double
-     * nearest pi/2 — which is what the pi key produces.
+     * not 1.2e-16, and tan 90 has no value.
+     *
+     * In degrees and grads the angle is reduced to one turn first — `%` on doubles is exact — so a
+     * huge angle is judged by where it really points: sin 1.7e17 is sin 80, not a quarter turn that
+     * dividing by 90 and rounding happened to land on.
+     *
+     * In radians a quarter turn is what the display shows as one: a multiple of pi/2 to the 16
+     * digits shown. pi / 2 comes back from that rounding a hair off the double nearest pi/2, and
+     * cos of it used to show -3.8e-16. Only while the angle is small enough that 16 digits pin the
+     * multiple down; far out, doubles are too coarse to say, and the sine is computed.
      */
-    const quarter = s.angle === 'deg' ? 90 : s.angle === 'grad' ? 100 : Math.PI / 2;
-    const k = Math.round(x / quarter);
-    if (k * quarter === x) {
-        const q = ((k % 4) + 4) % 4;
+    let quarterTurns: number | null = null;
+    if (s.angle === 'rad') {
+        const k = Math.round(x / (Math.PI / 2));
+        const shown = (v: number) => Number(v.toPrecision(DEC_DIGITS));
+        if (Math.abs(k) <= 1e6 && (k === 0 ? x === 0 : shown((k * Math.PI) / 2) === shown(x))) quarterTurns = k;
+    } else {
+        const turn = s.angle === 'deg' ? 360 : 400;
+        const y = x % turn;
+        const k = Math.round(y / (turn / 4));
+        if ((k * turn) / 4 === y) quarterTurns = k;
+    }
+    if (quarterTurns !== null) {
+        const q = ((quarterTurns % 4) + 4) % 4;
         if (fn === 'sin') return [0, 1, 0, -1][q];
         if (fn === 'cos') return [1, 0, -1, 0][q];
         if (q % 2 === 1) fail(ERR.invalidInput);
@@ -531,9 +591,15 @@ function unaryInt(s: CalcState, key: UnaryKey, x: bigint): bigint {
     }
 }
 
-function statistic(s: CalcState, key: 'ave' | 'sum' | 'dev'): number {
-    const xs = s.stats;
-    const n = xs.length;
+function statistic(s: CalcState, key: 'ave' | 'sum' | 'dev'): Num {
+    const n = s.stats.length;
+    if (isIntMode(s) && key !== 'dev') {
+        // Hex, Oct and Bin: whole numbers of the word size, added exactly, as the keypad's are.
+        const ints = s.stats.map((v) => convert(v, s.radix, s.word) as bigint);
+        const total = ints.reduce((a, b) => a + (s.inv ? b * b : b), BIG0);
+        return BigInt.asIntN(s.word, key === 'sum' ? total : total / BigInt(n));
+    }
+    const xs = s.stats.map(asNumber);
     const sum = xs.reduce((a, b) => a + b, 0);
     const sumSq = xs.reduce((a, b) => a + b * b, 0);
     if (key === 'ave') return tidy(s.inv ? sumSq / n : sum / n);
@@ -845,11 +911,11 @@ function step(s: CalcState, key: Key): CalcState {
         case 'sta':
             return { ...s, statsOpen: !s.statsOpen };
         case 'dat':
-            return { ...commit(s), stats: [...s.stats, asNumber(current(s))] };
+            return { ...commit(s), stats: [...s.stats, current(s)] };
         case 'ave':
         case 'sum':
         case 'dev':
-            return result(consumed(s), fromNumber(s, statistic(s, key)));
+            return result(consumed(s), convert(statistic(s, key), s.radix, s.word));
         case 'hex':
             return setRadix(s, 16);
         case 'dec':
@@ -912,7 +978,7 @@ export const toggleGrouping = (s: CalcState): CalcState => ({ ...s, grouping: !s
 /** LOAD: put a stored value on the display. */
 export function statLoad(s: CalcState, index: number): CalcState {
     if (s.error !== null || index < 0 || index >= s.stats.length) return s;
-    return result(s, fromNumber(s, s.stats[index]));
+    return result(s, convert(s.stats[index], s.radix, s.word));
 }
 
 /** CD: delete one value. */
@@ -994,7 +1060,7 @@ export function displayText(s: CalcState): string {
 }
 
 /** A stored statistic in the current number system, for the Statistics Box list. */
-export const formatStat = (s: CalcState, x: number): string => formatValue(s, fromNumber(s, x));
+export const formatStat = (s: CalcState, x: Num): string => formatValue(s, convert(x, s.radix, s.word));
 
 /**
  * What Copy puts on the clipboard: the display without grouping or XP's trailing point, so it
