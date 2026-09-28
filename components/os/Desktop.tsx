@@ -24,6 +24,13 @@ import { useIsMobile } from '@/utils/viewport';
 import type { AppConfig } from '@/constants/apps';
 
 /**
+ * The desktop: the wallpaper and its icons, with XP's selection (click, Ctrl+click, the rubber band,
+ * arrow keys), the windows, the taskbar, and the session around them: the Log Off and Turn Off
+ * dialogs, Stand By, Switch User and "Saving your settings...". It also decides who has the
+ * keyboard: the desktop only while the last press landed on it.
+ */
+
+/**
  * Send icons to the Recycle Bin, asking first — in XP's own words for one item or several.
  *
  * Module scope on purpose: the Delete-key handler and the context menu both need it, and the

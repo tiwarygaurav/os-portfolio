@@ -117,7 +117,7 @@ export default function ExitWindows({ kind, onCancel, onStandBy, onSwitchUser, o
 
     useEffect(() => {
         if (!mounted) return;
-        ref.current?.querySelector<HTMLButtonElement>(`[data-exit="${primary}"]`)?.focus();
+        ref.current?.querySelector<HTMLButtonElement>(`[data-exit="${primary}"]`)?.focus({ preventScroll: true });
     }, [mounted, primary]);
 
     useEffect(() => () => window.clearTimeout(tipTimer.current), []);
@@ -137,7 +137,7 @@ export default function ExitWindows({ kind, onCancel, onStandBy, onSwitchUser, o
                 e.preventDefault();
                 const back = e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey);
                 const next = back ? (i <= 0 ? focusables.length - 1 : i - 1) : (i + 1) % focusables.length;
-                focusables[next]?.focus();
+                focusables[next]?.focus({ preventScroll: true });
                 return;
             }
             if (e.key === 'Enter' || e.key === ' ') {

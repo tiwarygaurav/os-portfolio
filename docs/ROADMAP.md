@@ -10,8 +10,9 @@ is wrong.
 
 ---
 
-> **Status, 2026-09-03.** Sections 1, 2, 4 and 9 are built and verified. What remains open is
-> marked below. Read this together with the decision log in `CLAUDE.md` §8.
+> **Status, 2026-09-24.** Sections 1, 2, 3, 4, 5, 7 and 11 are built and verified, and §9 is built
+> for phones. Open: §6 (project artifacts), §8 (workspaces) and the tablet tier of §9; §10 is a
+> standing rule, not a feature. Read this together with the decision log in `CLAUDE.md` §8.
 
 ## 0. What already exists (do not rebuild)
 
@@ -19,8 +20,11 @@ is wrong.
 | --- | --- | --- |
 | Typed canonical content | `content/` | Complete for profile, roles, projects, skills, education |
 | Provenance / uncertainty | `content/types.ts` `Sourced<T>` | Complete |
-| Virtual filesystem | `system/vfs.ts` | Complete; `/proc` is live |
-| Headless shell | `system/shell.ts` | 22 commands, returns `ShellLine[]` |
+| Virtual filesystem | `system/vfs.ts` | Complete; `/proc` is live, `/home/guest` is the visitor's and writable, `/usr/src` is this build's module graph |
+| Headless shell | `system/shell.ts` | 39 commands, pipes and `>` / `>>` redirection; returns `ShellLine[]` |
+| Event bus | `system/bus.ts` | Complete; read by the Event Viewer and `events` |
+| Windows Explorer | `components/apps/ExplorerApp.tsx` | Complete; views, menus, Cut/Copy/Paste, drag and drop, Search, Folders, multiple selection |
+| System Information | `components/apps/SystemInfoApp.tsx`, `scripts/architecture.mjs` | Complete; the module graph and the dependency rule, generated at build time |
 | Window manager | `store/useSystemStore.ts` | z-order bounded, clamped, minimise/maximise lossless |
 | App registry | `constants/apps.ts` | **Unified.** Metadata + lazy component + surfaces + Run aliases |
 | XP message boxes | `components/os/Dialog.tsx`, `utils/dialog.ts` | Complete; no native dialogs remain |

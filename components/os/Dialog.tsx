@@ -107,7 +107,7 @@ function DialogBox({ request, index, flash }: { request: DialogRequest; index: n
     // Focus the default button so Enter works immediately and the dialog owns the keyboard.
     useEffect(() => {
         const el = ref.current?.querySelector<HTMLButtonElement>('button[data-default="true"]');
-        el?.focus();
+        el?.focus({ preventScroll: true });
     }, []);
 
     // A click outside the box: flash the title bar a few times, as XP did. Only for clicks made
@@ -166,7 +166,7 @@ function DialogBox({ request, index, flash }: { request: DialogRequest; index: n
                 const list = Array.from(focusable);
                 const i = list.indexOf(document.activeElement as HTMLButtonElement);
                 const next = e.shiftKey ? (i <= 0 ? list.length - 1 : i - 1) : (i === list.length - 1 ? 0 : i + 1);
-                list[next].focus();
+                list[next].focus({ preventScroll: true });
                 return;
             }
             // Every other key (arrows, letters, ...) is swallowed too: with a dialog open, the

@@ -5,10 +5,12 @@ import Image from 'next/image';
 import { SYSTEM } from '@/content';
 
 /**
- * The full-screen states around a session, in the layout XP gave them: the Welcome screen's bands
- * and glow, with the logo and one line of status. "Saving your settings..." when logging off,
- * "... is shutting down..." when turning off.
+ * The full-screen states around a session: "Saving your settings..." and "... is shutting
+ * down..." in the Welcome screen's layout, Stand By's dark screen, and the powered-off screen whose
+ * one button starts the machine again.
  */
+
+/** One line of status in the Welcome screen's layout: its bands and glow, and the logo. */
 export function StatusScreen({ message }: { message: string }) {
     return (
         <div className="xp-logon" role="status" aria-live="polite">

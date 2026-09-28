@@ -10,6 +10,11 @@ import ErrorBoundary from '@/components/os/ErrorBoundary';
 import { PoweredOffScreen, StatusScreen, shuttingDownMessage } from '@/components/os/SessionScreens';
 import { consumeRestart } from '@/components/os/power';
 
+/**
+ * The single page, and the machine's power state: boot, the Welcome screen, the desktop, the
+ * shutdown screen, and after Turn Off, powered off until the power button reloads the page.
+ */
+
 /** How long "... is shutting down..." shows — long enough for the shutdown sound to play. */
 const SHUTDOWN_MS = 2800;
 
