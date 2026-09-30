@@ -78,3 +78,22 @@ test('a slow startup.mp3 still plays: priming it never pauses the real startup s
     expect(final.pause).toBe(0);
     expect(final.playing).toBe(true);
 });
+
+test('a right-click while the last menu fades out opens a new menu', async ({ page }) => {
+    // On Playwright's clock, so the fade can be held part-way instead of raced.
+    await page.clock.install();
+    await bootAndLogin(page);
+    await page.mouse.click(900, 300, { button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Refresh' })).toBeVisible();
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.pauseAt(now + 1000);
+    await page.getByRole('menuitem', { name: 'Refresh' }).click();
+    // A few frames into its 100 ms fade: the chosen menu is still there, over the same point.
+    await page.clock.runFor(40);
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(1);
+    await page.mouse.click(900, 300, { button: 'right' });
+    await page.clock.resume();
+    // Once the old menu has gone, the new one is there: the old one used to take the press.
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(1);
+    await expect(page.getByRole('menu')).toHaveCount(1);
+});

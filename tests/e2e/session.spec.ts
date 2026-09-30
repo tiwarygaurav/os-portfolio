@@ -115,9 +115,10 @@ test('a double-click begun after the waking click has been counted out opens the
     await page.mouse.down();
     await page.mouse.up();
     await expect(page.locator('.xp-standby')).toHaveCount(0);
-    // A fresh double-click (its first click counts 1): only a double-click completed with the waking
-    // click is eaten, and a fixed 800 ms clock used to eat this one too.
-    await page.waitForTimeout(300);
+    // A fresh double-click, its first click counted 1: only a double-click completed with the waking
+    // click is eaten, and a fixed 800 ms clock used to eat this one too. (Playwright sets the count
+    // itself; 600 ms is past Windows' 500 ms double-click time, where a real browser counts 1 too.)
+    await page.waitForTimeout(600);
     await page.mouse.dblclick(icon.x, icon.y);
     await expect(windows(page)).toHaveCount(1);
 });

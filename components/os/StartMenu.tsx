@@ -119,7 +119,8 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             onClose();
         };
         const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return;
+            // A chord is not this Escape: Ctrl+Shift+Esc still reaches the desktop (Task Manager).
+            if (e.key !== 'Escape' || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
             // Only the menu closes: not the desktop's own Escape, which would also deselect its icons.
             e.stopPropagation();
             onClose();
@@ -296,7 +297,14 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             role="menu"
             aria-label="Start menu"
             data-nav={nav}
-            onMouseMove={() => nav === 'keys' && setNav('pointer')}
+            onMouseMove={(e) => {
+                if (nav !== 'keys') return;
+                // The mouse takes the selection back: the item under it becomes the one selection,
+                // even if the pointer has not left it since the keyboard moved on.
+                setNav('pointer');
+                const item = (e.target as Element).closest<HTMLElement>('[data-sm]');
+                if (item) point(item);
+            }}
         >
             <div className="xp-startmenu-header" role="none">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

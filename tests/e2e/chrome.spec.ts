@@ -126,24 +126,6 @@ test('Show Desktop\'s second click brings back what is still open, and makes it 
     await expect(page.locator('.xp-task-btn', { hasText: 'Notepad' })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('a right-click while the last menu fades out opens a new menu', async ({ page }) => {
-    // How many menus were in the page when the right-click arrived: 1 means the old one was still
-    // fading out over the point, which is the case this test is about.
-    await desktopMenu(page);
-    await page.evaluate(() => {
-        const w = window as unknown as { __menusAtRightClick: number };
-        document.addEventListener('contextmenu', () => {
-            w.__menusAtRightClick = document.querySelectorAll('[data-xp-menu]').length;
-        }, { capture: true, once: true });
-    });
-    await page.getByRole('menuitem', { name: 'Refresh' }).click();
-    await page.mouse.click(900, 300, { button: 'right' });
-    expect(await page.evaluate(() => (window as unknown as { __menusAtRightClick: number }).__menusAtRightClick)).toBe(1);
-    // Once the old one has gone, the new one is there: it used to take the press and open nothing.
-    await expect(page.locator('[data-xp-menu]')).toHaveCount(1);
-    await expect(page.getByRole('menu')).toHaveCount(1);
-});
-
 test('choosing a menu item never moves focus into the menu', async ({ page }) => {
     // Any focus inside a menu, at any moment, is recorded: a fading menu is aria-hidden, and focus
     // inside it is hidden from a screen reader, which Chrome refuses and logs.
@@ -158,6 +140,48 @@ test('choosing a menu item never moves focus into the menu', async ({ page }) =>
     await page.getByRole('menuitem', { name: 'Refresh' }).click();
     await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
     expect(await page.evaluate(() => (window as unknown as { __menuFocus: number }).__menuFocus)).toBe(0);
+});
+
+test('choosing from a submenu with the mouse leaves the keyboard with the window', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    await w.locator('button[data-name="about.md"]').click();
+    const area = (await w.locator('ul').locator('xpath=..').boundingBox())!;
+    await page.mouse.click(area.x + area.width - 12, area.y + area.height - 12, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'View' }).hover();
+    // The pointer goes into the submenu to choose: it must not take focus out of the list with it...
+    await page.getByRole('menuitemcheckbox', { name: 'List', exact: true }).hover();
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-window]'))).toBe(true);
+    // ...nor after choosing.
+    await page.getByRole('menuitemcheckbox', { name: 'List', exact: true }).click();
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-window]'))).toBe(true);
+});
+
+test('a menu driven by keys hands focus back where it was when it closes', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const about = w.locator('button[data-name="about.md"]');
+    await about.click();
+    await page.evaluate(() => {
+        const g = window as unknown as { __hiddenOverFocus: number };
+        g.__hiddenOverFocus = 0;
+        new MutationObserver((records) => {
+            for (const r of records) {
+                const el = r.target as Element;
+                if (el.getAttribute('aria-hidden') === 'true' && el.contains(document.activeElement)) g.__hiddenOverFocus++;
+            }
+        }).observe(document.body, { attributes: true, attributeFilter: ['aria-hidden'], subtree: true });
+    });
+    await about.click({ button: 'right' });
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu]'))).toBe(true);
+    // Escape closes it without choosing: focus returns to the file it came from, before the fade.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    await expect(about).toBeFocused();
+    expect(await page.evaluate(() => (window as unknown as { __hiddenOverFocus: number }).__hiddenOverFocus)).toBe(0);
 });
 
 test('a submenu used from the keyboard takes focus, and gives it up before it fades', async ({ page }) => {
@@ -197,11 +221,11 @@ test('a press in a menu ends a rename in progress, which keeps the new name', as
     await expect(box).toBeFocused();
     await page.keyboard.type('Plans');
     // Still naming it, right-click inside the box (the folder's menu opens and the box keeps focus)
-    // and choose New > Folder: the press on the menu must end the rename, as a press anywhere else
-    // would, rather than drop the typed name.
+    // and choose Arrange Icons By > Name, which moves no focus of its own: the press on the menu must
+    // end the rename, as a press anywhere else would, rather than drop the typed name.
     await box.click({ button: 'right' });
-    await menuItem('New').click();
-    await menuItem('Folder').click();
+    await menuItem('Arrange Icons By').click();
+    await page.getByRole('menuitemcheckbox', { name: 'Name', exact: true }).click();
     await expect(item('Plans')).toBeVisible();
 });
 
@@ -406,6 +430,50 @@ test.describe('the Start menu from the keyboard', () => {
         // A fresh press does.
         await page.keyboard.press('u');
         await expect(page.getByText(/is shutting down\.\.\./)).toBeVisible();
+    });
+
+    test('a held Enter on the Start button opens the menu but launches nothing', async ({ page }) => {
+        await page.locator('.xp-start-button').focus();
+        await page.keyboard.down('Enter');
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+        await page.keyboard.down('Enter'); // the key repeating, now on the first item
+        await page.keyboard.down('Enter');
+        await page.keyboard.up('Enter');
+        await page.waitForTimeout(300);
+        await expect(windows(page)).toHaveCount(0);
+        // A fresh Enter does launch it.
+        await page.keyboard.press('Enter');
+        await expect(windows(page)).toHaveCount(1);
+    });
+
+    test('a held Enter on All Programs opens it but chooses nothing in it', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('End'); // All Programs, at the foot of the left side
+        expect((await focused(page)).label).toBe('All Programs');
+        await page.keyboard.down('Enter');
+        await expect(flyouts(page)).toHaveCount(1);
+        await page.keyboard.down('Enter'); // repeating: into a group...
+        await page.keyboard.down('Enter'); // ...and on to a program
+        await page.keyboard.up('Enter');
+        await page.waitForTimeout(300);
+        await expect(windows(page)).toHaveCount(0);
+    });
+
+    test('Escape closes the Start menu and nothing else: the desktop keeps its selection', async ({ page }) => {
+        const contact = page.locator('[data-desktop-icon="contact"]');
+        await contact.click();
+        await expect(contact).toHaveAttribute('aria-pressed', 'true');
+        await page.getByText('start', { exact: true }).first().click();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.xp-startmenu')).toHaveCount(0);
+        await expect(contact).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('Ctrl+Shift+Esc with the Start menu open still opens Task Manager', async ({ page }) => {
+        await page.getByText('start', { exact: true }).first().click();
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+        await page.keyboard.press('Control+Shift+Escape');
+        await expect(win(page, 'Windows Task Manager')).toBeVisible();
     });
 
     test('Start, U, U with unsaved work asks about it first', async ({ page }) => {

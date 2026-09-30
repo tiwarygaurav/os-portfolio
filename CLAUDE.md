@@ -361,7 +361,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome loads only `public/icons/xp/` (~350 KB for the set), plus the XP logo bitmaps, the Windows flag and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` is set to `https://gauravtiwary.com` in the Vercel project's production environment, so the Open Graph card points there; nothing is hardcoded. Previews and local builds have no site URL. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, message boxes and the exit dialogs trap focus, and the Start menu is driven from the keyboard once reached with Tab and opened with Enter or Space; Ctrl+Esc and the Windows key belong to the host OS). XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, message boxes and the exit dialogs trap focus, and the Start menu is driven from the keyboard once reached with Tab and opened with Enter or Space; Ctrl+Esc and the Windows key are not handled, and on Windows the OS takes them first). XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
 ---
 
@@ -467,6 +467,35 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - Fixes from the review of d4b2b2d: focus moves only for the keys, and comes back
+
+The files session held d4b2b2d for one regression against the live site, and four small findings.
+- **The mouse took focus into menus.** d4b2b2d moved real focus with the selection in any panel that
+  "owned the keyboard", and a pointer entering a submenu hands it the keyboard. So choosing View >
+  List in Explorer's menu with the mouse pulled focus out of the file list, and chose with a blur to
+  `<body>`: the list's arrows, Delete, F2, Ctrl+A and Backspace did nothing until it was clicked
+  again. Focus now moves only in a panel the keys are driving: one opened by a key, or one a key has
+  been pressed in. The pointer never moves focus into a menu.
+- **Focus comes back on every close.** The root panel remembers where focus was when the menu first
+  took it. Choosing an item hands it back there (not to `<body>`), and so does every other close —
+  Escape, a click outside, the window losing focus, a hover moving on — in a layout effect as the
+  fade begins, before the page paints.
+- **N2:** a held Enter on All Programs or Connect To went on into the flyout and launched a program;
+  a menu panel ignores a repeating Enter or Space.
+- **N3:** a mouse move that stays inside the hovered item now hands it the selection, so only one
+  item is lit. **N4:** the Start menu's Escape ignores chords, so Ctrl+Shift+Esc still opens Task
+  Manager. **N5:** only a click counted 1 ends the waking double-click watch; a click with no press
+  (count 0, from the keyboard or a script) says nothing.
+**Tests.** Each of these failed on a build with its fix reverted: the mouse choosing from a
+submenu leaves focus in the window (checked while pointing, too, since the hand-back alone would
+otherwise hide it); a menu driven by keys hands focus back on Escape, with no `aria-hidden` over
+focus; a held Enter on the Start button (the Start menu's own guard) and on All Programs (the
+panel's); Escape keeps the desktop's selection; Ctrl+Shift+Esc with the Start menu open; the rename
+test, now choosing Arrange Icons By > Name, which moves no focus of its own; and the fade-out
+right-click, now on Playwright's clock with the fade held part-way. Masking reverts were checked in
+separate builds. Still not covered: the lost-release wake, the Start menu's key gate apart from its
+focusin close, the hover suppression, and N5.
+
 ### 2026-10-01 - Fixes from the review of 0901d44 (the Start menu's keyboard)
 
 The files session reviewed 0901d44 and found it sound, with nine findings to follow up. All are
@@ -478,15 +507,17 @@ addressed here.
   moves anywhere else. Its Escape no longer also reaches the desktop's (which deselected the icons).
 - **R opens Run.** An underlined letter answers before any item that merely begins with it, as in
   XP; R used to select Resume.pdf.
-- **Held keys.** A repeating key no longer activates anything in the Start menu or the Turn Off
-  dialog: a held U used to go straight on through Turn Off, and a held Enter on the Start button into
-  the first program. Unsaved work was still asked about; the test proves it.
+- **Held keys.** A repeating key no longer activates anything in the Start menu's own items or the
+  Turn Off dialog: a held U used to go straight on through Turn Off, and a held Enter on the Start
+  button into the first program. Unsaved work was still asked about; the test proves it. (Its
+  flyouts still took a held Enter; the entry above closed that.)
 - **Screen readers.** The Start menu is `role="menu"` with menu items (it was a group of buttons,
   so a screen reader stayed in browse mode and ate the arrows), and the Start button has
   `aria-haspopup`. A menu panel that owns the keyboard (a submenu opened from the keyboard, or All
   Programs) moves real focus with its selection, so each item is announced, and lets go of focus
-  before an item acts, so the fading `aria-hidden` menu never holds it. A mouse press still never
-  moves focus into a menu.
+  before an item acts. (As shipped, "owns the keyboard" also meant a pointer entering a submenu, so
+  the mouse pulled focus out of the window it was in, and closes other than choosing an item left
+  focus in the fading menu. The entry above fixed both.)
 - **A rename in progress** (Explorer's box) was dropped when a menu was chosen over it, since the
   press no longer blurred the box. A press in a menu now ends an edit in progress first.
 - **Waking gestures.** If the waking release was lost, a new press by the same pointer ends the
@@ -496,13 +527,16 @@ addressed here.
 - **One selection.** While the keyboard drives the Start menu, the item under a resting pointer is
   not lit too; moving the mouse hands the selection back, and pointing at an item focuses it.
 **Tests.** Each of these failed on a build with its fix reverted: the leak to a selected icon; Tab
-out of the menu; R; a held U; a rename ended by a menu; focus following a keyboard submenu and let
-go before it fades (reverted alone, since reverting focus-following as well hides it); a
-double-click once the waking click is counted out. "Choosing a menu item never moves focus into the
-menu" now records any focus inside a menu at any moment, not only during the fade. The fade-out
-right-click test records that the press landed while the old menu was there. Connect To, Escape in
-a flyout, and Start, U, U with unsaved work have tests. Still not covered: multi-finger touch
-wakes, Stand By's grace across a re-render, and XP's Ctrl+Esc and Windows key.
+out of the menu; R; a held U (which reaches only the Turn Off dialog's guard); focus following a
+keyboard submenu and let go before it fades (reverted alone, since reverting focus-following as
+well hides it); a double-click once the waking click is counted out (a count Playwright sets). The
+rename test, as written here, probably did not: moving into the New submenu took focus and so
+committed the name itself; the entry above rewrote it. "Choosing a menu item never moves focus into
+the menu" records any focus inside a menu at any moment. The fade-out right-click test still
+depended on landing inside the 100 ms fade; the entry above put it on Playwright's clock. Connect
+To, Escape in a flyout, and Start, U, U with unsaved work are coverage, not regressions. Still not
+covered: multi-finger touch wakes, Stand By's grace across a re-render, and XP's Ctrl+Esc and
+Windows key.
 
 ### 2026-10-01 - The Start menu from the keyboard; fixes from the re-check of e0e9e75
 

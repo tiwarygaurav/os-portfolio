@@ -81,7 +81,8 @@ export function swallowRestOfGesture(pointerId: number | null, isMouse: boolean)
     const countClick = (e: Event) => {
         // The waking click itself was swallowed (and so default-prevented) just before this.
         if (e.defaultPrevented) return;
-        if ((e as MouseEvent).detail <= 1) endDouble();
+        // detail 0 is a click with no press (the keyboard, or a script), which says nothing either way.
+        if ((e as MouseEvent).detail === 1) endDouble();
     };
     const eatDouble = (e: Event) => {
         swallow(e);
