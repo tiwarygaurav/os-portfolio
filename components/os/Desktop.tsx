@@ -91,8 +91,8 @@ export default function Desktop() {
     /*
      * Behind the Welcome screen (Switch User) or "Saving your settings...", the session is still
      * there but not reachable: no Tab into a caption or taskbar button pressed unseen, no click.
-     * Stand By is left out — it swallows input itself, and inert would drop the focus the visitor
-     * wakes up to.
+     * Stand By is left out: it swallows every key and press itself until it wakes, so it needs no
+     * inert tree.
      */
     const sessionRef = useRef<HTMLDivElement>(null);
     const covered = locked || saving;

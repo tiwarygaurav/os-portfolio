@@ -68,7 +68,11 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
         if (desktopShown && windows.some((w) => !w.isMinimized)) setDesktopShown(null);
     }, [windows, desktopShown]);
 
-    const toggleStart = () => {
+    // A click with no count came from the keyboard (Enter or Space on the Start button): the menu
+    // then opens with its first item selected, ready for the arrows, as XP's did.
+    const [startByKeyboard, setStartByKeyboard] = useState(false);
+    const toggleStart = (e: React.MouseEvent) => {
+        setStartByKeyboard(e.detail === 0);
         setStartOpen((open) => !open);
         setTrayOpen(null);
     };
@@ -154,6 +158,7 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
                 <StartMenu
                     onClose={closeStart}
                     triggerRef={startButtonRef}
+                    keyboard={startByKeyboard}
                     onOpenRun={onOpenRun}
                     onExit={onExit}
                 />

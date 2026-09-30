@@ -801,6 +801,7 @@
   cursor: default;
 }
 .xp-startmenu-allprograms:hover,
+.xp-startmenu-allprograms:focus-visible,
 .xp-startmenu-allprograms.is-active {
   background: var(--luna-highlight);
   color: var(--luna-highlight-text);
@@ -851,8 +852,12 @@
   height: 22px;
   border-radius: 3px;
 }
-.xp-startmenu-footer-btn:hover { background: rgba(60, 80, 210, 0.45); }
-.xp-startmenu-footer-btn:hover img { filter: brightness(1.15); }
+.xp-startmenu-footer-btn:hover,
+.xp-startmenu-footer-btn:focus-visible { background: rgba(60, 80, 210, 0.45); }
+.xp-startmenu-footer-btn:hover img,
+.xp-startmenu-footer-btn:focus-visible img { filter: brightness(1.15); }
+/* The Start menu draws its keyboard position as the hover highlight, as XP did; no extra ring. */
+.xp-startmenu :focus-visible { outline: none; }
 
 /* ==========================================================================
    Menus (context menus, menu-bar dropdowns, Start flyouts)

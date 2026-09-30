@@ -20,12 +20,19 @@ export const swallow = (e: Event): void => {
  * Tied to the gesture, not a clock. A fixed window let a press held longer through (Windows opens the
  * context menu on release), and swallowed the release of the *next* gesture, so a drag, resize or
  * rubber band begun straight after waking never ended.
+ *
+ * The gesture ends with the waking pointer's own click after its release; a new press after the
+ * release (the wake was a scroll or a long-press, which make no click) or the backstop ends it too.
+ * Before the release, another finger's click is eaten but does not end it. `pointerId` is null when
+ * the wake came from a touch event, not a pointer event: then the first release is the wake's.
  */
 export function swallowRestOfGesture(pointerId: number | null, isMouse: boolean): void {
     const rest = ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'click', 'contextmenu', 'auxclick'];
+    let released = false;
     let backstop = 0;
     const stop = () => {
         rest.forEach((t) => window.removeEventListener(t, eat, { capture: true }));
+        window.removeEventListener('pointerdown', onPress, { capture: true });
         window.clearTimeout(backstop);
     };
     const eat = (e: Event) => {
@@ -34,21 +41,31 @@ export function swallowRestOfGesture(pointerId: number | null, isMouse: boolean)
         const raw = e.type === 'pointerup' || e.type === 'pointercancel';
         if (raw && pointerId !== null && (e as PointerEvent).pointerId !== pointerId) return;
         swallow(e);
-        if (raw || e.type === 'touchend') {
+        if (!released && (raw || (pointerId === null && e.type === 'touchend'))) {
             // A mouse's click and context menu follow its release in the same task; a tap's click
-            // comes a moment later. Either way, nothing after that is this gesture.
+            // comes a moment later.
+            released = true;
             window.clearTimeout(backstop);
             backstop = window.setTimeout(stop, isMouse ? 0 : TAP_CLICK_MS);
-        } else if (e.type === 'click' && !isMouse) {
+        } else if (released && e.type === 'click') {
             stop();
         }
     };
+    const onPress = () => {
+        if (released) stop();
+    };
     rest.forEach((t) => window.addEventListener(t, eat, { capture: true }));
+    window.addEventListener('pointerdown', onPress, { capture: true });
     // In case the release never comes (the pointer left the window while held).
     backstop = window.setTimeout(stop, 10_000);
 
-    // The next press is a gesture of its own, but the browser still counts the swallowed click, so
-    // a quick second press would complete a double-click and open the icon underneath.
+    /*
+     * The next press is a gesture of its own, but the browser still counts the swallowed click, so a
+     * quick second press would complete a double-click with it and open the icon underneath. That
+     * double-click is eaten. The cost, accepted: a double-click begun within the same moment pairs
+     * its first click with the waking one (count 2, eaten) and its second becomes count 3, which
+     * makes no double-click — so it selects the icon rather than opening it.
+     */
     const eatDouble = (e: Event) => swallow(e);
     window.addEventListener('dblclick', eatDouble, { capture: true });
     window.setTimeout(() => window.removeEventListener('dblclick', eatDouble, { capture: true }), DOUBLE_CLICK_MS);

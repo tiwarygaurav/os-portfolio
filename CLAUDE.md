@@ -361,7 +361,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome loads only `public/icons/xp/` (~350 KB for the set), plus the XP logo bitmaps, the Windows flag and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` is set to `https://gauravtiwary.com` in the Vercel project's production environment, so the Open Graph card points there; nothing is hardcoded. Previews and local builds have no site URL. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, and message boxes and the exit dialogs trap focus). Start menu keyboard navigation. XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, message boxes and the exit dialogs trap focus, and the Start menu is driven from the keyboard). XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
 ---
 
@@ -467,6 +467,44 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - The Start menu from the keyboard; fixes from the re-check of e0e9e75
+
+**Why:** XP's Start menu worked entirely from the keyboard, and "Start, U, U" was how many people
+turned XP off. Here it had only Escape, and §5 listed it as not built.
+**What:** Enter or Space on the Start button opens the menu with its first item selected (a click
+with no count is the keyboard's). The arrows move within the white left side, the blue right side
+and the footer. Left and Right cross between the sides at the same height, and each side runs down
+into its own footer button: Log Off under the left, Turn Off Computer under the right. Home and End
+work too. Right, Enter or the letter on All Programs or Connect To opens the flyout on its first
+item, and Left or Escape closes it back to its button. A letter selects the item it underlines —
+XP's L (Log Off), U (Turn Off Computer), R (Run) and P (All Programs), the ones this entry is sure
+of — or else the item it begins, and opens it when only one item answers to it. The Turn Off
+dialog already took U, so "Start, U, U" turns the computer off. The underlines show only once the
+keyboard is in use, as XP's keyboard cues did. Escape returns focus to the Start button. Keyboard
+position is drawn as the hover highlight, with no focus ring. `components/ui/AccessLabel.tsx` is
+the one underlined-label component, shared with the exit dialogs, and `ContextMenu` takes an
+`onBack` from an opener that keeps its own keyboard.
+**The re-check of e0e9e75** (files session) found no blockers and three low defects. All three are
+fixed:
+- A clicked menu item took focus, and kept it through the fade under `aria-hidden`, which Chrome
+  blocks and logs. A press never moves focus into a menu now, as XP's never took it.
+- Touch wakes: another finger's click ended the swallow early, and a wake with no click (a scroll or
+  a long-press) ate the next tap's release. The swallow now ends with the waking pointer's own click
+  after its release, or at the next press.
+- Stand By's grace period restarted on any parent re-render, through an inline `onWake`. It is held
+  in a ref.
+**Accepted, not fixed:** a double-click begun just after a waking click pairs its first click with
+the swallowed one, so it selects the icon rather than opening it. The alternative, letting that
+double-click through, opens the icon under a double-press that wakes the screen.
+**Tests.** Stand By's helper now parks the pointer and then chooses Stand By with its S key, so no
+move races the grace period. The key-wake test now presses F10 over an active Calculator,
+so it fails without the swallow; Notepad was no good for this, as its menu is not the shared
+MenuBar. Fixed sleeps before negative checks now have positive controls: the saver starts once
+Stand By is over, and the startup sound is polled until it plays, with no fixed wait. New tests
+cover a right-click during a menu's fade-out, focus staying out of a chosen menu, and the Start
+menu's keyboard. Each of those, and the key-wake test, failed on a build with its fix reverted.
+Multi-finger touch wakes and the re-armed grace period have no test.
+
 ### 2026-09-29 - The chrome fixes re-checked (7b146df): an inert session, gesture-bound Stand By
 
 The files session re-checked 7b146df. Three fixes were partial, five defects were new, and several
@@ -476,8 +514,9 @@ tests could not fail with their fix reverted.
   taskbar buttons behind the Welcome screen, where Enter pressed them unseen. The covers, the exit
   dialogs and the screen saver render outside that root. MenuBar's Alt+letter and F10 listen on
   `window` and accept keys aimed at nothing, so a window inside an inert tree now ignores them.
-  Stand By is left out: it swallows input itself, and `inert` would drop the focus the visitor
-  wakes up to.
+  Stand By is left out: it swallows every key and press itself until it wakes, so it needs no
+  inert tree. (This entry first said `inert` would drop the focus the visitor wakes up to; focus is
+  always on `<body>` by then, so that was not the reason.)
 - **Stand By** swallowed the rest of its waking gesture for a fixed 800 ms. A second press inside
   that window lost its release, so a drag or rubber band never ended. A press held longer leaked
   its release, so a right-press opened the menu underneath. A double-press opened the icon.
@@ -497,7 +536,8 @@ tests could not fail with their fix reverted.
   AnimatePresence reused the fading element, with its submenu still open and measured where the
   last menu had stood (off the screen). Each opening now gets its own key, and a closing menu is
   `aria-hidden`.
-- **Also:** the five icons with only 48 px originals have real 32 px frames (see public/CLAUDE.md).
+- **Also:** the five icons with only 48 px originals have 32 px frames, area-averaged down from
+  those originals (see public/CLAUDE.md), where before each was a copy of its 48 px file.
   `windows-flag.png`, a copy of `windows.png`, is gone, and the chrome loads the original. The
   calendar's day letters are black over a rule; white on the Olive and Silver edge colour was
   about 2.2:1.
@@ -508,9 +548,9 @@ the bin is not reopened by Enter; hidden icons; a window's own dialog; Show Desk
 a pointer in a submenu takes the keyboard; a submenu with no room on either side; a cancelled
 rubber band; right-press, double-press and drag after Stand By; the inert Welcome screen; the
 saver under Stand By (`tests/e2e/before-logon.spec.ts`, on Playwright's clock); the startup sound
-on a slow file; Restore on a phone. The key that wakes Stand By has a test that guards it, but
-it passed before too. Not covered: Safari's audio unlock, since Playwright's WebKit does not
-enforce Safari's gesture rule.
+on a slow file; Restore on a phone. The key that wakes Stand By had a test that could not fail;
+the entry above rebuilt it so it can. Not covered: Safari's audio unlock, since Playwright's
+WebKit does not enforce Safari's gesture rule.
 
 ### 2026-09-29 - Fixes from the review of the five apps (7212919)
 

@@ -6,6 +6,7 @@ import { useSystemStore } from '@/store/useSystemStore';
 import { SYSTEM } from '@/content';
 import { playSound } from '@/utils/sound';
 import { requestRestart } from './power';
+import AccessLabel from '@/components/ui/AccessLabel';
 
 export type ExitKind = 'logoff' | 'shutdown';
 
@@ -186,7 +187,7 @@ export default function ExitWindows({ kind, onCancel, onStandBy, onSwitchUser, o
                             >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={b.icon} alt="" draggable={false} />
-                                <Label text={b.label} accessKey={b.key} />
+                                <AccessLabel text={b.label} accessKey={b.key} />
                                 {tip === b.id && (
                                     <span className="xp-exit-tip" role="tooltip">
                                         <b>{b.label}</b>
@@ -205,18 +206,5 @@ export default function ExitWindows({ kind, onCancel, onStandBy, onSwitchUser, o
             </div>
         </>,
         document.body,
-    );
-}
-
-/** A label with its access key underlined, as XP drew it. */
-function Label({ text, accessKey }: { text: string; accessKey: string }) {
-    const i = text.toLowerCase().indexOf(accessKey.toLowerCase());
-    if (i < 0) return <span>{text}</span>;
-    return (
-        <span>
-            {text.slice(0, i)}
-            <u>{text[i]}</u>
-            {text.slice(i + 1)}
-        </span>
     );
 }

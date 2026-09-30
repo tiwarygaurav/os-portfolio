@@ -126,6 +126,23 @@ test('Show Desktop\'s second click brings back what is still open, and makes it 
     await expect(page.locator('.xp-task-btn', { hasText: 'Notepad' })).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('a right-click while the last menu fades out opens a new menu', async ({ page }) => {
+    await desktopMenu(page);
+    await page.getByRole('menuitem', { name: 'Refresh' }).click();
+    // The same point, while the chosen menu is still fading out over it: it used to take the press.
+    await page.mouse.click(900, 300, { button: 'right' });
+    await page.waitForTimeout(300); // past the fade
+    await expect(page.getByRole('menu')).toHaveCount(1);
+});
+
+test('choosing a menu item never moves focus into the menu', async ({ page }) => {
+    await desktopMenu(page);
+    await page.getByRole('menuitem', { name: 'Refresh' }).click();
+    // The menu is still fading out, and aria-hidden: focus inside it would be hidden from a screen
+    // reader, which Chrome refuses and logs.
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu]'))).toBe(false);
+});
+
 test('a disabled menu item does not open its submenu from the keyboard', async ({ page }) => {
     await desktopMenu(page, 'New');
     await page.keyboard.press('Enter');
@@ -188,4 +205,82 @@ test('Run says why a /usr/src path cannot open when the module graph fails to lo
     await run(page, '/usr/src/README');
     await expect(page.getByText(/module graph did not load/)).toBeVisible();
     expect(errors).toEqual([]);
+});
+
+test.describe('the Start menu from the keyboard', () => {
+    /** Focus the Start button and press Enter: a click with no count, as a keyboard makes. */
+    const openStart = async (page: Page) => {
+        await page.locator('.xp-start-button').focus();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+    };
+    const focused = (page: Page) =>
+        page.evaluate(() => {
+            const el = document.activeElement as HTMLElement | null;
+            return { label: el?.dataset.label ?? null, side: el?.dataset.sm ?? null };
+        });
+
+    test('opens on its first item; the arrows cross the sides and reach the footer; Escape returns to Start', async ({ page }) => {
+        await openStart(page);
+        await expect.poll(async () => (await focused(page)).label).toBe('My Projects');
+        // XP's underlined letters show once the keyboard is in use.
+        await expect(page.locator('.xp-startmenu-footer-btn u')).toHaveCount(2);
+
+        await page.keyboard.press('ArrowDown');
+        expect((await focused(page)).label).toBe('Contact Me');
+        await page.keyboard.press('ArrowRight');
+        expect((await focused(page)).side).toBe('right');
+        await page.keyboard.press('ArrowLeft');
+        expect((await focused(page)).side).toBe('left');
+
+        // Up from the top of the left side is its footer button, Log Off; Right is Turn Off Computer.
+        await page.keyboard.press('Home');
+        await page.keyboard.press('ArrowUp');
+        expect((await focused(page)).label).toBe('Log Off');
+        await page.keyboard.press('ArrowRight');
+        expect((await focused(page)).label).toBe('Turn Off Computer');
+
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.xp-startmenu')).toHaveCount(0);
+        expect(await page.evaluate(() => document.activeElement?.classList.contains('xp-start-button'))).toBe(true);
+    });
+
+    test('opened with the mouse, it hides the underlines', async ({ page }) => {
+        await page.getByText('start', { exact: true }).first().click();
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+        await expect(page.locator('.xp-startmenu-footer-btn u')).toHaveCount(0);
+    });
+
+    test('P opens All Programs on its first item; Left closes it and goes back to All Programs', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('p');
+        const flyout = page.getByRole('menu');
+        await expect(flyout).toHaveCount(1);
+        await expect(flyout.locator('.xp-menu-item.is-active')).toHaveCount(1);
+
+        await page.keyboard.press('ArrowLeft');
+        await expect(page.getByRole('menu')).toHaveCount(0);
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+        expect((await focused(page)).label).toBe('All Programs');
+    });
+
+    test('a program starts from All Programs without the mouse', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('p');
+        await expect(page.getByRole('menu')).toHaveCount(1);
+        // Into the first group, then its first program.
+        await page.keyboard.press('ArrowRight');
+        await expect(page.getByRole('menu')).toHaveCount(2);
+        await page.keyboard.press('Enter');
+        await expect(windows(page)).toHaveCount(1);
+        await expect(page.locator('.xp-startmenu')).toHaveCount(0);
+    });
+
+    test('Start, U, U turns the computer off, as it did in XP', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('u');
+        await expect(page.locator('.xp-exit')).toBeVisible();
+        await page.keyboard.press('u');
+        await expect(page.getByText(/is shutting down\.\.\./)).toBeVisible();
+    });
 });

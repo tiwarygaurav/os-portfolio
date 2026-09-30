@@ -62,15 +62,15 @@ test('from the Switch User screen, Turn off computer opens a dialog that is real
 });
 
 /**
- * Stand By, with the pointer parked at `at`. It is moved there inside the grace period, while a
- * move does not wake the screen yet, so the waking input can be a press with no move before it.
+ * Stand By, with the pointer parked at `at`. The pointer goes there first and Stand By is chosen by
+ * its access key, so no move follows the dark screen: the test's own press or key is what wakes it.
  */
 async function standBy(page: Page, at: { x: number; y: number }): Promise<void> {
     await startMenu(page, 'Turn Off Computer');
-    await page.locator('[data-exit="standby"]').click();
     await page.mouse.move(at.x, at.y);
-    await page.waitForTimeout(900);
+    await page.keyboard.press('s');
     await expect(page.locator('.xp-standby')).toBeVisible();
+    await page.waitForTimeout(900); // past the grace period, after which input wakes it
 }
 
 async function centreOf(page: Page, selector: string): Promise<{ x: number; y: number }> {
@@ -79,14 +79,20 @@ async function centreOf(page: Page, selector: string): Promise<{ x: number; y: n
 }
 
 test('a right-press that wakes Stand By opens no menu, however long it is held', async ({ page }) => {
-    await standBy(page, await centreOf(page, '[data-desktop-icon="contact"]'));
+    const icon = await centreOf(page, '[data-desktop-icon="contact"]');
+    await standBy(page, icon);
     await page.mouse.down({ button: 'right' });
     await expect(page.locator('.xp-standby')).toHaveCount(0);
     // Longer than the fixed 800 ms the swallow used to last: the release opened the icon's menu.
+    // (Windows Chromium opens the context menu on release, which is what this catches; on Linux and
+    // macOS it comes with the press, which was always swallowed.)
     await page.waitForTimeout(1200);
     await page.mouse.up({ button: 'right' });
     await page.waitForTimeout(300);
     await expect(page.getByRole('menu')).toHaveCount(0);
+    // The next right-press is the visitor's own, and opens the menu.
+    await page.mouse.click(icon.x, icon.y, { button: 'right' });
+    await expect(page.getByRole('menu')).toHaveCount(1);
 });
 
 test('a double-press that wakes Stand By does not open the icon underneath', async ({ page }) => {
@@ -97,6 +103,10 @@ test('a double-press that wakes Stand By does not open the icon underneath', asy
     await page.mouse.up({ clickCount: 2 });
     await page.waitForTimeout(400);
     await expect(windows(page)).toHaveCount(0);
+    // Once the moment has passed, a double-click opens the icon as always.
+    await page.waitForTimeout(600);
+    await page.locator('[data-desktop-icon="contact"]').dblclick();
+    await expect(windows(page)).toHaveCount(1);
 });
 
 test('a drag begun straight after waking from Stand By ends when released', async ({ page }) => {
@@ -113,6 +123,7 @@ test('a drag begun straight after waking from Stand By ends when released', asyn
     await page.mouse.up();
     const dropped = (await icon.boundingBox())!;
     // The old fixed window swallowed this release, and the icon went on following the pointer.
+    // (It caught the release only because the drag ends well inside that window's 800 ms.)
     await page.mouse.move(from.x + 500, from.y + 250, { steps: 6 });
     const later = (await icon.boundingBox())!;
     expect(Math.round(later.x)).toBe(Math.round(dropped.x));
@@ -120,12 +131,18 @@ test('a drag begun straight after waking from Stand By ends when released', asyn
 });
 
 test('the key that wakes Stand By does nothing else', async ({ page }) => {
-    await page.locator('[data-desktop-icon="contact"]').click();
+    // Calculator is the active window, so F10 aimed at nothing would open its menu bar: Stand By is
+    // not inert, and only its own swallow stands between the key and the menu.
+    await run(page, 'calc');
+    await expect(win(page, 'Calculator')).toBeVisible();
     await standBy(page, { x: 900, y: 300 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.press('F10');
     await expect(page.locator('.xp-standby')).toHaveCount(0);
     await page.waitForTimeout(300);
-    await expect(windows(page)).toHaveCount(0);
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    // Awake, the same key opens the menu.
+    await page.keyboard.press('F10');
+    await expect(page.getByRole('menu')).toHaveCount(1);
 });
 
 test('behind the Welcome screen, the session takes no Tab and no keys', async ({ page }) => {

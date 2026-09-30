@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { SYSTEM } from '@/content';
@@ -60,23 +60,28 @@ export const standingBy = (): boolean =>
  * stacking context, below the screen saver.
  */
 export function StandByScreen({ onWake }: { onWake: () => void }) {
+    // Held in a ref, so a parent's re-render (a new inline onWake) does not restart the grace period.
+    const wakeRef = useRef(onWake);
+    wakeRef.current = onWake;
+
     useEffect(() => {
+        const wake = () => wakeRef.current();
         let armed = false;
         const arm = window.setTimeout(() => {
             armed = true;
         }, 700);
         const onMove = () => {
-            if (armed) onWake();
+            if (armed) wake();
         };
         const onPress = (e: PointerEvent) => {
             swallow(e);
             if (!armed) return;
             swallowRestOfGesture(e.pointerId, e.pointerType === 'mouse');
-            onWake();
+            wake();
         };
         const onKey = (e: KeyboardEvent) => {
             swallow(e);
-            if (armed) onWake();
+            if (armed) wake();
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerdown', onPress, true);
@@ -87,7 +92,7 @@ export function StandByScreen({ onWake }: { onWake: () => void }) {
             window.removeEventListener('pointerdown', onPress, true);
             window.removeEventListener('keydown', onKey, true);
         };
-    }, [onWake]);
+    }, []);
 
     return createPortal(
         <div

@@ -38,6 +38,11 @@ interface ContextMenuProps {
      * menu's All Programs cascade grows upward from its button, so it anchors bottom-left.
      */
     anchor?: 'top-left' | 'bottom-left';
+    /**
+     * Opened from the keyboard by a menu that keeps its own (the Start menu's All Programs): start
+     * on the first item, and hand the keyboard back on Left or Escape, as a submenu does.
+     */
+    onBack?: () => void;
 }
 
 /** Marks a portaled menu, so a surface that closes on outside clicks can tell it is not outside. */
@@ -69,7 +74,7 @@ const actionable = (item: MenuItem) => !item.divider && !item.disabled;
  * every key it handles is swallowed, so Enter on a menu item cannot also open the desktop icon
  * underneath.
  */
-export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'top-left' }: ContextMenuProps) {
+export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'top-left', onBack }: ContextMenuProps) {
     const menuRef = useRef<HTMLDivElement | null>(null);
     const [pos, setPos] = useState({ left: x, top: y });
     const [mounted, setMounted] = useState(false);
@@ -141,7 +146,7 @@ export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'to
                     {...{ [MENU_ATTR]: '' }}
                     onContextMenu={(e) => e.preventDefault()}
                 >
-                    <MenuPanel items={items} onClose={onClose} root />
+                    <MenuPanel items={items} onClose={onClose} root onBack={onBack} />
                 </motion.div>
             )}
         </AnimatePresence>,
@@ -232,7 +237,9 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
 
     return (
         // A closing menu is gone to assistive technology too, not just to the pointer and the keys.
-        <div className="xp-menu" role="menu" aria-hidden={!isPresent || undefined}>
+        // A press never moves focus into a menu, as XP's never took it: the keyboard stays with the
+        // window or box it was in, and aria-hidden can never sit over the focused element.
+        <div className="xp-menu" role="menu" aria-hidden={!isPresent || undefined} onMouseDown={(e) => e.preventDefault()}>
             {items.map((item, index) =>
                 item.divider ? (
                     <div key={index} className="xp-menu-sep" role="separator" />
