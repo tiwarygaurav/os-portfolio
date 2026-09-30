@@ -162,30 +162,31 @@ const zeroOf = (s: Pick<CalcState, 'radix'>): Num => (isIntMode(s) ? BIG0 : 0);
 /**
  * Round a decimal result to the 16 significant digits a double can carry, and turn -0 into 0.
  *
- * A double holds 15.95 decimal digits, so the 16th is sometimes noise: 0.7 + 0.1 is
- * 0.7999999999999999 and sin 30 is 0.4999999999999999 at 16 digits. When the double is within two
- * units in its last place (ulps) of a 15-digit number, the 16th digit is binary rounding rather than
- * information, and the result snaps to the 15-digit number (0.8, 0.5) — which is what XP's 32-digit
- * arithmetic showed. Anything further keeps all 16 digits: 1/3 is 0.3333333333333333, and
- * 1000000000000001 — an exact double, eight ulps from 1e15 — stays exactly that. (Deciding by the
- * size of the 16th digit instead used to drop a correct final 1 or 9.)
+ * A double holds 15.95 decimal digits, so the 16th is partly noise: 0.7 + 0.1 is
+ * 0.7999999999999999, sin 30 is 0.4999999999999999 and √3 × √3 is 2.999999999999999 at 16 digits.
+ * When the 16th digit is within one unit of a 15-digit number, that is taken as binary rounding
+ * rather than information, and the result snaps to the 15-digit number (0.8, 0.5, 3) — which is what
+ * XP's 32-digit arithmetic showed. A result further away keeps all 16 digits (1/3 is
+ * 0.3333333333333333).
+ *
+ * Judged by the digit, not by how many units in the last place of the double it is off: every value
+ * is stored at 16 digits between keys, which can move it several ulps, so noise that built up over
+ * a chain of keys is wider than any ulp window (a window of two ulps showed √3 × √3 as
+ * 2.999999999999999). The price is that a genuine final 1 or 9 on a non-integer reads as noise; the
+ * Help says the last digit can differ by one.
  */
 export function tidy(x: number): number {
     if (Number.isNaN(x)) fail(ERR.invalidInput);
     if (!Number.isFinite(x)) fail(ERR.overflow);
     if (x === 0) return 0;
-    // Every integer up to 2^53 is exact, so its last digit is never noise — even where the gap
-    // between doubles is a whole 1 and "two ulps" would reach the next integer.
+    // Every integer up to 2^53 is exact, so its last digit is never noise: 1000000000000000 + 1 is
+    // 1000000000000001, not 1e15.
     if (Number.isSafeInteger(x)) return x;
     const r16 = Number(x.toPrecision(DEC_DIGITS));
     const r15 = Number(x.toPrecision(DEC_DIGITS - 1));
     if (r15 === r16) return r16;
-    return Math.abs(x - r15) <= 2 * ulp(r15) ? r15 : r16;
-}
-
-/** One unit in the last place of a double near `x`: the gap between it and the next one. */
-function ulp(x: number): number {
-    return Math.pow(2, Math.floor(Math.log2(Math.abs(x))) - 52);
+    const unit = Math.pow(10, Number(r16.toExponential().split('e')[1]) - (DEC_DIGITS - 1));
+    return Math.abs(r16 - r15) <= unit * 1.5 ? r15 : r16;
 }
 
 const truncBig = (x: number): bigint => BigInt(Math.trunc(x));
@@ -452,16 +453,19 @@ function trig(s: CalcState, fn: 'sin' | 'cos' | 'tan', x: number): number {
      * huge angle is judged by where it really points: sin 1.7e17 is sin 80, not a quarter turn that
      * dividing by 90 and rounding happened to land on.
      *
-     * In radians a quarter turn is what the display shows as one: a multiple of pi/2 to the 16
-     * digits shown. pi / 2 comes back from that rounding a hair off the double nearest pi/2, and
-     * cos of it used to show -3.8e-16. Only while the angle is small enough that 16 digits pin the
-     * multiple down; far out, doubles are too coarse to say, and the sine is computed.
+     * In radians a small multiple of pi/2 — within two turns — is a quarter turn when the display
+     * shows it as one, to the 16 digits shown: pi / 2 comes back from that rounding a hair off the
+     * double nearest pi/2, and cos of it used to show -3.8e-16. Further out, 16 digits span more than
+     * the sine's own size (at a million radians they span 1e-9), so only the exact double counts
+     * there and the sine of anything else is computed: sin 1570796.326794897 is 3.5e-10, not 0.
      */
     let quarterTurns: number | null = null;
     if (s.angle === 'rad') {
         const k = Math.round(x / (Math.PI / 2));
         const shown = (v: number) => Number(v.toPrecision(DEC_DIGITS));
-        if (Math.abs(k) <= 1e6 && (k === 0 ? x === 0 : shown((k * Math.PI) / 2) === shown(x))) quarterTurns = k;
+        const multiple = (k * Math.PI) / 2;
+        const onIt = k === 0 ? x === 0 : Math.abs(k) <= 8 ? shown(multiple) === shown(x) : multiple === x;
+        if (onIt) quarterTurns = k;
     } else {
         const turn = s.angle === 'deg' ? 360 : 400;
         const y = x % turn;

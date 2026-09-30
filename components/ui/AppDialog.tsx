@@ -132,7 +132,6 @@ export default function AppDialog({
                 ref={ref}
                 role="dialog"
                 aria-modal="true"
-                data-app-dialog
                 aria-label={title}
                 tabIndex={-1}
                 onKeyDown={onKeyDown}

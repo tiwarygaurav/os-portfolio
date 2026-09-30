@@ -411,14 +411,11 @@ test('view switch keeps the number and drops the pending calculation', () => {
 
 // ---- fixes from the review of 7212919 ---------------------------------------------------------------
 
-test('a correct 16th digit is kept; only binary noise snaps to 15', () => {
+test('an exact integer keeps its 16th digit; binary noise snaps to 15', () => {
     // Exact doubles whose last digit is 1 or 9 were rounded away.
     assert.equal(show(run(typed(std(), '1000000000000000'), 'add', '1', 'equals')), '1000000000000001.');
     assert.equal(show(run(typed(std(), '1111111111111111'), 'add', '0', 'equals')), '1111111111111111.');
     assert.equal(show(run(typed(std(), '4503599627370495'), 'mul', '2', 'add', '1', 'equals')), '9007199254740991.');
-    // Not only integers: these are several ulps from any 15-digit number, so the last digit is real.
-    assert.equal(show(run(typed(std(), '0.1000000000000001'), 'add', '0', 'equals')), '0.1000000000000001');
-    assert.equal(show(run(typed(std(), '1.000000000000009'), 'add', '0', 'equals')), '1.000000000000009');
     // Noise still snaps.
     assert.equal(show(run(typed(std(), '0.7'), 'add', 'point', '1', 'equals')), '0.8');
     assert.equal(show(run(sci(), '3', '0', 'sin')), '0.5');
@@ -467,4 +464,35 @@ test('quarter turns: pi / 2 in radians, and huge angles judged by where they poi
     assert.equal(show(huge), show(run(sci(), '8', '0', 'sin')));
     // And a huge angle that is a quarter turn still is one: 1e16 + 170 degrees is 90 on from whole turns.
     assert.equal(show(run(sci(), '1', 'exp', '1', '6', 'add', '1', '7', '0', 'equals', 'sin')), '1.');
+});
+
+test('noise built up over a chain of keys snaps too: sqrt 3 x sqrt 3 is 3', () => {
+    assert.equal(show(run(sci(), '3', 'inv', 'square', 'mul', '3', 'inv', 'square', 'equals')), '3.');
+    assert.equal(show(run(sci(), '2', 'inv', 'cube', 'cube')), '2.');
+    assert.equal(show(run(sci(), '1', '1', 'ln', 'inv', 'ln')), '11.');
+    assert.equal(show(run(sci(), '6', '0', 'tan', 'square')), '3.');
+    /*
+     * Over a range, how many round trips fail to come back to n. Each key stores its result at 16
+     * digits, so a few still show a stray last digit, as they did before the review; a window of two
+     * ulps instead of one unit of the 16th digit made it 74, 68 and 83 of these 199.
+     */
+    const chains = {
+        'sqrt n x sqrt n': [15, (n) => run(typed(sci(), String(n)), 'inv', 'square', 'mul', ...String(n).split(''), 'inv', 'square', 'equals')],
+        'cube root n, cubed': [30, (n) => run(typed(sci(), String(n)), 'inv', 'cube', 'cube')],
+        'e to the ln n': [55, (n) => run(typed(sci(), String(n)), 'ln', 'inv', 'ln')],
+    };
+    for (const [name, [limit, chain]] of Object.entries(chains)) {
+        let wrong = 0;
+        for (let n = 2; n <= 200; n++) if (show(chain(n)) !== `${n}.`) wrong++;
+        assert.ok(wrong <= limit, `${name}: ${wrong} of 199 wrong`);
+    }
+});
+
+test('far from zero, radians snap to a quarter turn only on the exact double', () => {
+    // 1570796.326794897 shows as 1000000 x pi/2 to 16 digits, but its sine is 3.5e-10, not 0.
+    const far = run(typed(run(sci(), 'rad'), '1570796.326794897'), 'sin');
+    assert.notEqual(show(far), '0.');
+    assert.ok(Math.abs(Number(E.copyText(far))) > 1e-10, show(far));
+    // Near zero the display still decides: 3 x pi / 2 is a quarter turn.
+    assert.equal(show(run(sci(), 'rad', 'pi', 'mul', '3', 'div', '2', 'equals', 'sin')), '-1.');
 });

@@ -528,11 +528,12 @@ export class PaintEngine {
 
     /**
      * A marquee's far corner is exclusive — it names the pixel just past the selection — so it may
-     * sit one past the last column or row. Clamping it to the last pixel instead made the last
-     * column and row impossible to select.
+     * sit one beyond the picture on either side: past the last column or row when dragging right or
+     * down, before the first when dragging left or up. Clamping it to the picture's own pixels made
+     * the edge columns and rows impossible to select.
      */
     private clampCorner(x: number, y: number): [number, number] {
-        return [Math.max(0, Math.min(this.doc.width, x)), Math.max(0, Math.min(this.doc.height, y))];
+        return [Math.max(-1, Math.min(this.doc.width, x)), Math.max(-1, Math.min(this.doc.height, y))];
     }
 
     /** Finish everything in progress: the one call every menu command makes first. */
@@ -765,7 +766,7 @@ export class PaintEngine {
                 this.polygonUp();
                 break;
             case 'marquee': {
-                const r = boxRectExclusive(g.x0, g.y0, g.x1, g.y1);
+                const r = marqueeRect(g.x0, g.y0, g.x1, g.y1);
                 this.sel = r.w > 0 && r.h > 0 ? { ...r, mask: null, content: null } : null;
                 this.emitSelection();
                 break;
@@ -1084,7 +1085,7 @@ export class PaintEngine {
     }
 
     private showMarquee(g: Extract<Gesture, { kind: 'marquee' }>) {
-        const r = boxRectExclusive(g.x0, g.y0, g.x1, g.y1);
+        const r = marqueeRect(g.x0, g.y0, g.x1, g.y1);
         this.set({ selection: { ...r, floating: false } });
         this.setExtent({ w: r.w, h: r.h });
     }
@@ -1518,9 +1519,15 @@ function boxRect(x0: number, y0: number, x1: number, y1: number): Rect {
     return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0) + 1, h: Math.abs(y1 - y0) + 1 };
 }
 
-/** A selection marquee spans from the press point to the pointer, the pointer's pixel excluded. */
-function boxRectExclusive(x0: number, y0: number, x1: number, y1: number): Rect {
-    return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+/**
+ * The pixels a marquee selects: from the pressed pixel, which is always in, up to but not including
+ * the pixel under the pointer — whichever way it was dragged. (Measuring from the pressed pixel's
+ * left or top edge in every direction used to leave that pixel out of a drag left or up.)
+ */
+function marqueeRect(x0: number, y0: number, x1: number, y1: number): Rect {
+    const [ax, bx] = x1 >= x0 ? [x0, x1] : [x1 + 1, x0 + 1];
+    const [ay, by] = y1 >= y0 ? [y0, y1] : [y1 + 1, y0 + 1];
+    return { x: ax, y: ay, w: bx - ax, h: by - ay };
 }
 
 function unionOf(a: Rect, b: Rect): Rect {

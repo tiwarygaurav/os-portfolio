@@ -70,6 +70,12 @@ test('Options and the card back last the session, across closing the window', as
     await options.getByLabel('Draw one').check();
     await options.getByLabel('Vegas').check();
     await options.getByRole('button', { name: 'OK' }).click();
+    await table(page).getByRole('menuitem', { name: 'Game' }).click();
+    await page.getByRole('menuitem', { name: /^Deck/ }).click();
+    const third = page.getByRole('listbox', { name: 'Card backs' }).getByRole('option').nth(2);
+    const back = await third.getAttribute('aria-label');
+    await third.click();
+    await page.getByRole('dialog', { name: 'Select Card Back' }).getByRole('button', { name: 'OK' }).click();
     await table(page).locator('.xp-titlebar').getByRole('button', { name: 'Close' }).click();
     await expect(table(page)).toHaveCount(0);
 
@@ -78,4 +84,8 @@ test('Options and the card back last the session, across closing the window', as
     await page.getByRole('menuitem', { name: /^Options/ }).click();
     await expect(page.getByRole('dialog', { name: 'Options' }).getByLabel('Draw one')).toBeChecked();
     await expect(page.getByRole('dialog', { name: 'Options' }).getByLabel('Vegas')).toBeChecked();
+    await page.getByRole('dialog', { name: 'Options' }).getByRole('button', { name: 'Cancel' }).click();
+    await table(page).getByRole('menuitem', { name: 'Game' }).click();
+    await page.getByRole('menuitem', { name: /^Deck/ }).click();
+    await expect(page.getByRole('listbox', { name: 'Card backs' }).getByRole('option', { name: back!, exact: true })).toHaveAttribute('aria-selected', 'true');
 });

@@ -82,3 +82,31 @@ test('Alt+letter does not open a menu behind an open dialog', async ({ page }) =
     await page.keyboard.press('Alt+v');
     await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toHaveCount(0);
 });
+
+test('Alt+letter does not open a menu while an XP message box is up', async ({ page }) => {
+    await calc(page).getByRole('menuitem', { name: 'Help' }).click();
+    await page.getByRole('menuitem', { name: 'About Calculator' }).click();
+    await expect(page.getByRole('dialog', { name: 'About Calculator' })).toBeVisible();
+    // Focus somewhere in the Calculator's own window, where the message box does not hear keys.
+    await calc(page).getByRole('menubar').focus();
+    await page.keyboard.press('Alt+v');
+    await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toHaveCount(0);
+});
+
+test('a dismissing press that never becomes a click does not eat a later keyboard click', async ({ page }) => {
+    await calc(page).getByRole('menuitem', { name: 'View' }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toBeVisible();
+    const seven = calc(page).getByRole('button', { name: '7', exact: true });
+    // A touch on the 7 that the browser cancels (a scroll took it over, say): no click follows.
+    await seven.evaluate((b) => {
+        const at = b.getBoundingClientRect();
+        const init = { bubbles: true, cancelable: true, composed: true, pointerId: 7, pointerType: 'touch', clientX: at.x + 5, clientY: at.y + 5 };
+        b.dispatchEvent(new PointerEvent('pointerdown', init));
+        b.dispatchEvent(new PointerEvent('pointercancel', init));
+    });
+    await expect(page.getByRole('menuitemradio', { name: 'Scientific' })).toHaveCount(0);
+    await expect(display(page)).toHaveText('0');
+    await seven.focus();
+    await page.keyboard.press('Space');
+    await expect(display(page)).toHaveText('7');
+});

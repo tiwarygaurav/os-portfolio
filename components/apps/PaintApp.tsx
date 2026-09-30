@@ -137,6 +137,11 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
     };
     // A window closed some other way (kill, End Task) leaves nothing waiting forever.
     useEffect(() => () => settleSave(false), []);
+    /** Every file dialog opens through here: a save still waiting on a Save As has lost its dialog. */
+    const openFileDialog = (request: NonNullable<FileDialogState>) => {
+        settleSave(false);
+        setFileDialog(request);
+    };
     // The close guard runs outside React's render cycle, so it reads the latest values from here.
     const live = useRef({ docPath, fileName });
     live.current = { docPath, fileName };
@@ -243,8 +248,7 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
 
     /** File > Save As. Nothing waits on it: only `saveAndWait` makes a Save As something to wait for. */
     const saveAs = () => {
-        settleSave(false);
-        setFileDialog({ mode: 'save', purpose: 'picture' });
+        openFileDialog({ mode: 'save', purpose: 'picture' });
     };
 
     /**
@@ -307,7 +311,7 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
     };
 
     const fileOpen = async () => {
-        if (await askToSave()) setFileDialog({ mode: 'open', purpose: 'picture' });
+        if (await askToSave()) openFileDialog({ mode: 'open', purpose: 'picture' });
     };
 
     const openFromComputer = async () => {
@@ -614,13 +618,13 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
                     label: 'Copy To...',
                     accessKey: 'o',
                     disabled: !hasSel,
-                    onSelect: () => setFileDialog({ mode: 'save', purpose: 'selection' }),
+                    onSelect: () => openFileDialog({ mode: 'save', purpose: 'selection' }),
                     hint: 'Copies the selection to a file.',
                 },
                 {
                     label: 'Paste From...',
                     accessKey: 'f',
-                    onSelect: () => setFileDialog({ mode: 'open', purpose: 'paste' }),
+                    onSelect: () => openFileDialog({ mode: 'open', purpose: 'paste' }),
                     hint: 'Pastes a picture file into the picture as a selection.',
                 },
             ],
@@ -709,8 +713,18 @@ export default function PaintApp({ windowId, payload }: { windowId?: string; pay
             onPaste={onPaste}
             onPointerDownCapture={(e) => {
                 const t = e.target as HTMLElement;
-                // The Fonts toolbar works on the text box, which keeps the keyboard.
-                if (!t.closest('input, textarea, select, [role="menubar"], [data-paint-keep-focus]')) focusRoot();
+                // The Fonts toolbar works on the text box, which keeps the keyboard; and a press inside a
+                // modal dialog (Save As, Attributes) must not hand the keyboard to Paint behind it.
+                if (!t.closest('input, textarea, select, [role="menubar"], [data-paint-keep-focus], [aria-modal="true"]')) focusRoot();
+            }}
+            onMouseDownCapture={(e) => {
+                // A press on a part of a modal dialog that takes no focus (a title, a label) would move
+                // focus to the nearest focusable ancestor — this root — and Paint's shortcuts would act
+                // behind the dialog: Ctrl+Z undid the picture under an open Save As. Focus stays put.
+                const t = e.target as HTMLElement;
+                const modal = t.closest('[aria-modal="true"]');
+                const focusable = t.closest('input, textarea, select, button, a[href], [tabindex]');
+                if (modal && !(focusable && modal.contains(focusable))) e.preventDefault();
             }}
             className="xp-face relative flex h-full select-none flex-col outline-none"
         >
@@ -886,16 +900,36 @@ function TextToolbar({ engine, font, onClose }: { engine: PaintEngine; font: Fon
     const ref = useRef<HTMLDivElement>(null);
     /** Whether the lists are being worked from the keyboard, which may arrow through several. */
     const keyed = useRef(false);
-    const backToText = () => {
-        const box = ref.current?.closest('[data-paint-root]')?.querySelector<HTMLTextAreaElement>('textarea[data-paint-text]');
-        box?.focus({ preventScroll: true });
+    /** A list last touched with the mouse — opened and closed without a choice, say. */
+    const viaMouse = useRef(false);
+    const textBox = () => ref.current?.closest('[data-paint-root]')?.querySelector<HTMLTextAreaElement>('textarea[data-paint-text]') ?? null;
+    const backToText = () => textBox()?.focus({ preventScroll: true });
+    /** Type a character into the text box at its caret, as if it had had the keyboard all along. */
+    const typeIntoText = (ch: string) => {
+        const box = textBox();
+        if (!box) return;
+        const at = box.selectionStart;
+        engine.setTextValue(box.value.slice(0, at) + ch + box.value.slice(box.selectionEnd));
+        box.focus({ preventScroll: true });
+        requestAnimationFrame(() => box.setSelectionRange(at + ch.length, at + ch.length));
     };
     const listKeys = (e: KeyboardEvent<HTMLSelectElement>) => {
         if (e.key === 'Enter' || e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
             backToText();
-        } else keyed.current = true;
+            return;
+        }
+        // A list only clicked is not being typed into: a letter belongs to the text, where it would
+        // otherwise search the list and change the font.
+        if (viaMouse.current && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            typeIntoText(e.key);
+            return;
+        }
+        viaMouse.current = false;
+        keyed.current = true;
     };
     /** A choice made with the mouse is finished, so the keyboard goes back to the text. */
     const picked = () => {
@@ -903,6 +937,7 @@ function TextToolbar({ engine, font, onClose }: { engine: PaintEngine; font: Fon
     };
     const listMouse = () => {
         keyed.current = false;
+        viaMouse.current = true;
     };
     const toggle = (key: 'bold' | 'italic' | 'underline', label: string, glyph: string, style: string) => (
         <button

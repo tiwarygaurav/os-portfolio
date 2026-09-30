@@ -260,6 +260,12 @@ export default function MusicPlayerApp({ windowId }: { windowId?: string }) {
         if (!audio) return;
         if (audio.paused) {
             wantsPlay.current = true;
+            // Paused, Play resumes where it was. Otherwise it starts the row the visitor picked,
+            // as WMP's Play did with a playlist item selected.
+            if (transport !== 'paused' && selected !== currentTrack) {
+                setCurrentTrack(selected);
+                return;
+            }
             startPlayback(audio);
         } else {
             wantsPlay.current = false;
@@ -570,12 +576,9 @@ export default function MusicPlayerApp({ windowId }: { windowId?: string }) {
                                 role="option"
                                 aria-selected={on}
                                 aria-current={current || undefined}
-                                onClick={() => {
-                                    setSelected(i);
-                                    // With nothing playing there is no song to interrupt: the row
-                                    // becomes the one Play starts.
-                                    if (!isPlaying) setCurrentTrack(i);
-                                }}
+                                // A click only selects, whatever is playing or paused; Play starts
+                                // the selected row when nothing is paused (see togglePlay).
+                                onClick={() => setSelected(i)}
                                 onDoubleClick={play}
                                 onKeyDown={(e) => {
                                     if (e.key !== 'Enter') return;

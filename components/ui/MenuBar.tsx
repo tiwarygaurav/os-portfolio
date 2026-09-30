@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useSystemStore } from '@/store/useSystemStore';
 import { taskbarHeight } from '@/utils/viewport';
 
 /**
@@ -86,24 +87,32 @@ const firstLive = (items: MenuEntry[]) => step(items, -1, 1);
  * Swallow what is left of a press whose pointerdown was already swallowed. A cancelled pointerdown
  * still produces mousedown, mouseup and click, so without this the press that closed a menu went
  * on to press whatever was under it: Calculator's 7, Minesweeper's face. Everything up to that
- * press's click goes; the listeners leave with it, or at the next press if no click comes (the
- * pointer was dragged off), so no later click is ever eaten.
+ * press's click goes, and the listeners leave with it. When no click comes — the pointer was
+ * released off the page, or a touch was cancelled — they leave at the first sign the press is over:
+ * a key (so Enter or Space on a button is never eaten), a cancel, a moment after the release, or
+ * the next press.
  */
 function swallowRestOfPress(): void {
     const types = ['pointerup', 'mousedown', 'mouseup', 'click', 'auxclick', 'contextmenu'] as const;
+    let released: ReturnType<typeof setTimeout> | undefined;
     const swallow = (ev: Event) => {
         ev.preventDefault();
         ev.stopPropagation();
         if (ev.type === 'click' || ev.type === 'auxclick' || ev.type === 'contextmenu') done();
+        // A click follows its release at once; one that has not come by now is not coming.
+        else if (ev.type === 'pointerup' && released === undefined) released = setTimeout(done, 300);
     };
-    const nextPress = () => done();
+    const over = () => done();
     const done = () => {
+        clearTimeout(released);
         for (const t of types) window.removeEventListener(t, swallow, true);
-        window.removeEventListener('pointerdown', nextPress, true);
+        for (const t of ['pointerdown', 'pointercancel', 'keydown'] as const) window.removeEventListener(t, over, true);
     };
     for (const t of types) window.addEventListener(t, swallow, true);
     // Registered after this press's own pointerdown has been dispatched, so only the next one ends it.
-    setTimeout(() => window.addEventListener('pointerdown', nextPress, true), 0);
+    setTimeout(() => {
+        for (const t of ['pointerdown', 'pointercancel', 'keydown'] as const) window.addEventListener(t, over, true);
+    }, 0);
 }
 
 /** The window a menu bar belongs to: its frame where the window manager marks one, else its parent. */
@@ -310,9 +319,10 @@ export default function MenuBar({ menus, active, onHint }: MenuBarProps) {
             const target = e.target as Node | null;
             const root = windowOf(barRef.current);
             if (target && target !== document.body && root && !root.contains(target)) return;
-            // An owned dialog is modal: with focus left on the page (a click on the title bar), a key
-            // must still not open the menus behind it.
-            if (root?.querySelector('[data-app-dialog]')) return;
+            // A modal dialog in the window (Paint's Save As, Properties, any AppDialog), or an XP
+            // message box anywhere, holds the keyboard: with focus left on the page (a click on the
+            // title bar), a key must still not open the menus behind it.
+            if (root?.querySelector('[aria-modal="true"]') || useSystemStore.getState().dialogs.length > 0) return;
             // Nor while the session is behind the Welcome screen: an inert window takes no keys.
             if (root?.closest('[inert]')) return;
             if (e.key === 'Alt') setAltHeld(true);

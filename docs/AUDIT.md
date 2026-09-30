@@ -62,9 +62,9 @@ their commits record what they fixed.
 | 8183961 window, taskbar, menus | 11 (1 medium) | Chrome session |
 | 8183961 session, dialogs, sound | 11 (1 medium-high, 2 medium) | Chrome session, except `requestEndSession` (shell/files) |
 | 7b146df, the chrome fixes, re-checked | 3 partly fixed, 5 new (low–medium), 2 nits, and tests that could not fail | The chrome session's follow-up; each new test was checked to fail with its fix reverted. See CLAUDE.md §8 |
-| 7212919 Paint | 9 (3 medium) | All 9 in the apps session's commit |
-| 7212919 Solitaire, Minesweeper | 2 low | Both in the apps session's commit |
-| 7212919 Calculator, Media Player, MenuBar / AppDialog / xp-controls | 10 (2 medium) and a nit | All in the apps session's commit. Two did not reproduce as described: the Scope ghost (the fade is now timed anyway) and 9999999999999999 becoming 1.e+16, which is a double's limit that Help states — see CLAUDE.md §8 |
+| 7212919 Paint | 9 (3 medium) | All 9 in the apps session's commits (8816deb and its follow-up) |
+| 7212919 Solitaire, Minesweeper | 2 low | Both in the apps session's commits (8816deb and its follow-up) |
+| 7212919 Calculator, Media Player, MenuBar / AppDialog / xp-controls | 10 (2 medium) and a nit | All in the apps session's commits (8816deb and its follow-up); the re-check of 8816deb found a regression in the Calculator's rounding and six smaller things, all fixed. Two did not reproduce as described: the Scope ghost (the fade is now timed anyway) and 9999999999999999 becoming 1.e+16, which is a double's limit that Help states — see CLAUDE.md §8 |
 
 The ones a visitor would feel first:
 - Switch User's Turn Off opened under the Welcome screen and swallowed Enter blind.

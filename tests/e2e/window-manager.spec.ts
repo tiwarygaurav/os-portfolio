@@ -81,7 +81,8 @@ test('z-order never climbs over the taskbar', async ({ page }) => {
 
 test('the media player plays through a track boundary', async ({ page }) => {
     await openFromDesktop(page, 'music');
-    await page.getByText('Lose Yourself').first().click();
+    // A double-click plays a playlist row; a single click only selects it, as in WMP 9.
+    await page.getByText('Lose Yourself').first().dblclick();
     const result = await page.evaluate(async () => {
         const audio = document.querySelector('audio')!;
         audio.muted = true;

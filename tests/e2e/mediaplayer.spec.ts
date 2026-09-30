@@ -100,3 +100,27 @@ test('a track that cannot load says so, not that the browser blocked it', async 
     await page.waitForTimeout(500);
     await expect(player(page).getByRole('status')).toHaveText('This track could not be loaded.');
 });
+
+test('a click while paused only selects; Play resumes the paused song where it was', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'wmplayer');
+    await player(page).getByRole('option', { name: /Lose Yourself/ }).dblclick();
+    const seek = player(page).getByRole('slider', { name: 'Seek' });
+    await expect.poll(async () => Number(await seek.getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(1);
+    await player(page).getByRole('button', { name: 'Pause' }).click();
+    await expect(player(page).getByRole('status')).toHaveText('Paused');
+    const at = Number(await seek.getAttribute('aria-valuenow'));
+    await player(page).getByRole('option', { name: /Mockingbird/ }).click();
+    await expect(player(page).getByRole('status')).toHaveText('Paused');
+    await player(page).getByRole('button', { name: 'Play' }).click();
+    await expect(player(page).getByRole('status')).toHaveText('Playing: Lose Yourself');
+    expect(Number(await seek.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(at);
+});
+
+test('stopped, Play starts the song that was clicked', async ({ page }) => {
+    await bootAndLogin(page);
+    await run(page, 'wmplayer');
+    await player(page).getByRole('option', { name: /Mockingbird/ }).click();
+    await player(page).getByRole('button', { name: 'Play' }).click();
+    await expect(player(page).getByRole('status')).toHaveText('Playing: Mockingbird');
+});

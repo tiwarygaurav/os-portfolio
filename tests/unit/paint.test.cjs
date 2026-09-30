@@ -569,3 +569,13 @@ test('the BMP encoder writes the header, bottom-up BGR rows and padding, byte fo
         0x33, 0x22, 0x11, 0x66, 0x55, 0x44, 0, 0,
     ]);
 });
+
+test('a marquee dragged left or up keeps the pixel it started on', () => {
+    const e = new PaintEngine(40, 30);
+    e.setTool('select');
+    drag(e, [39, 29], [-5, -5]);
+    assert.deepEqual(e.getState().selection, { x: 0, y: 0, w: 40, h: 30, floating: false }, 'from the last pixel to past the first');
+    e.commitSelection();
+    drag(e, [20, 15], [10, 5]);
+    assert.deepEqual(e.getState().selection, { x: 11, y: 6, w: 10, h: 10, floating: false }, "the pressed pixel in, the pointer's out");
+});

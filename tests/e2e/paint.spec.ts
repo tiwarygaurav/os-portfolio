@@ -162,9 +162,18 @@ test('the Fonts toolbar leaves the keyboard in the text box', async ({ page }) =
     await page.keyboard.type('ab');
     await w.getByRole('toolbar', { name: 'Fonts' }).getByRole('button', { name: 'Bold' }).click();
     await page.keyboard.type('cd');
-    await w.getByRole('toolbar', { name: 'Fonts' }).getByRole('combobox', { name: 'Font size' }).selectOption('18');
+    const size = w.getByRole('toolbar', { name: 'Fonts' }).getByRole('combobox', { name: 'Font size' });
+    // With the list focused, as choosing from it leaves it.
+    await size.focus();
+    await size.selectOption('18');
     await page.keyboard.type('ef');
     await expect(text).toHaveValue('abcdef');
+    // A list only clicked, and closed without a choice, does not take the next letters.
+    const font = w.getByRole('toolbar', { name: 'Fonts' }).getByRole('combobox', { name: 'Font', exact: true });
+    await font.dispatchEvent('mousedown');
+    await font.focus();
+    await page.keyboard.type('gh');
+    await expect(text).toHaveValue('abcdefgh');
 });
 
 test('Image > Attributes in a window parked low does not push its title bar up', async ({ page }) => {
@@ -182,4 +191,32 @@ test('Image > Attributes in a window parked low does not push its title bar up',
     await page.getByRole('menuitem', { name: /^Attributes/ }).click();
     await expect(page.getByRole('dialog', { name: 'Attributes' })).toBeVisible();
     expect((await title.boundingBox())!.y).toBe(parked);
+});
+
+test('Alt+F does not open Paint\'s menus behind its Save As', async ({ page }) => {
+    const w = paint(page);
+    await w.getByRole('menuitem', { name: 'File' }).click();
+    await page.getByRole('menuitem', { name: /^Save As/ }).click();
+    const saveAs = page.getByRole('dialog', { name: 'Save As' });
+    await expect(saveAs).toBeVisible();
+    // A press on a part of the dialog that takes no focus, then keys with focus on the page.
+    await saveAs.locator('.luna-title').first().click();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('Alt+f');
+    await expect(page.getByRole('menuitem', { name: /^Save As/ })).toHaveCount(0);
+});
+
+test('keys pressed after a click inside Save As stay with the dialog, not the picture behind it', async ({ page }) => {
+    const w = paint(page);
+    await drag(page, [10, 10], [60, 10]);
+    await expect.poll(() => pixel(page, 30, 10)).toBe('0,0,0');
+    await page.keyboard.press('Control+s');
+    const saveAs = page.getByRole('dialog', { name: 'Save As' });
+    await expect(saveAs).toBeVisible();
+    await saveAs.locator('.luna-title').first().click();
+    await page.keyboard.press('Control+z');
+    await saveAs.getByRole('button', { name: 'Cancel' }).click();
+    // Paint's own Ctrl+Z would have taken the line back.
+    expect(await pixel(page, 30, 10)).toBe('0,0,0');
+    await expect(w).toBeVisible();
 });

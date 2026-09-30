@@ -540,7 +540,10 @@ export function drawShape(
     if (width > 1) fillRing(b, outer, inner, stroke, dirty);
     // Always the 4-connected edge as well. A thick ring is "outer minus inner" row by row, and
     // where a flat ellipse's edge jumps several pixels between rows, the pieces of the ring meet
-    // only corner to corner — a gap Fill With Color leaks through.
+    // only corner to corner — a gap Fill With Color leaks through. Closing it costs a pixel of extra
+    // thickness at those points, and with Outline and Fill it paints over the fill there: an edge
+    // pixel missing from the ring lies inside the inner shape by definition, so a closed ring has
+    // to take it from the fill or the interior. The leak is the worse of the two.
     outlineSpans(b, outer, stroke, dirty);
 }
 
