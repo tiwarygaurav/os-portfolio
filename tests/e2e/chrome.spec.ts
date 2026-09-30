@@ -127,20 +127,82 @@ test('Show Desktop\'s second click brings back what is still open, and makes it 
 });
 
 test('a right-click while the last menu fades out opens a new menu', async ({ page }) => {
+    // How many menus were in the page when the right-click arrived: 1 means the old one was still
+    // fading out over the point, which is the case this test is about.
     await desktopMenu(page);
+    await page.evaluate(() => {
+        const w = window as unknown as { __menusAtRightClick: number };
+        document.addEventListener('contextmenu', () => {
+            w.__menusAtRightClick = document.querySelectorAll('[data-xp-menu]').length;
+        }, { capture: true, once: true });
+    });
     await page.getByRole('menuitem', { name: 'Refresh' }).click();
-    // The same point, while the chosen menu is still fading out over it: it used to take the press.
     await page.mouse.click(900, 300, { button: 'right' });
-    await page.waitForTimeout(300); // past the fade
+    expect(await page.evaluate(() => (window as unknown as { __menusAtRightClick: number }).__menusAtRightClick)).toBe(1);
+    // Once the old one has gone, the new one is there: it used to take the press and open nothing.
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(1);
     await expect(page.getByRole('menu')).toHaveCount(1);
 });
 
 test('choosing a menu item never moves focus into the menu', async ({ page }) => {
+    // Any focus inside a menu, at any moment, is recorded: a fading menu is aria-hidden, and focus
+    // inside it is hidden from a screen reader, which Chrome refuses and logs.
+    await page.evaluate(() => {
+        const w = window as unknown as { __menuFocus: number };
+        w.__menuFocus = 0;
+        document.addEventListener('focusin', (e) => {
+            if ((e.target as Element).closest?.('[data-xp-menu]')) w.__menuFocus++;
+        }, true);
+    });
     await desktopMenu(page);
     await page.getByRole('menuitem', { name: 'Refresh' }).click();
-    // The menu is still fading out, and aria-hidden: focus inside it would be hidden from a screen
-    // reader, which Chrome refuses and logs.
-    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu]'))).toBe(false);
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { __menuFocus: number }).__menuFocus)).toBe(0);
+});
+
+test('a submenu used from the keyboard takes focus, and gives it up before it fades', async ({ page }) => {
+    await desktopMenu(page);
+    // Record aria-hidden landing on a menu that still holds focus: Chrome blocks and logs that.
+    await page.evaluate(() => {
+        const w = window as unknown as { __hiddenOverFocus: number };
+        w.__hiddenOverFocus = 0;
+        new MutationObserver((records) => {
+            for (const r of records) {
+                const el = r.target as Element;
+                if (el.getAttribute('aria-hidden') === 'true' && el.contains(document.activeElement)) w.__hiddenOverFocus++;
+            }
+        }).observe(document.body, { attributes: true, attributeFilter: ['aria-hidden'], subtree: true });
+    });
+    await page.keyboard.press('ArrowDown'); // Arrange Icons By
+    await page.keyboard.press('ArrowRight'); // its submenu, which takes the keyboard
+    // Real focus is on the submenu's selected item, so a screen reader announces it...
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu]'))).toBe(true);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    // ...and it is let go before the menu fades out under aria-hidden.
+    expect(await page.evaluate(() => (window as unknown as { __hiddenOverFocus: number }).__hiddenOverFocus)).toBe(0);
+});
+
+test('a press in a menu ends a rename in progress, which keeps the new name', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const item = (name: string) => w.locator(`button[data-name="${name}"]`);
+    const menuItem = (label: string) => page.getByRole('menuitem', { name: new RegExp(`^${label}`) });
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+    await w.getByText('This folder is empty.').click({ button: 'right' });
+    await menuItem('New').click();
+    await menuItem('Folder').click();
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    const box = w.getByLabel('New name for New Folder');
+    await expect(box).toBeFocused();
+    await page.keyboard.type('Plans');
+    // Still naming it, right-click inside the box (the folder's menu opens and the box keeps focus)
+    // and choose New > Folder: the press on the menu must end the rename, as a press anywhere else
+    // would, rather than drop the typed name.
+    await box.click({ button: 'right' });
+    await menuItem('New').click();
+    await menuItem('Folder').click();
+    await expect(item('Plans')).toBeVisible();
 });
 
 test('a disabled menu item does not open its submenu from the keyboard', async ({ page }) => {
@@ -214,6 +276,8 @@ test.describe('the Start menu from the keyboard', () => {
         await page.keyboard.press('Enter');
         await expect(page.locator('.xp-startmenu')).toBeVisible();
     };
+    /** The flyout panels (All Programs, its groups, Connect To): menus inside a portaled ContextMenu. */
+    const flyouts = (page: Page) => page.locator('[data-xp-menu] [role="menu"]');
     const focused = (page: Page) =>
         page.evaluate(() => {
             const el = document.activeElement as HTMLElement | null;
@@ -254,12 +318,13 @@ test.describe('the Start menu from the keyboard', () => {
     test('P opens All Programs on its first item; Left closes it and goes back to All Programs', async ({ page }) => {
         await openStart(page);
         await page.keyboard.press('p');
-        const flyout = page.getByRole('menu');
-        await expect(flyout).toHaveCount(1);
-        await expect(flyout.locator('.xp-menu-item.is-active')).toHaveCount(1);
+        await expect(flyouts(page)).toHaveCount(1);
+        await expect(flyouts(page).locator('.xp-menu-item.is-active')).toHaveCount(1);
+        // Real focus follows the selection into the flyout, so a screen reader announces it.
+        await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement | null)?.classList.contains('is-active') && !!document.activeElement?.closest('[data-xp-menu]'))).toBe(true);
 
         await page.keyboard.press('ArrowLeft');
-        await expect(page.getByRole('menu')).toHaveCount(0);
+        await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
         await expect(page.locator('.xp-startmenu')).toBeVisible();
         expect((await focused(page)).label).toBe('All Programs');
     });
@@ -267,13 +332,90 @@ test.describe('the Start menu from the keyboard', () => {
     test('a program starts from All Programs without the mouse', async ({ page }) => {
         await openStart(page);
         await page.keyboard.press('p');
-        await expect(page.getByRole('menu')).toHaveCount(1);
+        await expect(flyouts(page)).toHaveCount(1);
         // Into the first group, then its first program.
         await page.keyboard.press('ArrowRight');
-        await expect(page.getByRole('menu')).toHaveCount(2);
+        await expect(flyouts(page)).toHaveCount(2);
+        // Record aria-hidden landing on a menu that still holds focus: Chrome blocks and logs that.
+        await page.evaluate(() => {
+            const w = window as unknown as { __hiddenOverFocus: number };
+            w.__hiddenOverFocus = 0;
+            new MutationObserver((records) => {
+                for (const r of records) {
+                    const el = r.target as Element;
+                    if (el.getAttribute('aria-hidden') === 'true' && el.contains(document.activeElement)) w.__hiddenOverFocus++;
+                }
+            }).observe(document.body, { attributes: true, attributeFilter: ['aria-hidden'], subtree: true });
+        });
         await page.keyboard.press('Enter');
         await expect(windows(page)).toHaveCount(1);
         await expect(page.locator('.xp-startmenu')).toHaveCount(0);
+        expect(await page.evaluate(() => (window as unknown as { __hiddenOverFocus: number }).__hiddenOverFocus)).toBe(0);
+    });
+
+    test('R opens Run: an underlined letter answers before Resume.pdf, which only begins with it', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('r');
+        await expect(page.locator('#run-input')).toBeVisible();
+    });
+
+    test('Connect To opens from the keyboard, and Escape closes only its flyout', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('End'); // Run...
+        await page.keyboard.press('ArrowUp'); // Connect To
+        expect((await focused(page)).label).toBe('Connect To');
+        await page.keyboard.press('ArrowRight');
+        await expect(page.locator('[data-xp-menu] [role="menu"]')).toHaveCount(1);
+        await page.keyboard.press('Escape');
+        await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+        expect((await focused(page)).label).toBe('Connect To');
+    });
+
+    test('Tab out of the menu closes it, and its letters stop working', async ({ page }) => {
+        await run(page, 'notepad');
+        await expect(win(page, 'Untitled - Notepad')).toBeVisible();
+        await openStart(page);
+        for (let i = 0; i < 20 && (await page.locator('.xp-startmenu').count()) > 0; i++) await page.keyboard.press('Shift+Tab');
+        await expect(page.locator('.xp-startmenu')).toHaveCount(0);
+        await page.keyboard.press('a');
+        await expect(win(page, 'About Me')).toHaveCount(0);
+    });
+
+    test('Enter on the Start button and Delete in the menu never reach a selected desktop icon', async ({ page }) => {
+        await page.locator('[data-desktop-icon="contact"]').click();
+        await openStart(page);
+        await expect(windows(page)).toHaveCount(0);
+        await page.keyboard.press('Delete');
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+        await page.keyboard.press('Escape');
+        await page.keyboard.press('Delete');
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+
+    test('a held U opens Turn Off Computer but does not answer it', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.down('u');
+        await expect(page.locator('.xp-exit')).toBeVisible();
+        await page.keyboard.down('u'); // the key repeating
+        await page.keyboard.down('u');
+        await page.keyboard.up('u');
+        await page.waitForTimeout(300);
+        await expect(page.getByText(/is shutting down\.\.\./)).toHaveCount(0);
+        // A fresh press does.
+        await page.keyboard.press('u');
+        await expect(page.getByText(/is shutting down\.\.\./)).toBeVisible();
+    });
+
+    test('Start, U, U with unsaved work asks about it first', async ({ page }) => {
+        await run(page, 'notepad');
+        await win(page, 'Untitled - Notepad').locator('textarea').fill('unsaved');
+        await openStart(page);
+        await page.keyboard.press('u');
+        await page.keyboard.press('u');
+        await expect(page.getByRole('dialog')).toContainText(/save the changes/i);
+        await expect(page.getByText(/is shutting down\.\.\./)).toHaveCount(0);
     });
 
     test('Start, U, U turns the computer off, as it did in XP', async ({ page }) => {

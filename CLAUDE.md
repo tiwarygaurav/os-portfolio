@@ -361,7 +361,7 @@ icon on the Recycle Bin deletes it, which is what the bin already claimed.
 | `deletedAppIds` | Still persisted by design (A10). Recoverable from the Recycle Bin, or all at once with Display Properties > Desktop > Restore Deleted Icons. |
 | Legacy `.ico` | The chrome loads only `public/icons/xp/` (~350 KB for the set), plus the XP logo bitmaps, the Windows flag and the account picture. A few app bodies (My Computer among them) still reference the old `.ico` files; point them at `icons/xp/` and the `.ico` files can go. |
 | Deployment URL | `NEXT_PUBLIC_SITE_URL` is set to `https://gauravtiwary.com` in the Vercel project's production environment, so the Open Graph card points there; nothing is hardcoded. Previews and local builds have no site URL. |
-| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, message boxes and the exit dialogs trap focus, and the Start menu is driven from the keyboard). XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
+| Not implemented | Keyboard window switching (Alt+Tab is the host OS's; window focus is pointer-driven — desktop icons do take arrows, Enter, Delete and Ctrl+A, message boxes and the exit dialogs trap focus, and the Start menu is driven from the keyboard once reached with Tab and opened with Enter or Space; Ctrl+Esc and the Windows key belong to the host OS). XP's animated cursors. A phone-width tablet tier and non-tap gestures (long-press) are the remaining mobile gap — see `docs/ROADMAP.md` §9. Files: no rubber-band selection in Explorer (Ctrl, Shift and Ctrl+A select several), no dragging between windows or onto the desktop (within Explorer, dragging onto a folder or the Folders tree works). |
 
 ---
 
@@ -467,6 +467,43 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - Fixes from the review of 0901d44 (the Start menu's keyboard)
+
+The files session reviewed 0901d44 and found it sound, with nine findings to follow up. All are
+addressed here.
+- **Keys aimed elsewhere.** Enter on the Start button opened the icon selected on the desktop, and
+  Delete in the Start menu offered to recycle it. The desktop's icon keys now act only on a key
+  aimed at `<body>` or the icon layer. The open Start menu took keys typed into a window after Tab
+  had left it: it now takes only keys aimed at itself, its button or nothing, and closes when focus
+  moves anywhere else. Its Escape no longer also reaches the desktop's (which deselected the icons).
+- **R opens Run.** An underlined letter answers before any item that merely begins with it, as in
+  XP; R used to select Resume.pdf.
+- **Held keys.** A repeating key no longer activates anything in the Start menu or the Turn Off
+  dialog: a held U used to go straight on through Turn Off, and a held Enter on the Start button into
+  the first program. Unsaved work was still asked about; the test proves it.
+- **Screen readers.** The Start menu is `role="menu"` with menu items (it was a group of buttons,
+  so a screen reader stayed in browse mode and ate the arrows), and the Start button has
+  `aria-haspopup`. A menu panel that owns the keyboard (a submenu opened from the keyboard, or All
+  Programs) moves real focus with its selection, so each item is announced, and lets go of focus
+  before an item acts, so the fading `aria-hidden` menu never holds it. A mouse press still never
+  moves focus into a menu.
+- **A rename in progress** (Explorer's box) was dropped when a menu was chosen over it, since the
+  press no longer blurred the box. A press in a menu now ends an edit in progress first.
+- **Waking gestures.** If the waking release was lost, a new press by the same pointer ends the
+  swallow (it used to take that press's release as the wake's, and a drag begun then never ended).
+  The double-click rule has no clock: the next click's `detail` says whether it paired with the
+  waking click, which the fixed 800 ms got wrong both ways.
+- **One selection.** While the keyboard drives the Start menu, the item under a resting pointer is
+  not lit too; moving the mouse hands the selection back, and pointing at an item focuses it.
+**Tests.** Each of these failed on a build with its fix reverted: the leak to a selected icon; Tab
+out of the menu; R; a held U; a rename ended by a menu; focus following a keyboard submenu and let
+go before it fades (reverted alone, since reverting focus-following as well hides it); a
+double-click once the waking click is counted out. "Choosing a menu item never moves focus into the
+menu" now records any focus inside a menu at any moment, not only during the fade. The fade-out
+right-click test records that the press landed while the old menu was there. Connect To, Escape in
+a flyout, and Start, U, U with unsaved work have tests. Still not covered: multi-finger touch
+wakes, Stand By's grace across a re-render, and XP's Ctrl+Esc and Windows key.
+
 ### 2026-10-01 - The Start menu from the keyboard; fixes from the re-check of e0e9e75
 
 **Why:** XP's Start menu worked entirely from the keyboard, and "Start, U, U" was how many people
@@ -475,10 +512,12 @@ turned XP off. Here it had only Escape, and §5 listed it as not built.
 with no count is the keyboard's). The arrows move within the white left side, the blue right side
 and the footer. Left and Right cross between the sides at the same height, and each side runs down
 into its own footer button: Log Off under the left, Turn Off Computer under the right. Home and End
-work too. Right, Enter or the letter on All Programs or Connect To opens the flyout on its first
-item, and Left or Escape closes it back to its button. A letter selects the item it underlines —
-XP's L (Log Off), U (Turn Off Computer), R (Run) and P (All Programs), the ones this entry is sure
-of — or else the item it begins, and opens it when only one item answers to it. The Turn Off
+work too. Right or Enter on All Programs or Connect To, or P for All Programs, opens the flyout on
+its first item, and Left or Escape closes it back to its button. (Connect To has no letter.) A
+letter selects the item it underlines — XP's L (Log Off), U (Turn Off Computer), R (Run) and P (All
+Programs), the ones this entry is sure of — or else the items it begins, and opens it when only one
+item answers to it. (As first shipped, R also matched Resume.pdf and so only selected; the entry
+above made an underlined letter answer first.) The Turn Off
 dialog already took U, so "Start, U, U" turns the computer off. The underlines show only once the
 keyboard is in use, as XP's keyboard cues did. Escape returns focus to the Start button. Keyboard
 position is drawn as the hover highlight, with no focus ring. `components/ui/AccessLabel.tsx` is
@@ -489,13 +528,15 @@ fixed:
 - A clicked menu item took focus, and kept it through the fade under `aria-hidden`, which Chrome
   blocks and logs. A press never moves focus into a menu now, as XP's never took it.
 - Touch wakes: another finger's click ended the swallow early, and a wake with no click (a scroll or
-  a long-press) ate the next tap's release. The swallow now ends with the waking pointer's own click
-  after its release, or at the next press.
+  a long-press) ate the next tap's release. The swallow now ends with the first click after the
+  waking pointer's release (a tap's own click is usually suppressed by its eaten touchend), at the
+  next press, or at the backstop.
 - Stand By's grace period restarted on any parent re-render, through an inline `onWake`. It is held
   in a ref.
 **Accepted, not fixed:** a double-click begun just after a waking click pairs its first click with
 the swallowed one, so it selects the icon rather than opening it. The alternative, letting that
-double-click through, opens the icon under a double-press that wakes the screen.
+double-click through, opens the icon under a double-press that wakes the screen. (The fixed 800 ms
+this shipped with also erred both ways; the entry above replaced it with the browser's own count.)
 **Tests.** Stand By's helper now parks the pointer and then chooses Stand By with its S key, so no
 move races the grace period. The key-wake test now presses F10 over an active Calculator,
 so it fails without the swallow; Notepad was no good for this, as its menu is not the shared

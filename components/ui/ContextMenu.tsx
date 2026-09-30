@@ -64,6 +64,12 @@ function place(pointer: number, size: number, limit: number): number {
 
 const actionable = (item: MenuItem) => !item.divider && !item.disabled;
 
+/** Ends an edit in progress (an input, a text area, an editable element) by taking focus from it. */
+function endEdit(): void {
+    const el = document.activeElement;
+    if (el instanceof HTMLElement && (el.matches('input, textarea, select') || el.isContentEditable)) el.blur();
+}
+
 /**
  * An XP menu: the white Luna panel with its #aca899 border and soft shadow, the default action in
  * bold, shortcut text on the right, and cascading submenus.
@@ -190,9 +196,23 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
             setOpenSub(index);
             return;
         }
+        // The menu is about to fade out under aria-hidden: it must not be holding focus.
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && focused.closest(`[${MENU_ATTR}]`)) focused.blur();
         item.action?.();
         onClose();
     };
+
+    /*
+     * A panel that owns the keyboard (a submenu opened from the keyboard, or the Start menu's All
+     * Programs) moves real focus with its selection, so a screen reader announces each item. A press
+     * of the mouse still never moves focus into a menu.
+     */
+    const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+    useEffect(() => {
+        if (!hasKeyboard || keyboardInSub || !isPresent || active < 0) return;
+        itemRefs.current[active]?.focus({ preventScroll: true });
+    }, [hasKeyboard, keyboardInSub, isPresent, active]);
 
     // Keyboard: only the innermost open panel listens.
     useEffect(() => {
@@ -238,14 +258,21 @@ function MenuPanel({ items, onClose, root, onBack }: MenuPanelProps) {
     return (
         // A closing menu is gone to assistive technology too, not just to the pointer and the keys.
         // A press never moves focus into a menu, as XP's never took it: the keyboard stays with the
-        // window or box it was in, and aria-hidden can never sit over the focused element.
-        <div className="xp-menu" role="menu" aria-hidden={!isPresent || undefined} onMouseDown={(e) => e.preventDefault()}>
+        // window or box it was in, and aria-hidden can never sit over the focused element. An edit in
+        // progress still ends, as a press anywhere else ends it (a rename box commits on blur).
+        <div className="xp-menu" role="menu" aria-hidden={!isPresent || undefined} onMouseDown={(e) => {
+            endEdit();
+            e.preventDefault();
+        }}>
             {items.map((item, index) =>
                 item.divider ? (
                     <div key={index} className="xp-menu-sep" role="separator" />
                 ) : (
                     <div key={index} className="relative">
                         <button
+                            ref={(el) => {
+                                itemRefs.current[index] = el;
+                            }}
                             type="button"
                             role={item.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'}
                             aria-checked={item.checked}

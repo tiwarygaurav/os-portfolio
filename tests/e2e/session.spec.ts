@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
 
 async function startMenu(page: Page, item: 'Log Off' | 'Turn Off Computer'): Promise<void> {
     await page.getByText('start', { exact: true }).first().click();
-    await page.getByRole('button', { name: item, exact: true }).click();
+    await page.getByRole('menuitem', { name: item, exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
 }
 
@@ -106,6 +106,19 @@ test('a double-press that wakes Stand By does not open the icon underneath', asy
     // Once the moment has passed, a double-click opens the icon as always.
     await page.waitForTimeout(600);
     await page.locator('[data-desktop-icon="contact"]').dblclick();
+    await expect(windows(page)).toHaveCount(1);
+});
+
+test('a double-click begun after the waking click has been counted out opens the icon', async ({ page }) => {
+    const icon = await centreOf(page, '[data-desktop-icon="contact"]');
+    await standBy(page, icon);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(page.locator('.xp-standby')).toHaveCount(0);
+    // A fresh double-click (its first click counts 1): only a double-click completed with the waking
+    // click is eaten, and a fixed 800 ms clock used to eat this one too.
+    await page.waitForTimeout(300);
+    await page.mouse.dblclick(icon.x, icon.y);
     await expect(windows(page)).toHaveCount(1);
 });
 

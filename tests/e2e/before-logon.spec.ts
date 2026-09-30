@@ -17,7 +17,7 @@ test('the screen saver never starts under Stand By', async ({ page }) => {
     await bootAndLogin(page);
 
     await page.getByText('start', { exact: true }).first().click();
-    await page.getByRole('button', { name: 'Turn Off Computer', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Turn Off Computer', exact: true }).click();
     await page.locator('[data-exit="standby"]').click();
     await expect(page.locator('.xp-standby')).toBeVisible();
 

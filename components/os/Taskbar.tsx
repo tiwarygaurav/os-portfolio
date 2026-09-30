@@ -207,6 +207,7 @@ export default function Taskbar({ onOpenRun, onExit }: TaskbarProps) {
                     ref={startButtonRef}
                     type="button"
                     onClick={toggleStart}
+                    aria-haspopup="menu"
                     aria-expanded={startOpen}
                     className="xp-start-button"
                     data-tip="Click here to begin."

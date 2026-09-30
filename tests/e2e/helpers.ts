@@ -39,7 +39,7 @@ export async function openFromDesktop(page: Page, appId: string): Promise<void> 
 /** Start > Run..., type, Enter — the route that always works, whatever is on screen. */
 export async function run(page: Page, input: string): Promise<void> {
     await page.getByText('start', { exact: true }).first().click();
-    await page.getByRole('button', { name: 'Run...' }).click();
+    await page.getByRole('menuitem', { name: 'Run...' }).click();
     await page.locator('#run-input').fill(input);
     await page.locator('#run-input').press('Enter');
 }

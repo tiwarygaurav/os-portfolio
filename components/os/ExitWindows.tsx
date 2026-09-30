@@ -132,6 +132,12 @@ export default function ExitWindows({ kind, onCancel, onStandBy, onSwitchUser, o
                 onCancel();
                 return;
             }
+            // A held key repeats. The key that opened this dialog (U in "Start, U, U", or Enter) must
+            // not go on to answer it: only a fresh press does.
+            if (e.repeat && e.key !== 'Tab' && !e.key.startsWith('Arrow')) {
+                e.preventDefault();
+                return;
+            }
             const focusables = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('button') ?? []);
             const i = focusables.indexOf(document.activeElement as HTMLButtonElement);
             if (e.key === 'Tab' || e.key === 'ArrowRight' || e.key === 'ArrowLeft') {

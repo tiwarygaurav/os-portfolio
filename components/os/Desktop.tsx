@@ -378,8 +378,12 @@ export default function Desktop() {
 
             // A key aimed at something inside a window belongs to that window, whatever the flag says.
             const inWindow = !!target.closest?.('[data-window]');
+            // The icon keys act only on a key aimed at the desktop itself: at nothing (<body>) or at
+            // the icon layer. Enter on the Start button, or Delete in the Start menu, used to reach the
+            // icon still selected behind them.
+            const atDesktop = target === document.body || !!iconLayer.current?.contains(target);
 
-            if (!inForm && !inWindow && desktopFocused.current && !iconsHidden) {
+            if (!inForm && !inWindow && atDesktop && desktopFocused.current && !iconsHidden) {
                 // Delete sends the selection to the Recycle Bin
                 if (e.key === 'Delete' && selected.length > 0) {
                     void confirmDelete(selected).then((deleted) => {

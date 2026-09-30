@@ -5,8 +5,8 @@
 
 /** After a touch is released, the tap's click arrives as a separate event; wait this long for it. */
 const TAP_CLICK_MS = 450;
-/** How long a following press can still pair with the waking one into a double-click. */
-const DOUBLE_CLICK_MS = 800;
+/** Backstop for the double-click listeners, if no click ever follows the wake. */
+const DOUBLE_BACKSTOP_MS = 10_000;
 
 export const swallow = (e: Event): void => {
     e.preventDefault();
@@ -21,10 +21,12 @@ export const swallow = (e: Event): void => {
  * context menu on release), and swallowed the release of the *next* gesture, so a drag, resize or
  * rubber band begun straight after waking never ended.
  *
- * The gesture ends with the waking pointer's own click after its release; a new press after the
- * release (the wake was a scroll or a long-press, which make no click) or the backstop ends it too.
- * Before the release, another finger's click is eaten but does not end it. `pointerId` is null when
- * the wake came from a touch event, not a pointer event: then the first release is the wake's.
+ * The gesture ends with the first click after the waking pointer's release (a mouse's own click; a
+ * tap's is usually suppressed by its eaten touchend), with a new press after the release (the wake
+ * was a scroll or a long-press, which make no click), or with the backstop. Before the release,
+ * another finger's click is eaten but does not end it, and a new press from the *same* pointer means
+ * its release was lost (it left the window while held), so that ends it too. `pointerId` is null
+ * when the wake came from a touch event, not a pointer event: then the first release is the wake's.
  */
 export function swallowRestOfGesture(pointerId: number | null, isMouse: boolean): void {
     const rest = ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'click', 'contextmenu', 'auxclick'];
@@ -51,8 +53,8 @@ export function swallowRestOfGesture(pointerId: number | null, isMouse: boolean)
             stop();
         }
     };
-    const onPress = () => {
-        if (released) stop();
+    const onPress = (e: Event) => {
+        if (released || (pointerId !== null && (e as PointerEvent).pointerId === pointerId)) stop();
     };
     rest.forEach((t) => window.addEventListener(t, eat, { capture: true }));
     window.addEventListener('pointerdown', onPress, { capture: true });
@@ -61,12 +63,31 @@ export function swallowRestOfGesture(pointerId: number | null, isMouse: boolean)
 
     /*
      * The next press is a gesture of its own, but the browser still counts the swallowed click, so a
-     * quick second press would complete a double-click with it and open the icon underneath. That
-     * double-click is eaten. The cost, accepted: a double-click begun within the same moment pairs
-     * its first click with the waking one (count 2, eaten) and its second becomes count 3, which
-     * makes no double-click — so it selects the icon rather than opening it.
+     * quick second press would complete a double-click with it and open the icon underneath. The
+     * browser says which: the first click after the wake has detail 2 when it pairs with the waking
+     * click, and 1 when the count has started again. Only a double-click completed by that first
+     * click is eaten; no clock is involved.
+     *
+     * The cost, accepted: a double-click begun at once pairs its first click with the waking one
+     * (count 2, eaten), and its second becomes count 3, which makes no double-click — so it selects
+     * the icon rather than opening it.
      */
-    const eatDouble = (e: Event) => swallow(e);
+    let doubleBackstop = 0;
+    const endDouble = () => {
+        window.removeEventListener('click', countClick, { capture: true });
+        window.removeEventListener('dblclick', eatDouble, { capture: true });
+        window.clearTimeout(doubleBackstop);
+    };
+    const countClick = (e: Event) => {
+        // The waking click itself was swallowed (and so default-prevented) just before this.
+        if (e.defaultPrevented) return;
+        if ((e as MouseEvent).detail <= 1) endDouble();
+    };
+    const eatDouble = (e: Event) => {
+        swallow(e);
+        endDouble();
+    };
+    window.addEventListener('click', countClick, { capture: true });
     window.addEventListener('dblclick', eatDouble, { capture: true });
-    window.setTimeout(() => window.removeEventListener('dblclick', eatDouble, { capture: true }), DOUBLE_CLICK_MS);
+    doubleBackstop = window.setTimeout(endDouble, DOUBLE_BACKSTOP_MS);
 }

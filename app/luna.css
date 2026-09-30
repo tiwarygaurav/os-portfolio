@@ -761,14 +761,16 @@
 }
 .xp-startmenu-right .xp-startmenu-item img { width: 24px; height: 24px; }
 .xp-startmenu-right .xp-startmenu-item.is-place { font-weight: bold; }
-.xp-startmenu-item:hover,
+/* One selection, as XP had: while the keyboard drives the menu (data-nav="keys"), the item under a
+   resting pointer is not highlighted too. Moving the mouse hands the selection back to it. */
+.xp-startmenu:not([data-nav='keys']) .xp-startmenu-item:hover,
 .xp-startmenu-item:focus-visible,
 .xp-startmenu-item.is-active {
   background: var(--luna-highlight);
   color: var(--luna-highlight-text);
   outline: none;
 }
-.xp-startmenu-item:hover small,
+.xp-startmenu:not([data-nav='keys']) .xp-startmenu-item:hover small,
 .xp-startmenu-item:focus-visible small,
 .xp-startmenu-item.is-active small { color: var(--luna-highlight-text); }
 .xp-startmenu-item.has-submenu::after {
@@ -800,7 +802,7 @@
   font: bold 11px var(--xp-font);
   cursor: default;
 }
-.xp-startmenu-allprograms:hover,
+.xp-startmenu:not([data-nav='keys']) .xp-startmenu-allprograms:hover,
 .xp-startmenu-allprograms:focus-visible,
 .xp-startmenu-allprograms.is-active {
   background: var(--luna-highlight);
@@ -852,9 +854,9 @@
   height: 22px;
   border-radius: 3px;
 }
-.xp-startmenu-footer-btn:hover,
+.xp-startmenu:not([data-nav='keys']) .xp-startmenu-footer-btn:hover,
 .xp-startmenu-footer-btn:focus-visible { background: rgba(60, 80, 210, 0.45); }
-.xp-startmenu-footer-btn:hover img,
+.xp-startmenu:not([data-nav='keys']) .xp-startmenu-footer-btn:hover img,
 .xp-startmenu-footer-btn:focus-visible img { filter: brightness(1.15); }
 /* The Start menu draws its keyboard position as the hover highlight, as XP did; no extra ring. */
 .xp-startmenu :focus-visible { outline: none; }

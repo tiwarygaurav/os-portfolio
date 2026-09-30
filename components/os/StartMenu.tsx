@@ -58,9 +58,11 @@ type Flyout = { kind: 'programs' | 'connect'; x: number; y: number; keyboard: bo
  * The keyboard. The arrows move within the white left side, the blue right side and the footer;
  * Left and Right cross between the sides at the same height, and each side runs down into its own
  * footer button (Log Off under the left, Turn Off Computer under the right). Right on All Programs
- * or Connect To opens the flyout with its first item selected. A letter selects the item it
- * underlines (XP's L, U, R and P) or begins, and opens it when only one item answers to it — so
- * "Start, U, U" turns the computer off, as it did in XP.
+ * or Connect To opens the flyout with its first item selected. A letter selects the item that
+ * underlines it (XP's L, U, R and P), which answers before any item that merely begins with it;
+ * otherwise the items it begins. A letter only one item answers to opens that item, so "Start, U, U"
+ * turns the computer off, as it did in XP, and R opens Run. The menu takes only keys aimed at it,
+ * its Start button or nothing, and closes when focus moves elsewhere.
  */
 type Column = 'left' | 'right' | 'foot';
 
@@ -83,8 +85,12 @@ function levelWith(col: HTMLElement[], from: HTMLElement): HTMLElement | undefin
     );
 }
 
-/** The letter an item answers to: its underlined access key, or else its first letter. */
-const letterOf = (el: HTMLElement) => (el.dataset.access ?? (el.dataset.label ?? '').charAt(0)).toLowerCase();
+/** The items a letter selects: the one that underlines it, or else those whose names begin with it. */
+function answering(items: HTMLElement[], letter: string): HTMLElement[] {
+    const underlined = items.filter((el) => el.dataset.access === letter);
+    if (underlined.length > 0) return underlined;
+    return items.filter((el) => !el.dataset.access && (el.dataset.label ?? '').charAt(0).toLowerCase() === letter);
+}
 
 /**
  * The XP Start menu, laid out as XP laid it out: the user's picture and name over the orange rule;
@@ -100,6 +106,8 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
     const [cues, setCues] = useState(keyboard);
     // The item a keyboard-opened flyout returns to when Left or Escape closes it.
     const flyoutOpener = useRef<HTMLElement | null>(null);
+    // Who holds the selection: the keyboard (and the item under a resting pointer is not lit) or the mouse.
+    const [nav, setNav] = useState<'keys' | 'pointer'>(keyboard ? 'keys' : 'pointer');
 
     useEffect(() => {
         const onMouseDown = (e: MouseEvent) => {
@@ -112,15 +120,25 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
         };
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
+            // Only the menu closes: not the desktop's own Escape, which would also deselect its icons.
+            e.stopPropagation();
             onClose();
             // Back to the Start button, where the keyboard was before the menu opened.
             triggerRef?.current?.focus({ preventScroll: true });
         };
+        // Focus moving anywhere else (Tab into a window, a click on a focusable control) closes it.
+        const onFocusIn = (e: FocusEvent) => {
+            const target = e.target as Node;
+            if (menuRef.current?.contains(target) || triggerRef?.current?.contains(target) || isInsideMenu(e.target)) return;
+            onClose();
+        };
         document.addEventListener('mousedown', onMouseDown);
         document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('focusin', onFocusIn);
         return () => {
             document.removeEventListener('mousedown', onMouseDown);
             document.removeEventListener('keydown', onKeyDown);
+            document.removeEventListener('focusin', onFocusIn);
             window.clearTimeout(hoverTimer.current);
         };
     }, [onClose, triggerRef]);
@@ -171,8 +189,18 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             if (flyout) return;
             const root = menuRef.current;
             if (!root || e.ctrlKey || e.metaKey || e.altKey) return;
-            const cols = columnsOf(root);
+            // Only keys aimed at the menu, its Start button, or nothing at all.
             const focused = document.activeElement;
+            const aimed = !focused || focused === document.body || root.contains(focused) || !!triggerRef?.current?.contains(focused);
+            if (!aimed) return;
+            // A held key repeats: a held U must not go on through the Turn Off dialog, nor a held
+            // Enter from the Start button into the first program.
+            if (e.repeat && (e.key === 'Enter' || e.key === ' ' || /^[a-z0-9]$/i.test(e.key))) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            const cols = columnsOf(root);
             const current = focused instanceof HTMLElement && root.contains(focused) && focused.dataset.sm ? focused : null;
             const col = current?.dataset.sm as Column | undefined;
             const list = col ? cols[col] : [];
@@ -201,8 +229,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                 const side = col && col !== 'foot' ? list : cols.left;
                 next = e.key === 'Home' ? side[0] : side[side.length - 1];
             } else if (/^[a-z0-9]$/i.test(e.key)) {
-                const letter = e.key.toLowerCase();
-                const matches = [...cols.left, ...cols.right, ...cols.foot].filter((el) => letterOf(el) === letter);
+                const matches = answering([...cols.left, ...cols.right, ...cols.foot], e.key.toLowerCase());
                 if (matches.length === 1) activate(matches[0]);
                 else if (matches.length > 1) next = matches[(matches.indexOf(current as HTMLElement) + 1) % matches.length];
                 else handled = false;
@@ -213,6 +240,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             e.preventDefault();
             e.stopPropagation();
             setCues(true);
+            setNav('keys');
             next?.focus({ preventScroll: true });
         };
         document.addEventListener('keydown', onKey);
@@ -240,11 +268,20 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
         },
     }));
 
+    /** Pointing at an item makes it the selection: it takes focus if the keyboard is already in the menu. */
+    const point = (el: HTMLElement) => {
+        if (menuRef.current?.contains(document.activeElement)) el.focus({ preventScroll: true });
+    };
+
     /** A plain item: where it sits for the arrows, and the name its first letter is taken from. */
     const itemProps = (onClick: () => void, column: Column, label: string) => ({
         type: 'button' as const,
+        role: 'menuitem' as const,
         onClick,
-        onMouseEnter: () => hover(),
+        onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+            point(e.currentTarget);
+            hover();
+        },
         'data-sm': column,
         'data-label': label,
     });
@@ -256,10 +293,12 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             animate={{ opacity: 1 }}
             transition={{ duration: 0.12, ease: 'easeOut' }}
             className="xp-startmenu max-h-[calc(100dvh-var(--xp-taskbar-h))] overflow-y-auto sm:overflow-visible"
-            role="group"
+            role="menu"
             aria-label="Start menu"
+            data-nav={nav}
+            onMouseMove={() => nav === 'keys' && setNav('pointer')}
         >
-            <div className="xp-startmenu-header">
+            <div className="xp-startmenu-header" role="none">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/profile.jpg" alt={PROFILE.name} className="xp-startmenu-avatar" draggable={false} />
                 <span className="xp-startmenu-user">{PROFILE.name}</span>
@@ -281,7 +320,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                             </button>
                         );
                     })}
-                    <div className="xp-startmenu-sep" />
+                    <div className="xp-startmenu-sep" role="separator" />
                     {MOST_USED.map((id) => {
                         const app = APPS[id];
                         if (!app) return null;
@@ -294,17 +333,21 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                     })}
 
                     <div className="mt-auto pt-2">
-                        <div className="xp-startmenu-sep" />
+                        <div className="xp-startmenu-sep" role="separator" />
                         <button
                             type="button"
                             className={`xp-startmenu-allprograms${flyout?.kind === 'programs' ? ' is-active' : ''}`}
+                            role="menuitem"
                             aria-haspopup="menu"
                             aria-expanded={flyout?.kind === 'programs'}
                             data-sm="left"
                             data-flyout="programs"
                             data-label="All Programs"
                             data-access="p"
-                            onMouseEnter={(e) => hover(e.currentTarget)}
+                            onMouseEnter={(e) => {
+                                point(e.currentTarget);
+                                hover(e.currentTarget);
+                            }}
                             onClick={toggleFlyout}
                         >
                             <AccessLabel text="All Programs" accessKey="P" show={cues} />
@@ -331,7 +374,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                         My Computer
                     </button>
 
-                    <div className="xp-startmenu-sep" />
+                    <div className="xp-startmenu-sep" role="separator" />
 
                     <button className="xp-startmenu-item" {...itemProps(() => open('settings'), 'right', 'Control Panel')}>
                         <XpIcon src="/icons/xp/control-panel.png" size={24} />
@@ -340,19 +383,23 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                     <button
                         type="button"
                         className={`xp-startmenu-item has-submenu${flyout?.kind === 'connect' ? ' is-active' : ''}`}
+                        role="menuitem"
                         aria-haspopup="menu"
                         aria-expanded={flyout?.kind === 'connect'}
                         data-sm="right"
                         data-flyout="connect"
                         data-label="Connect To"
-                        onMouseEnter={(e) => hover(e.currentTarget)}
+                        onMouseEnter={(e) => {
+                            point(e.currentTarget);
+                            hover(e.currentTarget);
+                        }}
                         onClick={toggleFlyout}
                     >
                         <XpIcon src="/icons/xp/connect-to.svg" size={24} />
                         Connect To
                     </button>
 
-                    <div className="xp-startmenu-sep" />
+                    <div className="xp-startmenu-sep" role="separator" />
 
                     {/*
                       * Run. XP's own command palette, and the fastest route to anything on this
@@ -373,6 +420,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                 <button
                     type="button"
                     className="xp-startmenu-footer-btn"
+                    role="menuitem"
                     data-sm="foot"
                     data-label="Log Off"
                     data-access="l"
@@ -384,6 +432,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                 <button
                     type="button"
                     className="xp-startmenu-footer-btn"
+                    role="menuitem"
                     data-sm="foot"
                     data-label="Turn Off Computer"
                     data-access="u"
