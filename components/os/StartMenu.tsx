@@ -269,9 +269,13 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
         },
     }));
 
-    /** Pointing at an item makes it the selection: it takes focus if the keyboard is already in the menu. */
+    /**
+     * Pointing at an item makes it the selection: it takes focus if the keyboard is already in the menu
+     * or in one of its flyouts (which then closes, and must not hand focus back past the pointer).
+     */
     const point = (el: HTMLElement) => {
-        if (menuRef.current?.contains(document.activeElement)) el.focus({ preventScroll: true });
+        const focused = document.activeElement;
+        if (menuRef.current?.contains(focused) || isInsideMenu(focused)) el.focus({ preventScroll: true });
     };
 
     /** A plain item: where it sits for the arrows, and the name its first letter is taken from. */

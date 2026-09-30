@@ -64,6 +64,9 @@ function place(pointer: number, size: number, limit: number): number {
 
 const actionable = (item: MenuItem) => !item.divider && !item.disabled;
 
+/** Where focus was before a menu took it, and the nearest focusable place around it, in case it goes. */
+type ReturnTarget = { el: HTMLElement; scope: HTMLElement | null };
+
 /** Ends an edit in progress (an input, a text area, an editable element) by taking focus from it. */
 function endEdit(): void {
     const el = document.activeElement;
@@ -170,7 +173,7 @@ interface MenuPanelProps {
     /** Keys opened this panel: real focus moves with its selection from the start. */
     focusFollows?: boolean;
     /** Where focus was before the menu took it, shared down the submenus; the root panel owns it. */
-    returnFocus?: MutableRefObject<HTMLElement | null>;
+    returnFocus?: MutableRefObject<ReturnTarget | null>;
 }
 
 function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnFocus: sharedReturn }: MenuPanelProps) {
@@ -182,7 +185,7 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
     const [subByKey, setSubByKey] = useState(false);
     // Keys have driven this panel: from then on, real focus moves with its selection.
     const [keyed, setKeyed] = useState(false);
-    const ownReturn = useRef<HTMLElement | null>(null);
+    const ownReturn = useRef<ReturnTarget | null>(null);
     const returnFocus = sharedReturn ?? ownReturn;
     const panelRef = useRef<HTMLDivElement>(null);
     const timer = useRef<number>();
@@ -221,10 +224,13 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
     const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
     const focusMoves = focusFollows || keyed;
     useEffect(() => {
-        if (!focusMoves || keyboardInSub || !isPresent || active < 0) return;
+        if (keyboardInSub || !isPresent || active < 0) return;
+        // A panel already holding focus keeps it on its selection, whoever moves it: with the pointer
+        // lighting one item and focus on another, Enter chose one while a screen reader read the other.
+        if (!focusMoves && !panelRef.current?.contains(document.activeElement)) return;
         const current = document.activeElement;
         if (current instanceof HTMLElement && current !== document.body && !current.closest(`[${MENU_ATTR}]`)) {
-            returnFocus.current = current;
+            returnFocus.current = { el: current, scope: current.parentElement?.closest<HTMLElement>('[tabindex]') ?? null };
         }
         itemRefs.current[active]?.focus({ preventScroll: true });
     }, [focusMoves, keyboardInSub, isPresent, active, returnFocus]);
@@ -237,14 +243,24 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
     function giveBackFocus() {
         const focused = document.activeElement;
         if (!(focused instanceof HTMLElement) || !panelRef.current?.contains(focused)) return;
+        // The element it came from, or, if that has gone (a rename box that committed as the menu took
+        // focus), the nearest focusable place around it. Focus must really land: a hidden or disabled
+        // target takes none, and focus would stay in the fading menu.
         const back = returnFocus.current;
-        if (back?.isConnected) back.focus({ preventScroll: true });
-        else focused.blur();
+        for (const target of [back?.el, back?.scope]) {
+            if (!target?.isConnected) continue;
+            target.focus({ preventScroll: true });
+            if (document.activeElement === target) return;
+        }
+        focused.blur();
     }
     useLayoutEffect(() => {
         if (!isPresent) giveBackFocus();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPresent]);
+    // A submenu unmounts without fading (Left, Escape, the pointer moving on): if it holds focus, it
+    // hands it back as it goes, before its node leaves the page.
+    useLayoutEffect(() => () => giveBackFocus(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Keyboard: only the innermost open panel listens.
     useEffect(() => {
@@ -260,7 +276,7 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
         };
         const onKey = (e: KeyboardEvent) => {
             const handled = ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter', 'Escape', ' '];
-            if (!handled.includes(e.key)) return;
+            if (!handled.includes(e.key) || e.ctrlKey || e.altKey || e.metaKey) return;
             e.preventDefault();
             e.stopPropagation();
             // A held Enter repeats: it opened this, and must not go on to choose in it.
@@ -351,9 +367,12 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
                                     setSubByKey(false);
                                 }}
                                 onBack={() => {
+                                    // Left or Escape in the submenu: the keys now drive this panel, and
+                                    // focus lands on the item that opened it, as XP's did.
                                     setOpenSub(-1);
                                     setKeyboardInSub(false);
                                     setSubByKey(false);
+                                    setKeyed(true);
                                 }}
                             />
                         )}
@@ -371,7 +390,7 @@ function Submenu({ items, onClose, onBack, takesKeyboard, onTakeKeyboard, focusF
     takesKeyboard: boolean;
     onTakeKeyboard: () => void;
     focusFollows: boolean;
-    returnFocus: MutableRefObject<HTMLElement | null>;
+    returnFocus: MutableRefObject<ReturnTarget | null>;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const [side, setSide] = useState<{ left?: string; right?: string; top: number }>({ left: '100%', top: -3 });

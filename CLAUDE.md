@@ -467,6 +467,39 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - Fixes from the review of 53949c9: submenus give focus back too; a fade test that holds
+
+The files session reviewed 53949c9: no mouse-only regression against the live 0901d44, with one
+narrow keyboard regression and some smaller findings.
+- **A submenu closing on its own dropped focus.** In Explorer, pointing into View's submenu, pressing
+  Down, then Escape (or Left, or moving the pointer on) closed the submenu with focus inside it, and
+  focus fell to `<body>`: the list's keys went dead again. Now backing out of a submenu with a key
+  leaves the keys driving its parent, on the item that opened it, as XP did; a panel that already
+  holds focus keeps it on its selection whoever moves that selection (so a pointer in a keyed
+  submenu moves focus with it, and one selection is lit, read and chosen); and any panel that
+  unmounts holding focus hands it back as it goes, before its node leaves the page.
+- **Where focus goes back to** is the element it came from, or, if that has gone, the nearest
+  focusable place around it, and it must really land there (a hidden or disabled target takes no
+  focus): otherwise focus is let go rather than left in a fading menu.
+- **The Start menu:** pointing at an item while a keyboard-opened flyout holds focus moves focus to
+  that item, so the flyout closing cannot hand focus back past the pointer.
+- **Chords pass through menus:** Ctrl+Shift+Esc with a context menu or a flyout open opens Task
+  Manager rather than closing the menu.
+- **The fade-out test was flaky, and why.** The 100 ms fade is a Web Animation (framer-motion's
+  accelerated path) on the document's real timeline. Playwright's clock gated only its start, and
+  stopping the page's own clocks moved that start into the past, finishing it at once. The test now
+  stretches any Web Animation made while it is armed to 100 s, so the closing menu stays mid-exit as
+  long as the test needs, and finishes it with `finish()`: 24 of 24 under parallel load.
+**Tests.** Each failed on a build with its fix reverted: backing out of a submenu lands on its
+opener; one selection in a keyed submenu the pointer moves in; pointing at a Start item past a
+keyboard flyout; Ctrl+Shift+Esc with a context menu open; and the fade-out right-click. Coverage
+that does not pin one fix: a submenu closed by the pointer moving on (the parent taking focus back
+and the unmount hand-back each cover it alone), and the rename box (Explorer focuses the renamed item
+itself, so the fallback to the place around it is not reached there; it stays as hardening, like the
+check that focus really landed). Still not covered: the lost-release wake, the Start menu's key gate
+apart from its focusin close, the hover suppression, a count-0 click, and a hand-back after an
+outside click, the window's blur or a resize.
+
 ### 2026-10-01 - Fixes from the review of d4b2b2d: focus moves only for the keys, and comes back
 
 The files session held d4b2b2d for one regression against the live site, and four small findings.
@@ -476,15 +509,17 @@ The files session held d4b2b2d for one regression against the live site, and fou
   `<body>`: the list's arrows, Delete, F2, Ctrl+A and Backspace did nothing until it was clicked
   again. Focus now moves only in a panel the keys are driving: one opened by a key, or one a key has
   been pressed in. The pointer never moves focus into a menu.
-- **Focus comes back on every close.** The root panel remembers where focus was when the menu first
-  took it. Choosing an item hands it back there (not to `<body>`), and so does every other close —
-  Escape, a click outside, the window losing focus, a hover moving on — in a layout effect as the
-  fade begins, before the page paints.
+- **Focus comes back when the menu closes.** The root panel remembers where focus was when the
+  menu first took it. Choosing an item hands it back there (not to `<body>`), and so does every
+  other close of the whole menu — Escape, a click outside, the window losing focus — in a layout
+  effect as the fade begins, before the page paints. (As shipped, a submenu closing on its own —
+  Left, Escape, the pointer moving on — still dropped focus to `<body>`; the entry above fixed it.)
 - **N2:** a held Enter on All Programs or Connect To went on into the flyout and launched a program;
   a menu panel ignores a repeating Enter or Space.
 - **N3:** a mouse move that stays inside the hovered item now hands it the selection, so only one
   item is lit. **N4:** the Start menu's Escape ignores chords, so Ctrl+Shift+Esc still opens Task
-  Manager. **N5:** only a click counted 1 ends the waking double-click watch; a click with no press
+  Manager (with the Start menu itself open; with a context menu or a flyout open, from the entry
+  above). **N5:** only a click counted 1 ends the waking double-click watch; a click with no press
   (count 0, from the keyboard or a script) says nothing.
 **Tests.** Each of these failed on a build with its fix reverted: the mouse choosing from a
 submenu leaves focus in the window (checked while pointing, too, since the hand-back alone would
@@ -492,7 +527,8 @@ otherwise hide it); a menu driven by keys hands focus back on Escape, with no `a
 focus; a held Enter on the Start button (the Start menu's own guard) and on All Programs (the
 panel's); Escape keeps the desktop's selection; Ctrl+Shift+Esc with the Start menu open; the rename
 test, now choosing Arrange Icons By > Name, which moves no focus of its own; and the fade-out
-right-click, now on Playwright's clock with the fade held part-way. Masking reverts were checked in
+right-click, put on Playwright's clock (which did not hold it: the fade is a Web Animation on the
+real timeline, and the test was flaky under load until the entry above). Masking reverts were checked in
 separate builds. Still not covered: the lost-release wake, the Start menu's key gate apart from its
 focusin close, the hover suppression, and N5.
 
@@ -517,7 +553,8 @@ addressed here.
   Programs) moves real focus with its selection, so each item is announced, and lets go of focus
   before an item acts. (As shipped, "owns the keyboard" also meant a pointer entering a submenu, so
   the mouse pulled focus out of the window it was in, and closes other than choosing an item left
-  focus in the fading menu. The entry above fixed both.)
+  focus in the fading menu. The entry above fixed the first, and most of the second; the one after
+  it, the rest.)
 - **A rename in progress** (Explorer's box) was dropped when a menu was chosen over it, since the
   press no longer blurred the box. A press in a menu now ends an edit in progress first.
 - **Waking gestures.** If the waking release was lost, a new press by the same pointer ends the
@@ -533,7 +570,7 @@ well hides it); a double-click once the waking click is counted out (a count Pla
 rename test, as written here, probably did not: moving into the New submenu took focus and so
 committed the name itself; the entry above rewrote it. "Choosing a menu item never moves focus into
 the menu" records any focus inside a menu at any moment. The fade-out right-click test still
-depended on landing inside the 100 ms fade; the entry above put it on Playwright's clock. Connect
+depended on landing inside the 100 ms fade; two entries above made it deterministic. Connect
 To, Escape in a flyout, and Start, U, U with unsaved work are coverage, not regressions. Still not
 covered: multi-finger touch wakes, Stand By's grace across a re-render, and XP's Ctrl+Esc and
 Windows key.

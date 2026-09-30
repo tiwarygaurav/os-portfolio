@@ -80,20 +80,47 @@ test('a slow startup.mp3 still plays: priming it never pauses the real startup s
 });
 
 test('a right-click while the last menu fades out opens a new menu', async ({ page }) => {
-    // On Playwright's clock, so the fade can be held part-way instead of raced.
-    await page.clock.install();
+    // The 100 ms fade is a Web Animation on the document's own timeline, which no fake clock holds.
+    // While armed, the test stretches any new animation to 100 s, so the chosen menu stays mid-exit for
+    // as long as it needs, however slowly this machine is running; finish() then lets it go. Animation
+    // frames go on, so whatever a closing menu does on its first frame still happens.
+    await page.addInitScript(() => {
+        const w = window as unknown as { __slowAnimations: boolean };
+        w.__slowAnimations = false;
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (this: Element, keyframes: Keyframe[] | PropertyIndexedKeyframes | null, options?: number | KeyframeAnimationOptions) {
+            if (w.__slowAnimations) options = typeof options === 'object' ? { ...options, duration: 100_000 } : 100_000;
+            return animate.call(this, keyframes, options);
+        };
+    });
     await bootAndLogin(page);
+    const menus = page.locator('[data-xp-menu]');
+    const frames = (n: number) =>
+        page.evaluate((count) => new Promise<void>((resolve) => {
+            const step = (left: number) => (left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+            step(count);
+        }), n);
+
     await page.mouse.click(900, 300, { button: 'right' });
-    await expect(page.getByRole('menuitem', { name: 'Refresh' })).toBeVisible();
-    const now = await page.evaluate(() => Date.now());
-    await page.clock.pauseAt(now + 1000);
-    await page.getByRole('menuitem', { name: 'Refresh' }).click();
-    // A few frames into its 100 ms fade: the chosen menu is still there, over the same point.
-    await page.clock.runFor(40);
-    await expect(page.locator('[data-xp-menu]')).toHaveCount(1);
+    const refresh = page.getByRole('menuitem', { name: 'Refresh' });
+    await expect(refresh).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0); // fully in
+    await page.evaluate(() => { (window as unknown as { __slowAnimations: boolean }).__slowAnimations = true; });
+    await refresh.click();
+    // The chosen menu has begun to close (aria-hidden is its first render as a closing menu), and a
+    // couple of frames have passed: it is still there, fading, over the same point.
+    await expect(page.locator('[data-xp-menu] [role="menu"][aria-hidden="true"]')).toHaveCount(1);
+    await frames(2);
+    await expect(menus).toHaveCount(1);
+
+    // The same point, over the closing menu: it used to take the press, and nothing opened.
     await page.mouse.click(900, 300, { button: 'right' });
-    await page.clock.resume();
-    // Once the old menu has gone, the new one is there: the old one used to take the press.
-    await expect(page.locator('[data-xp-menu]')).toHaveCount(1);
+    await expect(menus).toHaveCount(2);
+
+    await page.evaluate(() => {
+        (window as unknown as { __slowAnimations: boolean }).__slowAnimations = false;
+        document.getAnimations().forEach((a) => a.finish());
+    });
+    await expect(menus).toHaveCount(1);
     await expect(page.getByRole('menu')).toHaveCount(1);
 });

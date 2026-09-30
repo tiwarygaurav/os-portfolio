@@ -184,6 +184,88 @@ test('a menu driven by keys hands focus back where it was when it closes', async
     expect(await page.evaluate(() => (window as unknown as { __hiddenOverFocus: number }).__hiddenOverFocus)).toBe(0);
 });
 
+const focusedText = (page: Page) => page.evaluate(() => document.activeElement?.textContent?.trim() ?? null);
+
+test('backing out of a submenu the keys drove lands on the item that opened it, and Escape then returns to the list', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const about = w.locator('button[data-name="about.md"]');
+    await about.click();
+    const area = (await w.locator('ul').locator('xpath=..').boundingBox())!;
+    await page.mouse.click(area.x + area.width - 12, area.y + area.height - 12, { button: 'right' });
+    // The pointer opens View's submenu and goes into it; then a key takes focus into the submenu.
+    await page.getByRole('menuitem', { name: 'View' }).hover();
+    await page.getByRole('menuitemcheckbox', { name: 'List', exact: true }).hover();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu] [data-xp-menu], [data-xp-menu] .xp-menu .xp-menu'))).toBe(true);
+    // Escape backs out of the submenu only: the keys now drive the parent, on View, as in XP.
+    await page.keyboard.press('Escape');
+    await expect.poll(() => focusedText(page)).toBe('View');
+    // A second Escape closes the menu, and the list it was opened over has the keyboard again.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-window]'))).toBe(true);
+});
+
+test('a submenu the keys drove, closed by the pointer moving on, does not strand focus', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const about = w.locator('button[data-name="about.md"]');
+    await about.click();
+    const area = (await w.locator('ul').locator('xpath=..').boundingBox())!;
+    await page.mouse.click(area.x + area.width - 12, area.y + area.height - 12, { button: 'right' });
+    // The pointer opens View's submenu and goes into it; then a key takes focus into the submenu.
+    await page.getByRole('menuitem', { name: 'View' }).hover();
+    await page.getByRole('menuitemcheckbox', { name: 'List', exact: true }).hover();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu] [data-xp-menu], [data-xp-menu] .xp-menu .xp-menu'))).toBe(true);
+    // The pointer moves on to another item of the parent, and the submenu closes under it.
+    await page.getByRole('menuitem', { name: 'Properties' }).hover();
+    await expect(page.locator('[data-xp-menu] .xp-menu .xp-menu')).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-window]'))).toBe(true);
+});
+
+test('in a submenu the keys opened, pointing at an item moves focus to it: one selection', async ({ page }) => {
+    await desktopMenu(page);
+    await page.keyboard.press('ArrowDown'); // Arrange Icons By
+    await page.keyboard.press('ArrowRight'); // its submenu, on Name
+    await expect.poll(() => focusedText(page)).toBe('Name');
+    await page.getByRole('menuitem', { name: 'Type', exact: true }).hover();
+    // The item lit by the pointer is the one a screen reader reads, and the one Enter chooses.
+    await expect.poll(() => focusedText(page)).toBe('Type');
+});
+
+test('the keys in a menu opened over a rename box leave focus in the folder, not on nothing', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const menuItem = (label: string) => page.getByRole('menuitem', { name: new RegExp(`^${label}`) });
+    await w.getByRole('button', { name: 'My Documents', exact: true }).first().click();
+    await w.getByText('This folder is empty.').click({ button: 'right' });
+    await menuItem('New').click();
+    await menuItem('Folder').click();
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    const box = w.getByLabel('New name for New Folder');
+    await expect(box).toBeFocused();
+    await page.keyboard.type('Plans');
+    await box.click({ button: 'right' });
+    // A key takes focus into the menu, which ends the rename (the box commits and goes)...
+    await page.keyboard.press('ArrowDown');
+    await expect(w.locator('button[data-name="Plans"]')).toBeVisible();
+    // ...so on Escape, focus returns to the folder around it rather than to nothing.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-window]'))).toBe(true);
+});
+
+test('Ctrl+Shift+Esc with a context menu open still opens Task Manager', async ({ page }) => {
+    await desktopMenu(page);
+    await page.keyboard.press('Control+Shift+Escape');
+    await expect(win(page, 'Windows Task Manager')).toBeVisible();
+});
+
 test('a submenu used from the keyboard takes focus, and gives it up before it fades', async ({ page }) => {
     await desktopMenu(page);
     // Record aria-hidden landing on a menu that still holds focus: Chrome blocks and logs that.
@@ -467,6 +549,15 @@ test.describe('the Start menu from the keyboard', () => {
         await page.keyboard.press('Escape');
         await expect(page.locator('.xp-startmenu')).toHaveCount(0);
         await expect(contact).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('pointing at a Start item while a keyboard-opened flyout has focus makes that item the one selection', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('p');
+        await expect(flyouts(page)).toHaveCount(1);
+        await page.getByRole('menuitem', { name: 'My Documents' }).hover();
+        await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+        expect((await focused(page)).label).toBe('My Documents');
     });
 
     test('Ctrl+Shift+Esc with the Start menu open still opens Task Manager', async ({ page }) => {
