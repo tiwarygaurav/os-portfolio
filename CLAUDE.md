@@ -467,6 +467,35 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - Fixes from the review of 8e0f783: menus swallow chords again; one selection everywhere
+
+The files session reviewed 8e0f783 after it went live: no mouse-only regression, and five low
+findings, all fixed here.
+- **Chords.** 8e0f783 let every Ctrl, Alt or Meta chord of a menu key through a menu, so Ctrl+Enter
+  or Alt+Enter opened the selected desktop icon behind its menu, Alt+Enter in Explorer opened
+  Properties, and Ctrl+Arrow moved the selection. A menu swallows them again, as XP's did; only
+  Ctrl+Shift+Esc goes through, and the menu closes as it does.
+- **One selection, everywhere.** Pointing at a Start item past a keyboard-opened flyout (the footer
+  buttons and a resting pointer included) closes that flyout at once, so it cannot take an Enter
+  meant for the item pointed at. Once focus is anywhere in a context menu, it follows the selection
+  of whichever panel has the keyboard, so a sibling's submenu the pointer opened takes it too.
+- **Tab** does nothing in a menu that holds focus: it used to carry focus out past the menu, out of
+  the page, and the window losing focus closed the menu.
+- **Backing out of a submenu** focuses its opener before the submenu goes, so focus no longer
+  stops on the list for a moment on the way (an extra event for a screen reader, and for the list).
+- **All Programs and Connect To** are separate menus: the Start flyout is keyed by its kind, so one
+  never inherits the other's selection or keyboard state (its arrows were dead after keys in the
+  other).
+**Tests.** Each failed on a build with its fix reverted: a chord acting behind a menu; focus
+following the pointer into a sibling submenu; Tab in a menu; backing out without stopping outside
+the menu; Enter after pointing at Log Off past a keyboard flyout; and Connect To's arrows after keys
+in All Programs (which needs the flyout's at-once close and its key reverted together, as either
+alone covers it). The fade test's last check now asks for an open, not closing, menu. Still
+untested: the unmount hand-back on its own, the fallback to an ancestor and the check that focus
+landed (the rename test is coverage: Explorer focuses the renamed file itself), the lost-release
+wake, the Start menu's key gate apart from its focusin close, the hover suppression, a count-0
+click, and a hand-back after an outside click, the window's blur or a resize.
+
 ### 2026-10-01 - Fixes from the review of 53949c9: submenus give focus back too; a fade test that holds
 
 The files session reviewed 53949c9: no mouse-only regression against the live 0901d44, with one
@@ -476,15 +505,20 @@ narrow keyboard regression and some smaller findings.
   focus fell to `<body>`: the list's keys went dead again. Now backing out of a submenu with a key
   leaves the keys driving its parent, on the item that opened it, as XP did; a panel that already
   holds focus keeps it on its selection whoever moves that selection (so a pointer in a keyed
-  submenu moves focus with it, and one selection is lit, read and chosen); and any panel that
-  unmounts holding focus hands it back as it goes, before its node leaves the page.
-- **Where focus goes back to** is the element it came from, or, if that has gone, the nearest
-  focusable place around it, and it must really land there (a hidden or disabled target takes no
+  submenu moves focus with it); and any panel that unmounts holding focus hands it back as it goes,
+  before its node leaves the page. (Not yet one selection everywhere: a sibling's submenu the pointer
+  opened, and a Start item pointed at past a keyboard flyout, still split the highlight from Enter.
+  The entry above fixed both.)
+- **Where focus goes back to** is the element it came from, or, if that has gone, its nearest
+  ancestor with a `tabindex`, and it must really land there (a hidden or disabled target takes no
   focus): otherwise focus is let go rather than left in a fading menu.
 - **The Start menu:** pointing at an item while a keyboard-opened flyout holds focus moves focus to
-  that item, so the flyout closing cannot hand focus back past the pointer.
+  that item, so the flyout closing cannot hand focus back past the pointer. (Only for items that
+  call the hover logic; the footer buttons and a resting pointer did not, until the entry above.)
 - **Chords pass through menus:** Ctrl+Shift+Esc with a context menu or a flyout open opens Task
-  Manager rather than closing the menu.
+  Manager. (This let every Ctrl, Alt or Meta chord of a menu key through, so Alt+Enter or
+  Ctrl+Enter acted on the desktop or Explorer behind an open menu; the entry above lets only
+  Ctrl+Shift+Esc through.)
 - **The fade-out test was flaky, and why.** The 100 ms fade is a Web Animation (framer-motion's
   accelerated path) on the document's real timeline. Playwright's clock gated only its start, and
   stopping the page's own clocks moved that start into the past, finishing it at once. The test now
@@ -553,8 +587,8 @@ addressed here.
   Programs) moves real focus with its selection, so each item is announced, and lets go of focus
   before an item acts. (As shipped, "owns the keyboard" also meant a pointer entering a submenu, so
   the mouse pulled focus out of the window it was in, and closes other than choosing an item left
-  focus in the fading menu. The entry above fixed the first, and most of the second; the one after
-  it, the rest.)
+  focus in the fading menu. "Fixes from the review of d4b2b2d" fixed the first and most of the
+  second, and "Fixes from the review of 53949c9" the rest.)
 - **A rename in progress** (Explorer's box) was dropped when a menu was chosen over it, since the
   press no longer blurred the box. A press in a menu now ends an edit in progress first.
 - **Waking gestures.** If the waking release was lost, a new press by the same pointer ends the

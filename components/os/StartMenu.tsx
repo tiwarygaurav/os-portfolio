@@ -106,6 +106,11 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
     const [cues, setCues] = useState(keyboard);
     // The item a keyboard-opened flyout returns to when Left or Escape closes it.
     const flyoutOpener = useRef<HTMLElement | null>(null);
+    // The kind of flyout last shown. All Programs and Connect To are separate menus (keyed by it), so
+    // one never inherits the other's selection, keyboard or return target; it is kept while a flyout
+    // closes, so the closing one still fades out.
+    const [shownKind, setShownKind] = useState<Flyout['kind']>('programs');
+    if (flyout && flyout.kind !== shownKind) setShownKind(flyout.kind);
     // Who holds the selection: the keyboard (and the item under a resting pointer is not lit) or the mouse.
     const [nav, setNav] = useState<'keys' | 'pointer'>(keyboard ? 'keys' : 'pointer');
 
@@ -271,11 +276,22 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
 
     /**
      * Pointing at an item makes it the selection: it takes focus if the keyboard is already in the menu
-     * or in one of its flyouts (which then closes, and must not hand focus back past the pointer).
+     * or in one of its flyouts. A flyout the keyboard opened gives way at once (unless the item is its
+     * own opener): left open for the hover delay, it went on taking Enter and the arrows while focus
+     * and the highlight were on the item pointed at, so Enter launched a program under Log Off.
      */
     const point = (el: HTMLElement) => {
         const focused = document.activeElement;
-        if (menuRef.current?.contains(focused) || isInsideMenu(focused)) el.focus({ preventScroll: true });
+        const fromFlyout = isInsideMenu(focused);
+        if (!menuRef.current?.contains(focused) && !fromFlyout) return;
+        el.focus({ preventScroll: true });
+        if (fromFlyout && el !== flyoutOpener.current) setFlyout(null);
+    };
+
+    /** The pointer arriving on an item: it becomes the selection, and the flyouts follow it. */
+    const arrive = (el: HTMLElement) => {
+        point(el);
+        hover(el.dataset.flyout ? el : undefined);
     };
 
     /** A plain item: where it sits for the arrows, and the name its first letter is taken from. */
@@ -283,10 +299,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
         type: 'button' as const,
         role: 'menuitem' as const,
         onClick,
-        onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
-            point(e.currentTarget);
-            hover();
-        },
+        onMouseEnter: (e: React.MouseEvent<HTMLElement>) => arrive(e.currentTarget),
         'data-sm': column,
         'data-label': label,
     });
@@ -307,7 +320,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                 // even if the pointer has not left it since the keyboard moved on.
                 setNav('pointer');
                 const item = (e.target as Element).closest<HTMLElement>('[data-sm]');
-                if (item) point(item);
+                if (item) arrive(item);
             }}
         >
             <div className="xp-startmenu-header" role="none">
@@ -356,10 +369,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                             data-flyout="programs"
                             data-label="All Programs"
                             data-access="p"
-                            onMouseEnter={(e) => {
-                                point(e.currentTarget);
-                                hover(e.currentTarget);
-                            }}
+                            onMouseEnter={(e) => arrive(e.currentTarget)}
                             onClick={toggleFlyout}
                         >
                             <AccessLabel text="All Programs" accessKey="P" show={cues} />
@@ -401,10 +411,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                         data-sm="right"
                         data-flyout="connect"
                         data-label="Connect To"
-                        onMouseEnter={(e) => {
-                            point(e.currentTarget);
-                            hover(e.currentTarget);
-                        }}
+                        onMouseEnter={(e) => arrive(e.currentTarget)}
                         onClick={toggleFlyout}
                     >
                         <XpIcon src="/icons/xp/connect-to.svg" size={24} />
@@ -434,6 +441,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                     className="xp-startmenu-footer-btn"
                     role="menuitem"
                     data-sm="foot"
+                    onMouseEnter={(e) => arrive(e.currentTarget)}
                     data-label="Log Off"
                     data-access="l"
                     onClick={() => { onClose(); onExit('logoff'); }}
@@ -446,6 +454,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
                     className="xp-startmenu-footer-btn"
                     role="menuitem"
                     data-sm="foot"
+                    onMouseEnter={(e) => arrive(e.currentTarget)}
                     data-label="Turn Off Computer"
                     data-access="u"
                     onClick={() => { onClose(); onExit('shutdown'); }}
@@ -456,16 +465,17 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             </div>
 
             <ContextMenu
+                key={shownKind}
                 x={flyout?.x ?? 0}
                 y={flyout?.y ?? 0}
-                anchor={flyout?.kind === 'programs' ? 'bottom-left' : 'top-left'}
+                anchor={shownKind === 'programs' ? 'bottom-left' : 'top-left'}
                 isOpen={flyout !== null}
                 onClose={() => setFlyout(null)}
                 onBack={flyout?.keyboard ? () => {
                     setFlyout(null);
                     flyoutOpener.current?.focus({ preventScroll: true });
                 } : undefined}
-                items={flyout?.kind === 'programs' ? programItems : connectItems}
+                items={shownKind === 'programs' ? programItems : connectItems}
             />
         </motion.div>
     );

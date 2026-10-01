@@ -122,5 +122,5 @@ test('a right-click while the last menu fades out opens a new menu', async ({ pa
         document.getAnimations().forEach((a) => a.finish());
     });
     await expect(menus).toHaveCount(1);
-    await expect(page.getByRole('menu')).toHaveCount(1);
+    await expect(page.locator('[data-xp-menu] [role="menu"]:not([aria-hidden])')).toHaveCount(1);
 });

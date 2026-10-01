@@ -224,16 +224,20 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
     const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
     const focusMoves = focusFollows || keyed;
     useEffect(() => {
-        if (keyboardInSub || !isPresent || active < 0) return;
-        // A panel already holding focus keeps it on its selection, whoever moves it: with the pointer
-        // lighting one item and focus on another, Enter chose one while a screen reader read the other.
-        if (!focusMoves && !panelRef.current?.contains(document.activeElement)) return;
+        // Only the panel with the keyboard: the root, or a submenu it has been handed to.
+        if (keyboardInSub || !isPresent || active < 0 || !(root || onBack)) return;
+        // Once focus is anywhere in this menu, it stays on the selection of the panel with the keyboard,
+        // whoever moves it — a sibling's submenu the pointer opened included. With the pointer lighting
+        // one item and focus on another, Enter chose one while a screen reader read the other.
+        const menu = panelRef.current?.closest(`[${MENU_ATTR}]`);
+        const inThisMenu = !!menu && !!document.activeElement && menu.contains(document.activeElement);
+        if (!focusMoves && !inThisMenu) return;
         const current = document.activeElement;
         if (current instanceof HTMLElement && current !== document.body && !current.closest(`[${MENU_ATTR}]`)) {
             returnFocus.current = { el: current, scope: current.parentElement?.closest<HTMLElement>('[tabindex]') ?? null };
         }
         itemRefs.current[active]?.focus({ preventScroll: true });
-    }, [focusMoves, keyboardInSub, isPresent, active, returnFocus]);
+    }, [focusMoves, keyboardInSub, isPresent, active, returnFocus, root, onBack]);
 
     /**
      * Focus goes back where it was before the menu took it (or is let go, if that has gone), so a
@@ -275,10 +279,28 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
             return from;
         };
         const onKey = (e: KeyboardEvent) => {
+            // Tab does nothing in a menu that holds focus, as in XP's: it would carry focus on past the
+            // menu, out of the page, and the window losing focus closed the menu.
+            if (e.key === 'Tab') {
+                const menu = panelRef.current?.closest(`[${MENU_ATTR}]`);
+                if (menu && document.activeElement && menu.contains(document.activeElement)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                return;
+            }
             const handled = ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter', 'Escape', ' '];
-            if (!handled.includes(e.key) || e.ctrlKey || e.altKey || e.metaKey) return;
+            if (!handled.includes(e.key)) return;
+            // Ctrl+Shift+Esc is Task Manager's, not the menu's: the menu closes and lets it through.
+            if (e.key === 'Escape' && e.ctrlKey && e.shiftKey) {
+                onClose();
+                return;
+            }
             e.preventDefault();
             e.stopPropagation();
+            // Any other chord of a menu key is swallowed and does nothing, as in XP's menus: Alt+Enter,
+            // Ctrl+Enter or Ctrl+Arrow must not act on the desktop or a window behind an open menu.
+            if (e.ctrlKey || e.altKey || e.metaKey) return;
             // A held Enter repeats: it opened this, and must not go on to choose in it.
             if (e.repeat && (e.key === 'Enter' || e.key === ' ')) return;
             setKeyed(true);
@@ -368,7 +390,9 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
                                 }}
                                 onBack={() => {
                                     // Left or Escape in the submenu: the keys now drive this panel, and
-                                    // focus lands on the item that opened it, as XP's did.
+                                    // focus lands on the item that opened it, as XP's did — before the
+                                    // submenu goes, so it stops nowhere else on the way.
+                                    itemRefs.current[index]?.focus({ preventScroll: true });
                                     setOpenSub(-1);
                                     setKeyboardInSub(false);
                                     setSubByKey(false);
