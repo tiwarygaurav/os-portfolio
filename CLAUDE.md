@@ -467,6 +467,38 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - Fixes from the review of 364269c: a flyout placed on screen; focus not taken unrecorded
+
+The files session held 364269c for two regressions against the live 8e0f783, one visible with the
+mouse alone.
+- **All Programs after Connect To ran off the screen.** 364269c keyed the Start flyout's whole
+  ContextMenu by its kind, so switching kinds remounted it already open; its first render returns
+  nothing until mounted, so the menu was never measured and stood at its raw position — on a
+  1366 x 768 screen, from the button's bottom down past the taskbar. One ContextMenu stays mounted
+  again, a `menuKey` prop folds the kind into the panel's own key (a fresh panel, with the old kind
+  fading out), and the placement also re-measures once the portal exists.
+- **Focus taken without a note.** Backing out of a submenu focused its opener directly, even when the
+  pointer had taken the submenu and focus had never been in the menu: nothing recorded where focus
+  came from, so the next close blurred it to `<body>`. The opener is focused directly only when focus
+  is already in the menu; otherwise the focus effect moves it there and records the way back.
+- **A flyout closed underfoot.** The footer buttons' hover (new in 364269c) starts the flyout's
+  300 ms close, as XP did, but the pointer arriving in the flyout never cancelled it: brushing Log
+  Off on the way in closed the flyout under the pointer. Arriving in a flyout cancels a pending close.
+- **The pointer resting on All Programs** reopened a keyboard flyout as a pointer one after the hover
+  delay, and it stopped answering Left: hovering the opener of the flyout already open changes nothing.
+- **The focus effect** depended on the `onBack` callback itself, a new closure on every parent render
+  (every second, with the taskbar clock): it depends on whether there is one.
+- **Ctrl+Shift+Esc** closes the menu it passes through, now with a test.
+**Tests.** Each failed on a build with its fix reverted (the footer's hover in a build of its own,
+since reverting it hides the brushing case): All Programs after Connect To is measured on screen,
+its bottom at or above its button's (`toBeVisible` passes for a fixed element off the screen);
+Escape as the first key in a submenu the pointer opened, then Escape, returns focus to the list;
+brushing Log Off on the way into a flyout; the pointer resting on All Programs leaves Left working;
+Ctrl+Shift+Esc closes Explorer's menu; Log Off's own hover, with the pointer brought in over the
+header first so the first mouse move after the keyboard is not what acts. The chord test gained a
+positive control: with the menu closed, the same chord opens the icon. Not covered: the focus
+effect's churn under the clock, and the earlier gaps listed below.
+
 ### 2026-10-01 - Fixes from the review of 8e0f783: menus swallow chords again; one selection everywhere
 
 The files session reviewed 8e0f783 after it went live: no mouse-only regression, and five low
@@ -483,14 +515,20 @@ findings, all fixed here.
   the page, and the window losing focus closed the menu.
 - **Backing out of a submenu** focuses its opener before the submenu goes, so focus no longer
   stops on the list for a moment on the way (an extra event for a screen reader, and for the list).
+  (As written, it did so even when the pointer had taken the submenu and focus was not in the menu,
+  pulling focus in without a note of where it came from, so the next close dropped it to `<body>`.
+  Fixed in the entry above.)
 - **All Programs and Connect To** are separate menus: the Start flyout is keyed by its kind, so one
   never inherits the other's selection or keyboard state (its arrows were dead after keys in the
-  other).
+  other). (As written, keying the whole ContextMenu remounted it already open, and a menu open from
+  its first render was never measured: All Programs after Connect To ran off the bottom of the
+  screen, over the taskbar. The entry above folds the kind into the panel's key instead.)
 **Tests.** Each failed on a build with its fix reverted: a chord acting behind a menu; focus
 following the pointer into a sibling submenu; Tab in a menu; backing out without stopping outside
 the menu; Enter after pointing at Log Off past a keyboard flyout; and Connect To's arrows after keys
 in All Programs (which needs the flyout's at-once close and its key reverted together, as either
-alone covers it). The fade test's last check now asks for an open, not closing, menu. Still
+alone covers it). The fade test's last check names the open panel, though a role query already
+skipped a closing one. Still
 untested: the unmount hand-back on its own, the fallback to an ancestor and the check that focus
 landed (the rename test is coverage: Explorer focuses the renamed file itself), the lost-release
 wake, the Start menu's key gate apart from its focusin close, the hover suppression, a count-0

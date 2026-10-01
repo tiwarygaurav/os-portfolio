@@ -43,6 +43,12 @@ interface ContextMenuProps {
      * on the first item, and hand the keyboard back on Left or Escape, as a submenu does.
      */
     onBack?: () => void;
+    /**
+     * Which menu this is, when one ContextMenu shows different ones in turn (the Start menu's All
+     * Programs and Connect To): a different one is a fresh panel, with nothing of the last one's
+     * selection or keyboard, while this component stays mounted and goes on placing it.
+     */
+    menuKey?: string;
 }
 
 /** Marks a portaled menu, so a surface that closes on outside clicks can tell it is not outside. */
@@ -83,7 +89,7 @@ function endEdit(): void {
  * every key it handles is swallowed, so Enter on a menu item cannot also open the desktop icon
  * underneath.
  */
-export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'top-left', onBack }: ContextMenuProps) {
+export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'top-left', onBack, menuKey = '' }: ContextMenuProps) {
     const menuRef = useRef<HTMLDivElement | null>(null);
     const [pos, setPos] = useState({ left: x, top: y });
     const [mounted, setMounted] = useState(false);
@@ -133,7 +139,8 @@ export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'to
             ? Math.max(0, Math.min(y - el.offsetHeight, maxTop))
             : place(y, el.offsetHeight, maxTop);
         setPos({ left: place(x, el.offsetWidth, maxLeft), top });
-    }, [isOpen, x, y, items.length, anchor]);
+        // `mounted`: a menu open from its very first render is measured once the portal exists.
+    }, [isOpen, x, y, items.length, anchor, mounted, menuKey]);
 
     if (!mounted) return null;
 
@@ -141,7 +148,7 @@ export default function ContextMenu({ x, y, isOpen, onClose, items, anchor = 'to
         <AnimatePresence>
             {isOpen && (
                 <motion.div
-                    key={opening}
+                    key={`${opening}:${menuKey}`}
                     ref={setMenuEl}
                     // XP's default menu animation was a plain fade. A closing menu is already gone
                     // to the pointer, as XP's was: a right-click during the fade opens a new menu
@@ -225,7 +232,7 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
     const focusMoves = focusFollows || keyed;
     useEffect(() => {
         // Only the panel with the keyboard: the root, or a submenu it has been handed to.
-        if (keyboardInSub || !isPresent || active < 0 || !(root || onBack)) return;
+        if (keyboardInSub || !isPresent || active < 0 || !(root || hasKeyboard)) return;
         // Once focus is anywhere in this menu, it stays on the selection of the panel with the keyboard,
         // whoever moves it — a sibling's submenu the pointer opened included. With the pointer lighting
         // one item and focus on another, Enter chose one while a screen reader read the other.
@@ -237,7 +244,7 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
             returnFocus.current = { el: current, scope: current.parentElement?.closest<HTMLElement>('[tabindex]') ?? null };
         }
         itemRefs.current[active]?.focus({ preventScroll: true });
-    }, [focusMoves, keyboardInSub, isPresent, active, returnFocus, root, onBack]);
+    }, [focusMoves, keyboardInSub, isPresent, active, returnFocus, root, hasKeyboard]);
 
     /**
      * Focus goes back where it was before the menu took it (or is let go, if that has gone), so a
@@ -392,7 +399,12 @@ function MenuPanel({ items, onClose, root, onBack, focusFollows = false, returnF
                                     // Left or Escape in the submenu: the keys now drive this panel, and
                                     // focus lands on the item that opened it, as XP's did — before the
                                     // submenu goes, so it stops nowhere else on the way.
-                                    itemRefs.current[index]?.focus({ preventScroll: true });
+                                    // (Only when focus is already in the menu: if the pointer took the
+                                    // submenu, the focus effect moves it, recording where it came from.)
+                                    const menu = panelRef.current?.closest(`[${MENU_ATTR}]`);
+                                    if (menu && document.activeElement && menu.contains(document.activeElement)) {
+                                        itemRefs.current[index]?.focus({ preventScroll: true });
+                                    }
                                     setOpenSub(-1);
                                     setKeyboardInSub(false);
                                     setSubByKey(false);

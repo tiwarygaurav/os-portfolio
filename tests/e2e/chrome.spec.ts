@@ -280,6 +280,11 @@ test('a chord of a menu key acts on nothing behind an open menu', async ({ page 
     await page.waitForTimeout(300);
     await expect(windows(page)).toHaveCount(0);
     await expect(page.locator('[data-desktop-icon="contact"]')).toHaveAttribute('aria-pressed', 'true');
+    // With the menu closed, the same chord does reach the desktop and open the icon.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    await page.keyboard.press('Control+Enter');
+    await expect(windows(page)).toHaveCount(1);
 });
 
 test('focus follows the pointer into a sibling submenu once the keys are in the menu', async ({ page }) => {
@@ -306,10 +311,30 @@ test('Tab does nothing in a menu that has focus', async ({ page }) => {
     await expect(page.getByRole('menu')).toHaveCount(1);
 });
 
-test('Ctrl+Shift+Esc with a context menu open still opens Task Manager', async ({ page }) => {
-    await desktopMenu(page);
+test('Ctrl+Shift+Esc with a context menu open still opens Task Manager, and closes the menu', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    await w.locator('button[data-name="about.md"]').click({ button: 'right' });
+    await expect(page.getByRole('menu')).toHaveCount(1);
     await page.keyboard.press('Control+Shift+Escape');
     await expect(win(page, 'Windows Task Manager')).toBeVisible();
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+});
+
+test('Escape in a submenu the pointer opened, then Escape again, returns focus to the list', async ({ page }) => {
+    await run(page, 'explorer');
+    const w = win(page, 'Windows Explorer');
+    const area = (await w.locator('ul').locator('xpath=..').boundingBox())!;
+    await page.mouse.click(area.x + area.width - 12, area.y + area.height - 12, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'View' }).hover();
+    await page.getByRole('menuitemcheckbox', { name: 'List', exact: true }).hover();
+    // The first key, Escape, backs out to View; the second closes the menu. Focus must come back to
+    // the list, not fall to nothing: it was pulled into the menu without a note of where it came from.
+    await page.keyboard.press('Escape');
+    await expect.poll(() => focusedText(page)).toBe('View');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-window]'))).toBe(true);
 });
 
 test('a submenu used from the keyboard takes focus, and gives it up before it fades', async ({ page }) => {
@@ -610,7 +635,11 @@ test.describe('the Start menu from the keyboard', () => {
         await openStart(page);
         await page.keyboard.press('p');
         await expect(flyouts(page)).toHaveCount(1);
+        // The pointer comes in over the header first, so it is Log Off's own hover that acts, not the
+        // first mouse move after the keyboard.
+        await page.locator('.xp-startmenu-header').hover();
         await page.locator('.xp-startmenu-footer-btn', { hasText: 'Log Off' }).hover();
+        await expect(page.locator('[data-xp-menu] [role="menu"]:not([aria-hidden])')).toHaveCount(0);
         // The flyout gave way at once, so it cannot take this Enter and launch a program under Log Off.
         await page.keyboard.press('Enter');
         await expect(page.locator('.xp-exit')).toBeVisible();
@@ -631,6 +660,49 @@ test.describe('the Start menu from the keyboard', () => {
         const first = await lit();
         await page.keyboard.press('ArrowDown');
         await expect.poll(lit).not.toBe(first);
+    });
+
+    test('All Programs after Connect To is placed on the screen, growing up from its button', async ({ page }) => {
+        await page.getByText('start', { exact: true }).first().click();
+        const allPrograms = page.locator('[data-sm][data-label="All Programs"]');
+        await allPrograms.hover();
+        await expect(flyouts(page)).toHaveCount(1);
+        await page.locator('[data-sm][data-label="Connect To"]').hover();
+        await expect(page.getByRole('menuitem', { name: 'LinkedIn' })).toBeVisible();
+        await allPrograms.hover();
+        const open = page.locator('[data-xp-menu] [role="menu"]:not([aria-hidden])');
+        await expect(open).toHaveCount(1);
+        await expect(open).not.toContainText('LinkedIn');
+        // toBeVisible passes for a fixed element off the bottom of the screen: measure it.
+        const box = (await open.boundingBox())!;
+        const button = (await allPrograms.boundingBox())!;
+        const vh = page.viewportSize()!.height;
+        expect(box.y + box.height).toBeLessThanOrEqual(button.y + button.height + 1);
+        expect(box.y + box.height).toBeLessThanOrEqual(vh - 30);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+    });
+
+    test('brushing Log Off on the way into a flyout does not close it underfoot', async ({ page }) => {
+        await page.getByText('start', { exact: true }).first().click();
+        await page.locator('[data-sm][data-label="All Programs"]').hover();
+        await expect(flyouts(page)).toHaveCount(1);
+        await page.locator('.xp-startmenu-footer-btn', { hasText: 'Log Off' }).hover();
+        await flyouts(page).locator('.xp-menu-item').first().hover();
+        await page.waitForTimeout(600); // twice the hover delay
+        // The flyout itself is still open (its first item, a group, may have opened a submenu too).
+        await expect(page.locator('[data-xp-menu] > [role="menu"]:not([aria-hidden])')).toHaveCount(1);
+    });
+
+    test('the pointer resting on All Programs leaves a keyboard-opened flyout answering Left', async ({ page }) => {
+        await openStart(page);
+        await page.keyboard.press('p');
+        await expect(flyouts(page)).toHaveCount(1);
+        await page.locator('[data-sm][data-label="All Programs"]').hover();
+        await page.waitForTimeout(600); // past the hover delay, which used to reopen it as a pointer flyout
+        await page.keyboard.press('ArrowLeft');
+        await expect(page.locator('[data-xp-menu]')).toHaveCount(0);
+        await expect(page.locator('.xp-startmenu')).toBeVisible();
+        expect((await focused(page)).label).toBe('All Programs');
     });
 
     test('Ctrl+Shift+Esc with the Start menu open still opens Task Manager', async ({ page }) => {

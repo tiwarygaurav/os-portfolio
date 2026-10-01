@@ -106,11 +106,14 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
     const [cues, setCues] = useState(keyboard);
     // The item a keyboard-opened flyout returns to when Left or Escape closes it.
     const flyoutOpener = useRef<HTMLElement | null>(null);
-    // The kind of flyout last shown. All Programs and Connect To are separate menus (keyed by it), so
-    // one never inherits the other's selection, keyboard or return target; it is kept while a flyout
-    // closes, so the closing one still fades out.
+    // The kind of flyout last shown. All Programs and Connect To are separate menus (it is the menu's
+    // key), so one never inherits the other's selection, keyboard or return target; it is kept while
+    // a flyout closes, so the closing one still fades out.
     const [shownKind, setShownKind] = useState<Flyout['kind']>('programs');
     if (flyout && flyout.kind !== shownKind) setShownKind(flyout.kind);
+    // The flyout as it is now, for the hover timer, whose callback outlives the render that set it.
+    const flyoutNow = useRef(flyout);
+    flyoutNow.current = flyout;
     // Who holds the selection: the keyboard (and the item under a resting pointer is not lit) or the mouse.
     const [nav, setNav] = useState<'keys' | 'pointer'>(keyboard ? 'keys' : 'pointer');
 
@@ -164,6 +167,9 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
     const openFlyout = (el: HTMLElement, byKeyboard: boolean) => {
         window.clearTimeout(hoverTimer.current);
         const kind = el.dataset.flyout as Flyout['kind'];
+        // The pointer resting on the opener of the flyout already open leaves it as it is: a keyboard
+        // flyout reopened as a pointer one stopped answering Left.
+        if (!byKeyboard && flyoutNow.current?.kind === kind) return;
         const r = el.getBoundingClientRect();
         flyoutOpener.current = byKeyboard ? el : null;
         setFlyout(
@@ -314,6 +320,11 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             role="menu"
             aria-label="Start menu"
             data-nav={nav}
+            onMouseOver={(e) => {
+                // The pointer arriving in a flyout (portaled, but its events bubble here) cancels a close
+                // that brushing another item on the way had started.
+                if (isInsideMenu(e.target)) window.clearTimeout(hoverTimer.current);
+            }}
             onMouseMove={(e) => {
                 if (nav !== 'keys') return;
                 // The mouse takes the selection back: the item under it becomes the one selection,
@@ -465,7 +476,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
             </div>
 
             <ContextMenu
-                key={shownKind}
+                menuKey={shownKind}
                 x={flyout?.x ?? 0}
                 y={flyout?.y ?? 0}
                 anchor={shownKind === 'programs' ? 'bottom-left' : 'top-left'}
