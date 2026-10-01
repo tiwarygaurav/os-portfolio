@@ -291,7 +291,7 @@ export default function StartMenu({ onClose, triggerRef, onOpenRun, onExit, keyb
         const fromFlyout = isInsideMenu(focused);
         if (!menuRef.current?.contains(focused) && !fromFlyout) return;
         el.focus({ preventScroll: true });
-        if (fromFlyout && el !== flyoutOpener.current) setFlyout(null);
+        if (fromFlyout && el.dataset.flyout !== flyoutNow.current?.kind) setFlyout(null);
     };
 
     /** The pointer arriving on an item: it becomes the selection, and the flyouts follow it. */

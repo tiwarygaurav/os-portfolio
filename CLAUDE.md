@@ -467,6 +467,27 @@ selected. That is already the cheap win; nothing else is needed unless the files
 
 Append newest first. Format: date - decision - why - alternatives - consequences.
 
+### 2026-10-01 - Fixes from the review of 388d8c0, and a pause on menu focus
+
+The files session found no regression in 388d8c0 with the mouse or the keyboard alone, and a few low
+follow-ups. This round fixes only what was broken, adds no behaviour, and ends the run of changes to
+how menus handle focus: four commits in a row each fixed the last review's findings, and three of
+them brought a regression of their own (each caught by review before deployment).
+- **A flyout closing under its own opener.** With a pointer-opened flyout that had taken focus by a
+  key, moving back onto All Programs closed it at once and reopened it 300 ms later as a fresh panel:
+  the at-once close compared the item with the opener a keyboard flyout records, and a pointer one
+  records none. It compares the item's flyout kind with the open one's.
+- **Tests.** The two new ones failed on a build with their fix reverted: moving back onto All Programs
+  leaves the same panel open; and Connect To after All Programs, by the pointer alone, starts with
+  nothing selected (which pins the kind in the panel's key; the placement test did not). The
+  brushing test moves the mouse back to back to points worked out beforehand, so no actionability
+  wait races the 300 ms close.
+**Known, not changed:** the panel key `opening:menuKey` could come back to an earlier value within
+one opening (All Programs, Connect To, All Programs inside a 100 ms fade), when the fading panel would
+return with its old state. Nothing reaches that today: a switch of kind waits on the 300 ms hover
+timer, and a click starts a new opening first. Not covered by a test: the focus effect's re-runs under
+the taskbar clock, and the gaps listed in the entries below.
+
 ### 2026-10-01 - Fixes from the review of 364269c: a flyout placed on screen; focus not taken unrecorded
 
 The files session held 364269c for two regressions against the live 8e0f783, one visible with the
@@ -475,17 +496,20 @@ mouse alone.
   ContextMenu by its kind, so switching kinds remounted it already open; its first render returns
   nothing until mounted, so the menu was never measured and stood at its raw position — on a
   1366 x 768 screen, from the button's bottom down past the taskbar. One ContextMenu stays mounted
-  again, a `menuKey` prop folds the kind into the panel's own key (a fresh panel, with the old kind
-  fading out), and the placement also re-measures once the portal exists.
+  again, which is what fixed it, and a `menuKey` prop folds the kind into the panel's own key (a
+  fresh panel, with the old kind fading out). The placement also re-measures once the portal exists
+  and when the key changes, which changes nothing for today's callers.
 - **Focus taken without a note.** Backing out of a submenu focused its opener directly, even when the
   pointer had taken the submenu and focus had never been in the menu: nothing recorded where focus
   came from, so the next close blurred it to `<body>`. The opener is focused directly only when focus
   is already in the menu; otherwise the focus effect moves it there and records the way back.
 - **A flyout closed underfoot.** The footer buttons' hover (new in 364269c) starts the flyout's
   300 ms close, as XP did, but the pointer arriving in the flyout never cancelled it: brushing Log
-  Off on the way in closed the flyout under the pointer. Arriving in a flyout cancels a pending close.
+  Off on the way in closed the flyout under the pointer. Arriving in a flyout cancels a pending,
+  timed close; that also mends the same brush across the left column, which the earlier site had.
 - **The pointer resting on All Programs** reopened a keyboard flyout as a pointer one after the hover
-  delay, and it stopped answering Left: hovering the opener of the flyout already open changes nothing.
+  delay, and it stopped answering Left (as it already did before any of this work): hovering the
+  opener of the flyout already open changes nothing.
 - **The focus effect** depended on the `onBack` callback itself, a new closure on every parent render
   (every second, with the taskbar clock): it depends on whether there is one.
 - **Ctrl+Shift+Esc** closes the menu it passes through, now with a test.

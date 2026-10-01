@@ -682,12 +682,48 @@ test.describe('the Start menu from the keyboard', () => {
         expect(box.y).toBeGreaterThanOrEqual(0);
     });
 
+    test('moving back onto All Programs from its own flyout, which has focus, leaves the flyout open', async ({ page }) => {
+        await page.getByText('start', { exact: true }).first().click();
+        const allPrograms = page.locator('[data-sm][data-label="All Programs"]');
+        await allPrograms.hover();
+        await expect(flyouts(page)).toHaveCount(1);
+        await flyouts(page).locator('.xp-menu-item').first().hover();
+        await page.keyboard.press('ArrowDown'); // a key: the pointer-opened flyout takes focus
+        await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[data-xp-menu]'))).toBe(true);
+        // Mark this panel: it must be the same one after the pointer goes back to its opener (it used
+        // to close at once and reopen 300 ms later as a fresh panel).
+        await page.evaluate(() => document.querySelector('[data-xp-menu] > [role="menu"]')!.setAttribute('data-test-mark', ''));
+        await allPrograms.hover();
+        await page.waitForTimeout(500);
+        await expect(page.locator('[data-xp-menu] > [role="menu"][data-test-mark]:not([aria-hidden])')).toHaveCount(1);
+    });
+
+    test('Connect To after All Programs, by the pointer alone, starts with nothing selected', async ({ page }) => {
+        await page.getByText('start', { exact: true }).first().click();
+        await page.locator('[data-sm][data-label="All Programs"]').hover();
+        await expect(flyouts(page)).toHaveCount(1);
+        // Open the first group's submenu, so All Programs' panel has a selection and an open submenu.
+        await flyouts(page).locator('.xp-menu-item').first().hover();
+        await expect(flyouts(page)).toHaveCount(2);
+        await page.locator('[data-sm][data-label="Connect To"]').hover();
+        await expect(page.getByRole('menuitem', { name: 'LinkedIn' })).toBeVisible();
+        // A different menu is a fresh panel: none of All Programs' selection came with it.
+        await expect(flyouts(page).locator('.xp-menu-item.is-active')).toHaveCount(0);
+    });
+
     test('brushing Log Off on the way into a flyout does not close it underfoot', async ({ page }) => {
         await page.getByText('start', { exact: true }).first().click();
         await page.locator('[data-sm][data-label="All Programs"]').hover();
         await expect(flyouts(page)).toHaveCount(1);
-        await page.locator('.xp-startmenu-footer-btn', { hasText: 'Log Off' }).hover();
-        await flyouts(page).locator('.xp-menu-item').first().hover();
+        const centre = async (l: ReturnType<Page['locator']>) => {
+            const b = (await l.boundingBox())!;
+            return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        };
+        const logOff = await centre(page.locator('.xp-startmenu-footer-btn', { hasText: 'Log Off' }));
+        const firstItem = await centre(flyouts(page).locator('.xp-menu-item').first());
+        // Back to back, so nothing between the two moves races the 300 ms close.
+        await page.mouse.move(logOff.x, logOff.y);
+        await page.mouse.move(firstItem.x, firstItem.y);
         await page.waitForTimeout(600); // twice the hover delay
         // The flyout itself is still open (its first item, a group, may have opened a submenu too).
         await expect(page.locator('[data-xp-menu] > [role="menu"]:not([aria-hidden])')).toHaveCount(1);
